@@ -49,9 +49,16 @@ public actor WhisperKitTranscriptionService: Transcribing {
             throw TranscriptionError.emptyAudio
         }
 
+        var promptTokens: [Int]? = nil
+        if !vocabularyPrompt.isEmpty,
+           let tokenizer = whisperKit.tokenizer {
+            promptTokens = tokenizer.encode(text: vocabularyPrompt)
+        }
+
         let options = DecodingOptions(
             task: .transcribe,
-            language: nil
+            language: nil,
+            promptTokens: promptTokens
         )
 
         let transcriptionResult = try await whisperKit.transcribe(

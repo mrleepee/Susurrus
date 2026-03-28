@@ -19,7 +19,7 @@
 - [x] R12: Download whisper-large-v3 model on first launch
 - [x] R14: Show progress indicator during transcription
 - [x] R15: Pre-load model at app launch
-- [ ] R22: Custom vocabulary list
+- [x] R22: Custom vocabulary list
 
 ## Phase 4 — Clipboard & Notification
 - [ ] R16: Write transcribed text to NSPasteboard
