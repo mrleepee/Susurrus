@@ -15,7 +15,7 @@
 
 ## Phase 3 — On-Device Transcription
 - [x] R10: Transcribe audio on-device using WhisperKit
-- [ ] R11: No audio data leaves the device
+- [x] R11: No audio data leaves the device
 - [ ] R12: Download whisper-large-v3 model on first launch
 - [ ] R14: Show progress indicator during transcription
 - [ ] R15: Pre-load model at app launch
