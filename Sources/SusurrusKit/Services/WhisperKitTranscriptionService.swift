@@ -76,7 +76,15 @@ public actor WhisperKitTranscriptionService: Transcribing {
             throw TranscriptionError.transcriptionFailed("No result returned")
         }
 
-        let text = firstResult.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        var text = firstResult.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+
+        // WhisperKit may emit special tokens like [BLANK_AUDIO] — strip them
+        let noiseTokens = ["[BLANK_AUDIO]", "[NO_SPEECH]", "(blank_audio)"]
+        for token in noiseTokens {
+            text = text.replacingOccurrences(of: token, with: "")
+        }
+        text = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+
         guard !text.isEmpty else {
             throw TranscriptionError.noSpeechDetected
         }
