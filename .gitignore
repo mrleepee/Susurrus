@@ -16,4 +16,4 @@ Package.resolved
 *~
 
 # WhisperKit models (downloaded at runtime)
-Models/
+/Models/
