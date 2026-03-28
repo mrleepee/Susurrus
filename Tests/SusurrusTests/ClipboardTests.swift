@@ -71,4 +71,52 @@ struct ClipboardTests {
         #expect(ClipboardError.writeFailed("a") != ClipboardError.writeFailed("b"))
         #expect(ClipboardError.readFailed("a") == ClipboardError.readFailed("a"))
     }
+
+    @Test("Clipboard not written when transcription fails")
+    func clipboardNotWrittenOnTranscriptionFailure() async {
+        let clipboard = MockClipboardService()
+        let service = MockTranscriptionService()
+        await service.setFailure(.transcriptionFailed("error"))
+
+        // Simulate: transcription fails, clipboard should not be written
+        do {
+            _ = try await service.transcribe(audio: [0.1])
+        } catch {
+            // Expected failure — clipboard should remain untouched
+        }
+
+        #expect(clipboard.writeCallCount == 0)
+        #expect(clipboard.readText() == nil)
+    }
+
+    @Test("Clipboard written only after successful transcription")
+    func clipboardWrittenAfterSuccess() async throws {
+        let clipboard = MockClipboardService()
+        let service = MockTranscriptionService()
+        await service.setMockResult("Hello, world!")
+
+        let text = try await service.transcribe(audio: [0.1])
+        clipboard.writeText(text)
+
+        #expect(clipboard.writeCallCount == 1)
+        #expect(clipboard.readText() == "Hello, world!")
+    }
+
+    @Test("Existing clipboard preserved on transcription failure")
+    func existingClipboardPreserved() async {
+        let clipboard = MockClipboardService()
+        clipboard.writeText("existing content")
+
+        let service = MockTranscriptionService()
+        await service.setFailure(.transcriptionFailed("error"))
+
+        do {
+            _ = try await service.transcribe(audio: [0.1])
+        } catch {
+            // Failure — existing clipboard should be untouched
+        }
+
+        #expect(clipboard.readText() == "existing content")
+        #expect(clipboard.writeCallCount == 1) // Only the initial write
+    }
 }
