@@ -50,10 +50,11 @@ struct SusurrusApp: App {
                 modelManager: modelManager,
                 onDownloadProgress: { progress in
                     Task { @MainActor in
-                        appState.transcriptionProgress = progress
+                        appState.modelLoadProgress = progress
                     }
                 }
             )
+            appState.modelReady = true
         } catch {
             // Model load failed — user can retry from menu
         }

@@ -15,12 +15,16 @@ struct MenuBarView: View {
                 Button("Start Recording") {
                     appState.startRecording()
                 }
-                .disabled(appState.recordingState == .processing)
+                .disabled(!appState.modelReady || appState.recordingState == .processing)
             }
 
             if appState.recordingState == .processing {
                 ProgressView(value: appState.transcriptionProgress) {
                     Text("Transcribing...")
+                }
+            } else if !appState.modelReady {
+                ProgressView(value: appState.modelLoadProgress) {
+                    Text("Loading model...")
                 }
             }
 

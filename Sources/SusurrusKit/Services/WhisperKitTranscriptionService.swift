@@ -14,21 +14,21 @@ public actor WhisperKitTranscriptionService: Transcribing {
     public init() {}
 
     /// Whether the model is loaded and ready for transcription.
-    public func isModelReady() async -> Bool {
+    public func isModelReady() -> Bool {
         modelReady
     }
 
     /// Load the WhisperKit model from a local folder. Call at app launch.
-    public func loadModel(modelName: String = "large-v3", modelFolder: String? = nil) async throws {
+    public func loadModel(modelName: String = "base", modelFolder: String? = nil) async throws {
         let kit = try await WhisperKit(model: modelName, modelFolder: modelFolder)
         self.whisperKit = kit
         modelReady = true
     }
 
     /// Full setup: download model if needed, then load it.
-    /// Uses the provided model manager for download/cache decisions.
+    /// Uses WhisperKit's built-in download and caching.
     public func setupModel(
-        modelName: String = "large-v3",
+        modelName: String = "base",
         modelManager: ModelManaging,
         onDownloadProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
@@ -36,8 +36,14 @@ public actor WhisperKitTranscriptionService: Transcribing {
         if !isCached {
             try await modelManager.downloadModel(modelName: modelName, onProgress: onDownloadProgress)
         }
-        let cachePath = await modelManager.modelCachePath()
-        try await loadModel(modelName: modelName, modelFolder: cachePath)
+        // Load from the actual downloaded location
+        let cachePath = modelManager.modelCachePath()
+        let resolvedFolder = URL(fileURLWithPath: cachePath)
+            .appendingPathComponent("models")
+            .appendingPathComponent("argmaxinc")
+            .appendingPathComponent("whisperkit-coreml")
+            .path
+        try await loadModel(modelName: modelName, modelFolder: resolvedFolder)
     }
 
     /// Transcribe audio buffer using WhisperKit.

@@ -5,6 +5,13 @@ import Testing
 @Suite("AppState Tests")
 struct AppStateTests {
 
+    /// Helper: creates an AppState with modelReady=true for recording tests.
+    private func makeReadyState() -> AppState {
+        let state = AppState()
+        state.modelReady = true
+        return state
+    }
+
     // MARK: - Basic state transitions
 
     @Test("Initial state is idle")
@@ -15,14 +22,22 @@ struct AppStateTests {
 
     @Test("startRecording transitions from idle to recording")
     func startRecording() {
-        let state = AppState()
+        let state = makeReadyState()
         state.startRecording()
         #expect(state.recordingState == .recording)
     }
 
+    @Test("startRecording is no-op when model not ready")
+    func startRecordingNoOpWhenModelNotReady() {
+        let state = AppState()
+        state.modelReady = false
+        state.startRecording()
+        #expect(state.recordingState == .idle)
+    }
+
     @Test("startRecording is no-op when not idle")
     func startRecordingNoOpWhenNotIdle() {
-        let state = AppState()
+        let state = makeReadyState()
         state.startRecording()
         state.startRecording()
         #expect(state.recordingState == .recording)
@@ -36,7 +51,7 @@ struct AppStateTests {
 
     @Test("stopRecording transitions from recording to processing")
     func stopRecording() {
-        let state = AppState()
+        let state = makeReadyState()
         state.startRecording()
         state.stopRecording()
         #expect(state.recordingState == .processing)
@@ -51,7 +66,7 @@ struct AppStateTests {
 
     @Test("finishProcessing transitions from processing to idle")
     func finishProcessing() {
-        let state = AppState()
+        let state = makeReadyState()
         state.startRecording()
         state.stopRecording()
         state.finishProcessing()
@@ -67,7 +82,7 @@ struct AppStateTests {
 
     @Test("Cancel resets to idle from any state")
     func cancelFromAnyState() {
-        let state = AppState()
+        let state = makeReadyState()
 
         state.startRecording()
         state.cancel()
@@ -81,7 +96,7 @@ struct AppStateTests {
 
     @Test("Full recording lifecycle")
     func fullLifecycle() {
-        let state = AppState()
+        let state = makeReadyState()
         #expect(state.recordingState == .idle)
 
         state.startRecording()
@@ -104,7 +119,7 @@ struct AppStateTests {
 
     @Test("Push-to-talk: hotkey down starts recording")
     func pttHotkeyDownStarts() {
-        let state = AppState()
+        let state = makeReadyState()
         let started = state.handleHotkeyDown()
         #expect(started == true)
         #expect(state.recordingState == .recording)
@@ -112,7 +127,7 @@ struct AppStateTests {
 
     @Test("Push-to-talk: hotkey up stops recording")
     func pttHotkeyUpStops() {
-        let state = AppState()
+        let state = makeReadyState()
         state.handleHotkeyDown()
         state.handleHotkeyUp()
         #expect(state.recordingState == .processing)
@@ -127,7 +142,7 @@ struct AppStateTests {
 
     @Test("Toggle mode: first press starts recording")
     func toggleStartsRecording() {
-        let state = AppState()
+        let state = makeReadyState()
         state.recordingMode = .toggle
         let started = state.handleHotkeyDown()
         #expect(started == true)
@@ -136,7 +151,7 @@ struct AppStateTests {
 
     @Test("Toggle mode: second press stops recording")
     func toggleStopsRecording() {
-        let state = AppState()
+        let state = makeReadyState()
         state.recordingMode = .toggle
         state.handleHotkeyDown()
         let started = state.handleHotkeyDown()
@@ -146,7 +161,7 @@ struct AppStateTests {
 
     @Test("Toggle mode: hotkey up does nothing")
     func toggleHotkeyUpDoesNothing() {
-        let state = AppState()
+        let state = makeReadyState()
         state.recordingMode = .toggle
         state.handleHotkeyDown()
         state.handleHotkeyUp()
@@ -157,7 +172,7 @@ struct AppStateTests {
 
     @Test("enforceDurationCap stops recording when recording")
     func durationCapStopsRecording() {
-        let state = AppState()
+        let state = makeReadyState()
         state.startRecording()
         let capped = state.enforceDurationCap()
         #expect(capped == true)
@@ -174,7 +189,7 @@ struct AppStateTests {
 
     @Test("enforceDurationCap sets wasDurationCapped flag")
     func durationCapSetsFlag() {
-        let state = AppState()
+        let state = makeReadyState()
         #expect(state.wasDurationCapped == false)
 
         state.startRecording()
@@ -184,7 +199,7 @@ struct AppStateTests {
 
     @Test("wasDurationCapped resets on next recording")
     func durationCappedResetsOnNextRecording() {
-        let state = AppState()
+        let state = makeReadyState()
         state.startRecording()
         state.enforceDurationCap()
         #expect(state.wasDurationCapped == true)
@@ -209,7 +224,7 @@ struct AppStateTests {
 
     @Test("Transcription progress can be updated during processing")
     func progressUpdatesDuringProcessing() {
-        let state = AppState()
+        let state = makeReadyState()
         state.startRecording()
         state.stopRecording()
         #expect(state.recordingState == .processing)
@@ -223,11 +238,25 @@ struct AppStateTests {
 
     @Test("finishProcessing resets transcription progress")
     func finishProcessingResetsProgress() {
-        let state = AppState()
+        let state = makeReadyState()
         state.startRecording()
         state.stopRecording()
         state.transcriptionProgress = 0.75
         state.finishProcessing()
         #expect(state.transcriptionProgress == 0)
+    }
+
+    // MARK: - Model readiness
+
+    @Test("Model ready defaults to false")
+    func modelReadyDefaultsFalse() {
+        let state = AppState()
+        #expect(state.modelReady == false)
+    }
+
+    @Test("Model load progress defaults to zero")
+    func modelLoadProgressDefaultsZero() {
+        let state = AppState()
+        #expect(state.modelLoadProgress == 0)
     }
 }

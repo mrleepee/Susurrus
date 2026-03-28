@@ -31,7 +31,7 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
     }
 
     public func selectedModel() -> String {
-        defaults.string(forKey: Keys.selectedModel) ?? "large-v3"
+        defaults.string(forKey: Keys.selectedModel) ?? "base"
     }
 
     public func setSelectedModel(_ model: String) {

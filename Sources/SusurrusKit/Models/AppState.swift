@@ -18,6 +18,12 @@ public final class AppState {
     /// Whether the last recording was capped by the duration limit.
     public private(set) var wasDurationCapped = false
 
+    /// Whether the WhisperKit model is loaded and ready for transcription.
+    public var modelReady = false
+
+    /// Download/load progress for the model (0.0 to 1.0).
+    public var modelLoadProgress: Double = 0
+
     /// Transcription progress from 0.0 to 1.0. Updated during transcription.
     public var transcriptionProgress: Double = 0
 
@@ -27,8 +33,9 @@ public final class AppState {
     public init() {}
 
     /// Transition to recording state from idle.
+    /// Requires model to be ready.
     public func startRecording() {
-        guard recordingState == .idle else { return }
+        guard recordingState == .idle, modelReady else { return }
         wasDurationCapped = false
         recordingState = .recording
     }

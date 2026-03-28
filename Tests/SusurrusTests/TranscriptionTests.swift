@@ -163,16 +163,14 @@ struct TranscriptionTests {
     @Test("WhisperKitTranscriptionService starts not ready")
     func startsNotReady() async {
         let service = WhisperKitTranscriptionService()
-        let ready = await service.isModelReady()
-        #expect(ready == false)
+        #expect(await service.isModelReady() == false)
     }
 
     @Test("WhisperKitTranscriptionService unloadModel sets not ready")
     func unloadSetsNotReady() async {
         let service = WhisperKitTranscriptionService()
         await service.unloadModel()
-        let ready = await service.isModelReady()
-        #expect(ready == false)
+        #expect(await service.isModelReady() == false)
     }
 
     @Test("Transcribe without model throws modelNotReady")

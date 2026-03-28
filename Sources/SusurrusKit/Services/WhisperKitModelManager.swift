@@ -14,23 +14,15 @@ public actor WhisperKitModelManager: ModelManaging {
         self.cacheBaseName = cacheBaseName
     }
 
+    /// The resolved path where WhisperKit stores downloaded models.
     public nonisolated func modelCachePath() -> String {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent(cacheBaseName).path
     }
 
     public func isModelCached(modelName: String) async -> Bool {
-        let modelDirPath = modelCachePath()
-        let modelDir = URL(fileURLWithPath: modelDirPath)
-        let contents = try? fileManager.contentsOfDirectory(
-            at: modelDir,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: .skipsHiddenFiles
-        )
-        return contents?.contains { url in
-            url.lastPathComponent.contains(modelName)
-                && (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-        } ?? false
+        let modelDir = URL(fileURLWithPath: resolvedModelPath(modelName: modelName))
+        return fileManager.fileExists(atPath: modelDir.path)
     }
 
     public func downloadModel(
@@ -58,5 +50,15 @@ public actor WhisperKitModelManager: ModelManaging {
         } catch {
             throw ModelManagerError.downloadFailed(error.localizedDescription)
         }
+    }
+
+    /// Full resolved path to a model directory, matching WhisperKit's download layout.
+    private nonisolated func resolvedModelPath(modelName: String) -> String {
+        URL(fileURLWithPath: modelCachePath())
+            .appendingPathComponent("models")
+            .appendingPathComponent("argmaxinc")
+            .appendingPathComponent("whisperkit-coreml")
+            .appendingPathComponent("openai_whisper-\(modelName)")
+            .path
     }
 }

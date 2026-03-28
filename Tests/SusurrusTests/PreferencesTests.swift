@@ -33,10 +33,10 @@ struct PreferencesTests {
 
     // MARK: - Selected model (R13)
 
-    @Test("Default selected model is large-v3")
+    @Test("Default selected model is base")
     func defaultModel() {
         let manager = makeManager()
-        #expect(manager.selectedModel() == "large-v3")
+        #expect(manager.selectedModel() == "base")
     }
 
     @Test("Set and get selected model")
