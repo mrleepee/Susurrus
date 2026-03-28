@@ -6,6 +6,10 @@ public enum MenuBarIcon {
     public static let recordingFrameA = "mic.fill"
     public static let recordingFrameB = "mic"
 
+    /// SF Symbol names for the processing spinner animation cycle.
+    public static let processingFrameA = "mic.badge.xmark"
+    public static let processingFrameB = "mic.badge.ellipsis"
+
     /// Returns the SF Symbol name for the given recording state.
     /// For recording state, returns frame A (filled mic) as the base icon.
     public static func symbolName(for state: RecordingState) -> String {

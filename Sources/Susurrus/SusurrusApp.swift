@@ -19,7 +19,7 @@ struct SusurrusApp: App {
         case .recording:
             return pulseOn ? MenuBarIcon.recordingFrameA : MenuBarIcon.recordingFrameB
         case .processing:
-            return MenuBarIcon.symbolName(for: .processing)
+            return pulseOn ? MenuBarIcon.processingFrameA : MenuBarIcon.processingFrameB
         }
     }
 
@@ -39,7 +39,7 @@ struct SusurrusApp: App {
         pulseTimer?.invalidate()
         pulseTimer = nil
 
-        guard state == .recording else {
+        guard state == .recording || state == .processing else {
             pulseOn = false
             return
         }

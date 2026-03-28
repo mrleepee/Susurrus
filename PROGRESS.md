@@ -17,7 +17,7 @@
 - [x] R10: Transcribe audio on-device using WhisperKit
 - [x] R11: No audio data leaves the device
 - [x] R12: Download whisper-large-v3 model on first launch
-- [ ] R14: Show progress indicator during transcription
+- [x] R14: Show progress indicator during transcription
 - [ ] R15: Pre-load model at app launch
 - [ ] R22: Custom vocabulary list
 

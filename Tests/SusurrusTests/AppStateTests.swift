@@ -198,4 +198,36 @@ struct AppStateTests {
     func maxRecordingDuration() {
         #expect(AppState.maxRecordingDuration == 60.0)
     }
+
+    // MARK: - Transcription progress (R14)
+
+    @Test("Transcription progress starts at zero")
+    func progressStartsAtZero() {
+        let state = AppState()
+        #expect(state.transcriptionProgress == 0)
+    }
+
+    @Test("Transcription progress can be updated during processing")
+    func progressUpdatesDuringProcessing() {
+        let state = AppState()
+        state.startRecording()
+        state.stopRecording()
+        #expect(state.recordingState == .processing)
+
+        state.transcriptionProgress = 0.5
+        #expect(state.transcriptionProgress == 0.5)
+
+        state.transcriptionProgress = 1.0
+        #expect(state.transcriptionProgress == 1.0)
+    }
+
+    @Test("finishProcessing resets transcription progress")
+    func finishProcessingResetsProgress() {
+        let state = AppState()
+        state.startRecording()
+        state.stopRecording()
+        state.transcriptionProgress = 0.75
+        state.finishProcessing()
+        #expect(state.transcriptionProgress == 0)
+    }
 }

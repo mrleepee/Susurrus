@@ -32,4 +32,15 @@ struct MenuBarIconTests {
             #expect(!MenuBarIcon.tooltip(for: state).isEmpty)
         }
     }
+
+    @Test("Processing animation frames are distinct")
+    func processingFramesDistinct() {
+        #expect(MenuBarIcon.processingFrameA != MenuBarIcon.processingFrameB)
+    }
+
+    @Test("Recording and processing frames differ")
+    func recordingVsProcessingFrames() {
+        #expect(MenuBarIcon.recordingFrameA != MenuBarIcon.processingFrameA)
+        #expect(MenuBarIcon.recordingFrameB != MenuBarIcon.processingFrameB)
+    }
 }

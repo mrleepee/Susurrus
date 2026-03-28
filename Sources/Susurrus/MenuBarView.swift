@@ -17,6 +17,13 @@ struct MenuBarView: View {
                 }
                 .disabled(appState.recordingState == .processing)
             }
+
+            if appState.recordingState == .processing {
+                ProgressView(value: appState.transcriptionProgress) {
+                    Text("Transcribing...")
+                }
+            }
+
             Divider()
             Button("Preferences...") {
                 // R3 placeholder — implemented in Phase 5

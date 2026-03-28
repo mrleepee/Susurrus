@@ -18,6 +18,9 @@ public final class AppState {
     /// Whether the last recording was capped by the duration limit.
     public private(set) var wasDurationCapped = false
 
+    /// Transcription progress from 0.0 to 1.0. Updated during transcription.
+    public var transcriptionProgress: Double = 0
+
     /// Callback invoked when recording should be auto-stopped due to duration cap.
     public var onDurationCap: (() -> Void)?
 
@@ -39,6 +42,7 @@ public final class AppState {
     /// Transition back to idle after processing completes.
     public func finishProcessing() {
         guard recordingState == .processing else { return }
+        transcriptionProgress = 0
         recordingState = .idle
     }
 
