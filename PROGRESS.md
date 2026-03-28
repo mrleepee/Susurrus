@@ -11,7 +11,7 @@
 - [x] R6: Global hotkey triggers start/stop recording system-wide
 - [x] R7: Push-to-talk (hold hotkey) is the default recording mode
 - [x] R9: 60-second maximum recording duration cap
-- [ ] R20: User-configurable hotkey
+- [x] R20: User-configurable hotkey
 
 ## Phase 3 — On-Device Transcription
 - [ ] R10: Transcribe audio on-device using WhisperKit
