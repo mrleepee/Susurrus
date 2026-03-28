@@ -45,4 +45,12 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
     public func setAppendToClipboard(_ enabled: Bool) {
         defaults.set(enabled, forKey: Keys.appendToClipboard)
     }
+
+    public func inputDeviceID() -> String? {
+        defaults.string(forKey: "inputDeviceID")
+    }
+
+    public func setInputDeviceID(_ id: String?) {
+        defaults.set(id, forKey: "inputDeviceID")
+    }
 }

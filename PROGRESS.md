@@ -30,4 +30,4 @@
 - [x] R8: Toggle mode available as preference
 - [x] R13: User-selectable model
 - [x] R19: Optional append-to-clipboard mode
-- [ ] R21: Override input device from preferences
+- [x] R21: Override input device from preferences
