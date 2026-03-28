@@ -6,10 +6,11 @@ import Foundation
 /// Works for menu bar apps where the app is not typically in the foreground.
 public final class GlobalHotkeyService: HotkeyManaging, @unchecked Sendable {
 
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
+    private var globalKeyDownMonitor: Any?
+    private var globalKeyUpMonitor: Any?
+    private var localKeyDownMonitor: Any?
+    private var localKeyUpMonitor: Any?
     private var registeredFlag = false
-    private var currentCombo: HotkeyCombo?
 
     public init() {}
 
@@ -17,24 +18,40 @@ public final class GlobalHotkeyService: HotkeyManaging, @unchecked Sendable {
         registeredFlag
     }
 
-    public func register(combo: HotkeyCombo, handler: @Sendable @escaping () -> Void) async throws {
+    public func register(
+        combo: HotkeyCombo,
+        onKeyDown: @Sendable @escaping () -> Void,
+        onKeyUp: @Sendable @escaping () -> Void = {}
+    ) async throws {
         await unregister()
 
-        currentCombo = combo
         let flags = modifierFlags(combo.modifiers)
+        let keyCode = combo.keyCode
 
-        // Global monitor: fires when another app is focused
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-            if self.matches(event: event, keyCode: combo.keyCode, flags: flags) {
-                handler()
+        // Global monitors: fire when another app is focused
+        globalKeyDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            if self.matches(event: event, keyCode: keyCode, flags: flags) {
+                onKeyDown()
+            }
+        }
+        globalKeyUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyUp) { event in
+            if self.matches(event: event, keyCode: keyCode, flags: flags) {
+                onKeyUp()
             }
         }
 
-        // Local monitor: fires when our app is focused (e.g., preferences window)
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if self.matches(event: event, keyCode: combo.keyCode, flags: flags) {
-                handler()
-                return nil // consume the event
+        // Local monitors: fire when our app is focused (e.g., preferences window)
+        localKeyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if self.matches(event: event, keyCode: keyCode, flags: flags) {
+                onKeyDown()
+                return nil
+            }
+            return event
+        }
+        localKeyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { event in
+            if self.matches(event: event, keyCode: keyCode, flags: flags) {
+                onKeyUp()
+                return nil
             }
             return event
         }
@@ -43,15 +60,15 @@ public final class GlobalHotkeyService: HotkeyManaging, @unchecked Sendable {
     }
 
     public func unregister() async {
-        if let monitor = globalMonitor {
-            NSEvent.removeMonitor(monitor)
-            globalMonitor = nil
+        for monitor in [globalKeyDownMonitor, globalKeyUpMonitor, localKeyDownMonitor, localKeyUpMonitor] {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
         }
-        if let monitor = localMonitor {
-            NSEvent.removeMonitor(monitor)
-            localMonitor = nil
-        }
-        currentCombo = nil
+        globalKeyDownMonitor = nil
+        globalKeyUpMonitor = nil
+        localKeyDownMonitor = nil
+        localKeyUpMonitor = nil
         registeredFlag = false
     }
 

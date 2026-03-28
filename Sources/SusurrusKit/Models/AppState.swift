@@ -21,6 +21,12 @@ public final class AppState {
     /// Whether the WhisperKit model is loaded and ready for transcription.
     public var modelReady = false
 
+    /// Current microphone permission state.
+    public var micPermission: MicPermission = .undetermined
+
+    /// Whether a hotkey has been configured.
+    public var hotkeyConfigured = false
+
     /// Download/load progress for the model (0.0 to 1.0).
     public var modelLoadProgress: Double = 0
 

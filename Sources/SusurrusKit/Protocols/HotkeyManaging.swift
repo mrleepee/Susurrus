@@ -17,12 +17,26 @@ public struct HotkeyCombo: Sendable, Equatable, Codable {
 /// Protocol for managing global hotkeys.
 public protocol HotkeyManaging: Sendable {
     /// Register a global hotkey with the given combo.
-    /// Calls the handler when the hotkey is pressed.
-    func register(combo: HotkeyCombo, handler: @Sendable @escaping () -> Void) async throws
+    /// Calls onKeyDown when the key is pressed, onKeyUp on release.
+    func register(
+        combo: HotkeyCombo,
+        onKeyDown: @Sendable @escaping () -> Void,
+        onKeyUp: @Sendable @escaping () -> Void
+    ) async throws
 
     /// Unregister the current hotkey.
     func unregister() async
 
     /// Whether a hotkey is currently registered.
     func isRegistered() async -> Bool
+}
+
+/// Convenience overload for key-down only (e.g., toggle mode).
+extension HotkeyManaging {
+    public func register(
+        combo: HotkeyCombo,
+        onKeyDown: @Sendable @escaping () -> Void
+    ) async throws {
+        try await register(combo: combo, onKeyDown: onKeyDown, onKeyUp: {})
+    }
 }

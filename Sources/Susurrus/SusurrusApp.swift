@@ -15,6 +15,12 @@ struct SusurrusApp: App {
     private let notificationService = UserNotificationService()
     private let preferences = UserDefaultsPreferencesManager()
     private let vocabularyManager = VocabularyManager()
+    private let hotkeyService = GlobalHotkeyService()
+    private let hotkeyStorage = HotkeyStorage()
+    private let micPermissionManager = MicPermissionManager()
+
+    // Recording duration timer
+    @State private var durationTimer: Timer?
 
     init() {
         // R1: Hide Dock icon — app lives in menu bar only
@@ -39,12 +45,16 @@ struct SusurrusApp: App {
         ) {
             MenuBarView(appState: appState) {
                 startModelLoadingIfNeeded()
+                setupHotkeyIfNeeded()
+                checkMicPermission()
             }
         }
         .onChange(of: appState.recordingState) { _, newState in
             handleStateChange(newState)
         }
     }
+
+    // MARK: - Setup
 
     private func startModelLoadingIfNeeded() {
         guard !modelLoading else { return }
@@ -70,11 +80,62 @@ struct SusurrusApp: App {
         }
     }
 
+    private func checkMicPermission() {
+        Task {
+            let permission = await micPermissionManager.checkPermission()
+            appState.micPermission = permission
+        }
+    }
+
+    private func setupHotkeyIfNeeded() {
+        guard hotkeyStorage.isConfigured, !appState.hotkeyConfigured else { return }
+        guard let combo = hotkeyStorage.loadCombo() else { return }
+
+        Task {
+            do {
+                try await hotkeyService.register(
+                    combo: combo,
+                    onKeyDown: { [self] in
+                        Task { @MainActor in
+                            let started = appState.handleHotkeyDown()
+                            if started {
+                                // Request permission if needed
+                                if appState.micPermission == .undetermined {
+                                    let perm = await micPermissionManager.requestPermission()
+                                    appState.micPermission = perm
+                                }
+                                guard appState.micPermission == .granted else {
+                                    appState.cancel()
+                                    notificationService.showNotification(
+                                        title: "Susurrus",
+                                        body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
+                                    )
+                                    return
+                                }
+                            }
+                        }
+                    },
+                    onKeyUp: { [self] in
+                        Task { @MainActor in
+                            appState.handleHotkeyUp()
+                        }
+                    }
+                )
+                appState.hotkeyConfigured = true
+            } catch {
+                // Hotkey registration failed
+            }
+        }
+    }
+
+    // MARK: - State handling
+
     private func handleStateChange(_ newState: RecordingState) {
         updatePulseAnimation(newState)
 
         switch newState {
         case .recording:
+            startDurationTimer()
             Task {
                 do {
                     try await audioCapture.startCapture()
@@ -83,6 +144,7 @@ struct SusurrusApp: App {
                 }
             }
         case .processing:
+            stopDurationTimer()
             let appendMode = preferences.appendToClipboard()
             Task {
                 do {
@@ -116,9 +178,35 @@ struct SusurrusApp: App {
                 appState.finishProcessing()
             }
         case .idle:
-            break
+            stopDurationTimer()
         }
     }
+
+    // MARK: - Duration cap (R9)
+
+    private func startDurationTimer() {
+        durationTimer?.invalidate()
+        durationTimer = Timer.scheduledTimer(
+            withTimeInterval: AppState.maxRecordingDuration,
+            repeats: false
+        ) { _ in
+            Task { @MainActor in
+                if appState.enforceDurationCap() {
+                    notificationService.showNotification(
+                        title: "Susurrus",
+                        body: "Recording capped at 60 seconds"
+                    )
+                }
+            }
+        }
+    }
+
+    private func stopDurationTimer() {
+        durationTimer?.invalidate()
+        durationTimer = nil
+    }
+
+    // MARK: - Animation
 
     private func updatePulseAnimation(_ state: RecordingState) {
         pulseTimer?.invalidate()

@@ -10,19 +10,26 @@ final class Trigger: @unchecked Sendable {
 actor MockHotkeyManager: HotkeyManaging {
     var registeredFlag = false
     var currentCombo: HotkeyCombo?
-    var handler: (@Sendable () -> Void)?
+    var keyDownHandler: (@Sendable () -> Void)?
+    var keyUpHandler: (@Sendable () -> Void)?
     var registerCallCount = 0
     var unregisterCallCount = 0
 
-    func register(combo: HotkeyCombo, handler: @Sendable @escaping () -> Void) async throws {
+    func register(
+        combo: HotkeyCombo,
+        onKeyDown: @Sendable @escaping () -> Void,
+        onKeyUp: @Sendable @escaping () -> Void
+    ) async throws {
         currentCombo = combo
-        self.handler = handler
+        self.keyDownHandler = onKeyDown
+        self.keyUpHandler = onKeyUp
         registeredFlag = true
         registerCallCount += 1
     }
 
     func unregister() async {
-        handler = nil
+        keyDownHandler = nil
+        keyUpHandler = nil
         currentCombo = nil
         registeredFlag = false
         unregisterCallCount += 1
@@ -34,7 +41,12 @@ actor MockHotkeyManager: HotkeyManaging {
 
     /// Simulate the hotkey being pressed.
     func simulatePress() async {
-        handler?()
+        keyDownHandler?()
+    }
+
+    /// Simulate the hotkey being released.
+    func simulateRelease() async {
+        keyUpHandler?()
     }
 }
 
