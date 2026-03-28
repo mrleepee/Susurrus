@@ -5,6 +5,8 @@ import Testing
 @Suite("AppState Tests")
 struct AppStateTests {
 
+    // MARK: - Basic state transitions
+
     @Test("Initial state is idle")
     func initialStateIsIdle() {
         let state = AppState()
@@ -21,12 +23,10 @@ struct AppStateTests {
     @Test("startRecording is no-op when not idle")
     func startRecordingNoOpWhenNotIdle() {
         let state = AppState()
-        // Already recording — startRecording should be no-op
         state.startRecording()
         state.startRecording()
         #expect(state.recordingState == .recording)
 
-        // In processing state — startRecording should be no-op
         state.cancel()
         state.startRecording()
         state.stopRecording() // recording -> processing
@@ -92,5 +92,64 @@ struct AppStateTests {
 
         state.finishProcessing()
         #expect(state.recordingState == .idle)
+    }
+
+    // MARK: - Recording mode
+
+    @Test("Default recording mode is push-to-talk")
+    func defaultModeIsPushToTalk() {
+        let state = AppState()
+        #expect(state.recordingMode == .pushToTalk)
+    }
+
+    @Test("Push-to-talk: hotkey down starts recording")
+    func pttHotkeyDownStarts() {
+        let state = AppState()
+        let started = state.handleHotkeyDown()
+        #expect(started == true)
+        #expect(state.recordingState == .recording)
+    }
+
+    @Test("Push-to-talk: hotkey up stops recording")
+    func pttHotkeyUpStops() {
+        let state = AppState()
+        state.handleHotkeyDown()
+        state.handleHotkeyUp()
+        #expect(state.recordingState == .processing)
+    }
+
+    @Test("Push-to-talk: hotkey up is no-op when not recording")
+    func pttHotkeyUpNoOpWhenIdle() {
+        let state = AppState()
+        state.handleHotkeyUp()
+        #expect(state.recordingState == .idle)
+    }
+
+    @Test("Toggle mode: first press starts recording")
+    func toggleStartsRecording() {
+        let state = AppState()
+        state.recordingMode = .toggle
+        let started = state.handleHotkeyDown()
+        #expect(started == true)
+        #expect(state.recordingState == .recording)
+    }
+
+    @Test("Toggle mode: second press stops recording")
+    func toggleStopsRecording() {
+        let state = AppState()
+        state.recordingMode = .toggle
+        state.handleHotkeyDown()
+        let started = state.handleHotkeyDown()
+        #expect(started == false)
+        #expect(state.recordingState == .processing)
+    }
+
+    @Test("Toggle mode: hotkey up does nothing")
+    func toggleHotkeyUpDoesNothing() {
+        let state = AppState()
+        state.recordingMode = .toggle
+        state.handleHotkeyDown()
+        state.handleHotkeyUp()
+        #expect(state.recordingState == .recording)
     }
 }
