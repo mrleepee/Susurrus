@@ -3,7 +3,7 @@
 ## Phase 1 — Menu Bar Shell
 - [x] R1: App lives in macOS menu bar with no Dock icon
 - [x] R2: Menu bar icon reflects state: idle, recording, processing
-- [ ] R3: Menu provides: Start/Stop Recording, Preferences, Quit
+- [x] R3: Menu provides: Start/Stop Recording, Preferences, Quit
 
 ## Phase 2 — Audio Capture & Hotkey
 - [ ] R4: Capture audio from system default input device
