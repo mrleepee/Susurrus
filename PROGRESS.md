@@ -14,7 +14,7 @@
 - [x] R20: User-configurable hotkey
 
 ## Phase 3 — On-Device Transcription
-- [ ] R10: Transcribe audio on-device using WhisperKit
+- [x] R10: Transcribe audio on-device using WhisperKit
 - [ ] R11: No audio data leaves the device
 - [ ] R12: Download whisper-large-v3 model on first launch
 - [ ] R14: Show progress indicator during transcription
