@@ -13,6 +13,13 @@ public final class PasteboardClipboardService: ClipboardManaging, @unchecked Sen
         pasteboard.setString(text, forType: .string)
     }
 
+    public func appendText(_ text: String) {
+        let existing = pasteboard.string(forType: .string) ?? ""
+        let separator = existing.isEmpty ? "" : "\n"
+        pasteboard.clearContents()
+        pasteboard.setString(existing + separator + text, forType: .string)
+    }
+
     public func readText() -> String? {
         pasteboard.string(forType: .string)
     }

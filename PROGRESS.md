@@ -29,5 +29,5 @@
 ## Phase 5 — Preferences
 - [x] R8: Toggle mode available as preference
 - [x] R13: User-selectable model
-- [ ] R19: Optional append-to-clipboard mode
+- [x] R19: Optional append-to-clipboard mode
 - [ ] R21: Override input device from preferences

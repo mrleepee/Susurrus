@@ -5,12 +5,21 @@ import Testing
 final class MockClipboardService: ClipboardManaging, @unchecked Sendable {
     var clipboardText: String?
     var writeCallCount = 0
+    var appendCallCount = 0
     var lastWrittenText: String?
 
     func writeText(_ text: String) {
         writeCallCount += 1
         lastWrittenText = text
         clipboardText = text
+    }
+
+    func appendText(_ text: String) {
+        appendCallCount += 1
+        lastWrittenText = text
+        let existing = clipboardText ?? ""
+        let separator = existing.isEmpty ? "" : "\n"
+        clipboardText = existing + separator + text
     }
 
     func readText() -> String? {
@@ -118,5 +127,40 @@ struct ClipboardTests {
 
         #expect(clipboard.readText() == "existing content")
         #expect(clipboard.writeCallCount == 1) // Only the initial write
+    }
+
+    // MARK: - Append mode (R19)
+
+    @Test("Append text to empty clipboard writes as-is")
+    func appendToEmpty() {
+        let clipboard = MockClipboardService()
+        clipboard.appendText("First")
+        #expect(clipboard.readText() == "First")
+    }
+
+    @Test("Append text adds newline separator")
+    func appendWithSeparator() {
+        let clipboard = MockClipboardService()
+        clipboard.writeText("First")
+        clipboard.appendText("Second")
+        #expect(clipboard.readText() == "First\nSecond")
+    }
+
+    @Test("Multiple appends accumulate")
+    func multipleAppends() {
+        let clipboard = MockClipboardService()
+        clipboard.appendText("Line 1")
+        clipboard.appendText("Line 2")
+        clipboard.appendText("Line 3")
+        #expect(clipboard.readText() == "Line 1\nLine 2\nLine 3")
+    }
+
+    @Test("Append tracks call count")
+    func appendCallCount() {
+        let clipboard = MockClipboardService()
+        clipboard.appendText("A")
+        clipboard.appendText("B")
+        #expect(clipboard.appendCallCount == 2)
+        #expect(clipboard.writeCallCount == 0)
     }
 }
