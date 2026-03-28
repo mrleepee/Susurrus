@@ -24,7 +24,7 @@
 ## Phase 4 — Clipboard & Notification
 - [x] R16: Write transcribed text to NSPasteboard
 - [x] R17: Do not clear existing clipboard until transcription succeeds
-- [ ] R18: Display brief success notification when text is ready
+- [x] R18: Display brief success notification when text is ready
 
 ## Phase 5 — Preferences
 - [ ] R8: Toggle mode available as preference
