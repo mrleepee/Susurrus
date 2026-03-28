@@ -7,7 +7,7 @@
 
 ## Phase 2 — Audio Capture & Hotkey
 - [x] R4: Capture audio from system default input device
-- [ ] R5: Request microphone permission on first launch
+- [x] R5: Request microphone permission on first launch
 - [ ] R6: Global hotkey triggers start/stop recording system-wide
 - [ ] R7: Push-to-talk (hold hotkey) is the default recording mode
 - [ ] R9: 60-second maximum recording duration cap
