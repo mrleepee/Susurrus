@@ -8,7 +8,13 @@ struct SusurrusApp: App {
     @State private var pulseTimer: Timer?
     @State private var modelLoading = false
 
+    // Services
     private let transcriptionService = WhisperKitTranscriptionService()
+    private let audioCapture = AudioCaptureService()
+    private let clipboard = PasteboardClipboardService()
+    private let notificationService = UserNotificationService()
+    private let preferences = UserDefaultsPreferencesManager()
+    private let vocabularyManager = VocabularyManager()
 
     init() {
         // R1: Hide Dock icon — app lives in menu bar only
@@ -36,7 +42,7 @@ struct SusurrusApp: App {
             }
         }
         .onChange(of: appState.recordingState) { _, newState in
-            updatePulseAnimation(newState)
+            handleStateChange(newState)
         }
     }
 
@@ -60,8 +66,57 @@ struct SusurrusApp: App {
             )
             appState.modelReady = true
         } catch {
-            // Reset so it can be retried
             modelLoading = false
+        }
+    }
+
+    private func handleStateChange(_ newState: RecordingState) {
+        updatePulseAnimation(newState)
+
+        switch newState {
+        case .recording:
+            Task {
+                do {
+                    try await audioCapture.startCapture()
+                } catch {
+                    appState.cancel()
+                }
+            }
+        case .processing:
+            let appendMode = preferences.appendToClipboard()
+            Task {
+                do {
+                    let audioBuffer = try await audioCapture.stopCapture()
+                    let text = try await transcriptionService.transcribe(audio: audioBuffer)
+
+                    if !text.isEmpty {
+                        if appendMode {
+                            clipboard.appendText(text)
+                        } else {
+                            clipboard.writeText(text)
+                        }
+                        notificationService.showNotification(
+                            title: "Susurrus",
+                            body: "Copied to clipboard"
+                        )
+                    } else {
+                        notificationService.showNotification(
+                            title: "Susurrus",
+                            body: "No speech detected"
+                        )
+                    }
+                } catch TranscriptionError.noSpeechDetected {
+                    notificationService.showNotification(
+                        title: "Susurrus",
+                        body: "No speech detected"
+                    )
+                } catch {
+                    // Transcription failed — clipboard is untouched (R17)
+                }
+                appState.finishProcessing()
+            }
+        case .idle:
+            break
         }
     }
 
