@@ -6,7 +6,7 @@
 - [x] R3: Menu provides: Start/Stop Recording, Preferences, Quit
 
 ## Phase 2 — Audio Capture & Hotkey
-- [ ] R4: Capture audio from system default input device
+- [x] R4: Capture audio from system default input device
 - [ ] R5: Request microphone permission on first launch
 - [ ] R6: Global hotkey triggers start/stop recording system-wide
 - [ ] R7: Push-to-talk (hold hotkey) is the default recording mode
