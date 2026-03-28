@@ -91,7 +91,6 @@ public final class AppState {
     }
 
     /// Handle hotkey release (used for push-to-talk mode).
-    @discardableResult
     public func handleHotkeyUp() {
         guard recordingMode == .pushToTalk else { return }
         stopRecording()

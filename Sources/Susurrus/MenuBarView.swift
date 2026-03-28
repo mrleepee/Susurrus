@@ -3,6 +3,7 @@ import SusurrusKit
 
 struct MenuBarView: View {
     let appState: AppState
+    let onLoad: (() -> Void)?
 
     var body: some View {
         // R3: Menu items based on state
@@ -36,6 +37,9 @@ struct MenuBarView: View {
             Button("Quit Susurrus") {
                 NSApplication.shared.terminate(nil)
             }
+        }
+        .onAppear {
+            onLoad?()
         }
     }
 }

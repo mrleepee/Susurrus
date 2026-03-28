@@ -6,9 +6,9 @@ struct SusurrusApp: App {
     @State private var appState = AppState()
     @State private var pulseOn = false
     @State private var pulseTimer: Timer?
+    @State private var modelLoading = false
 
     private let transcriptionService = WhisperKitTranscriptionService()
-    private let modelManager = WhisperKitModelManager()
 
     init() {
         // R1: Hide Dock icon — app lives in menu bar only
@@ -31,23 +31,27 @@ struct SusurrusApp: App {
             "Susurrus",
             systemImage: menuBarIcon
         ) {
-            MenuBarView(appState: appState)
-                .onAppear {
-                    Task {
-                        await preloadModel()
-                    }
-                }
+            MenuBarView(appState: appState) {
+                startModelLoadingIfNeeded()
+            }
         }
         .onChange(of: appState.recordingState) { _, newState in
             updatePulseAnimation(newState)
         }
     }
 
-    /// R15: Pre-load WhisperKit model at app launch.
+    private func startModelLoadingIfNeeded() {
+        guard !modelLoading else { return }
+        modelLoading = true
+        Task {
+            await preloadModel()
+        }
+    }
+
     private func preloadModel() async {
         do {
             try await transcriptionService.setupModel(
-                modelManager: modelManager,
+                modelName: "base",
                 onDownloadProgress: { progress in
                     Task { @MainActor in
                         appState.modelLoadProgress = progress
@@ -56,7 +60,8 @@ struct SusurrusApp: App {
             )
             appState.modelReady = true
         } catch {
-            // Model load failed — user can retry from menu
+            // Reset so it can be retried
+            modelLoading = false
         }
     }
 

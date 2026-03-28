@@ -18,32 +18,32 @@ public actor WhisperKitTranscriptionService: Transcribing {
         modelReady
     }
 
-    /// Load the WhisperKit model from a local folder. Call at app launch.
-    public func loadModel(modelName: String = "base", modelFolder: String? = nil) async throws {
-        let kit = try await WhisperKit(model: modelName, modelFolder: modelFolder)
-        self.whisperKit = kit
-        modelReady = true
-    }
-
-    /// Full setup: download model if needed, then load it.
-    /// Uses WhisperKit's built-in download and caching.
+    /// Download (if needed) and load the WhisperKit model.
+    /// Uses WhisperKit's default cache location (~/.cache/huggingface/hub/).
     public func setupModel(
         modelName: String = "base",
-        modelManager: ModelManaging,
         onDownloadProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
-        let isCached = await modelManager.isModelCached(modelName: modelName)
-        if !isCached {
-            try await modelManager.downloadModel(modelName: modelName, onProgress: onDownloadProgress)
-        }
-        // Load from the actual downloaded location
-        let cachePath = modelManager.modelCachePath()
-        let resolvedFolder = URL(fileURLWithPath: cachePath)
-            .appendingPathComponent("models")
-            .appendingPathComponent("argmaxinc")
-            .appendingPathComponent("whisperkit-coreml")
-            .path
-        try await loadModel(modelName: modelName, modelFolder: resolvedFolder)
+        // Download with progress tracking
+        let downloadBase = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!.appendingPathComponent("Susurrus")
+
+        let modelFolder = try await WhisperKit.download(
+            variant: modelName,
+            downloadBase: downloadBase,
+            progressCallback: { progress in
+                guard progress.totalUnitCount > 0 else { return }
+                let fraction = Double(progress.completedUnitCount) / Double(progress.totalUnitCount)
+                onDownloadProgress?(fraction)
+            }
+        )
+
+        // Load from the downloaded location
+        let kit = try await WhisperKit(modelFolder: modelFolder.path)
+        self.whisperKit = kit
+        modelReady = true
     }
 
     /// Transcribe audio buffer using WhisperKit.

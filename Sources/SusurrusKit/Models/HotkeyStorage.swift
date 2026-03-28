@@ -14,7 +14,7 @@ public final class HotkeyStorage: @unchecked Sendable {
 
     /// Whether a hotkey has been configured (first launch check).
     public var isConfigured: Bool {
-        defaults.bool(forKey: Self.hotkeyConfiguredKey) ?? false
+        defaults.bool(forKey: Self.hotkeyConfiguredKey)
     }
 
     /// Load the saved hotkey combo, returns nil if not configured.
