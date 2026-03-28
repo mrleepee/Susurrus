@@ -18,11 +18,26 @@ public actor WhisperKitTranscriptionService: Transcribing {
         modelReady
     }
 
-    /// Load the WhisperKit model. Call at app launch or before first transcription.
-    public func loadModel(modelName: String = "large-v3") async throws {
-        let kit = try await WhisperKit(model: modelName, modelFolder: nil)
+    /// Load the WhisperKit model from a local folder. Call at app launch.
+    public func loadModel(modelName: String = "large-v3", modelFolder: String? = nil) async throws {
+        let kit = try await WhisperKit(model: modelName, modelFolder: modelFolder)
         self.whisperKit = kit
         modelReady = true
+    }
+
+    /// Full setup: download model if needed, then load it.
+    /// Uses the provided model manager for download/cache decisions.
+    public func setupModel(
+        modelName: String = "large-v3",
+        modelManager: ModelManaging,
+        onDownloadProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws {
+        let isCached = await modelManager.isModelCached(modelName: modelName)
+        if !isCached {
+            try await modelManager.downloadModel(modelName: modelName, onProgress: onDownloadProgress)
+        }
+        let cachePath = await modelManager.modelCachePath()
+        try await loadModel(modelName: modelName, modelFolder: cachePath)
     }
 
     /// Transcribe audio buffer using WhisperKit.

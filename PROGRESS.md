@@ -18,7 +18,7 @@
 - [x] R11: No audio data leaves the device
 - [x] R12: Download whisper-large-v3 model on first launch
 - [x] R14: Show progress indicator during transcription
-- [ ] R15: Pre-load model at app launch
+- [x] R15: Pre-load model at app launch
 - [ ] R22: Custom vocabulary list
 
 ## Phase 4 — Clipboard & Notification

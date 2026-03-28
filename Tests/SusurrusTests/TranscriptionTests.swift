@@ -157,4 +157,34 @@ struct TranscriptionTests {
         let result = try await service.transcribe(audio: [0.1])
         #expect(result is String)
     }
+
+    // MARK: - Model readiness (R15)
+
+    @Test("WhisperKitTranscriptionService starts not ready")
+    func startsNotReady() async {
+        let service = WhisperKitTranscriptionService()
+        let ready = await service.isModelReady()
+        #expect(ready == false)
+    }
+
+    @Test("WhisperKitTranscriptionService unloadModel sets not ready")
+    func unloadSetsNotReady() async {
+        let service = WhisperKitTranscriptionService()
+        await service.unloadModel()
+        let ready = await service.isModelReady()
+        #expect(ready == false)
+    }
+
+    @Test("Transcribe without model throws modelNotReady")
+    func transcribeWithoutModel() async {
+        let service = WhisperKitTranscriptionService()
+        do {
+            _ = try await service.transcribe(audio: [0.1])
+            #expect(Bool(false), "Should have thrown")
+        } catch let error as TranscriptionError {
+            #expect(error == .modelNotReady)
+        } catch {
+            #expect(Bool(false), "Unexpected error: \(error)")
+        }
+    }
 }
