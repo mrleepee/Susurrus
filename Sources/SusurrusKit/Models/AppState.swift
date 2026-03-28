@@ -6,17 +6,27 @@ import Observation
 @MainActor
 public final class AppState {
 
+    /// Maximum recording duration in seconds.
+    public static let maxRecordingDuration: Double = 60.0
+
     /// Current recording/transcription state.
     public private(set) var recordingState: RecordingState = .idle
 
     /// Current recording mode (push-to-talk or toggle).
     public var recordingMode: RecordingMode = .pushToTalk
 
+    /// Whether the last recording was capped by the duration limit.
+    public private(set) var wasDurationCapped = false
+
+    /// Callback invoked when recording should be auto-stopped due to duration cap.
+    public var onDurationCap: (() -> Void)?
+
     public init() {}
 
     /// Transition to recording state from idle.
     public func startRecording() {
         guard recordingState == .idle else { return }
+        wasDurationCapped = false
         recordingState = .recording
     }
 
@@ -35,6 +45,18 @@ public final class AppState {
     /// Cancel and return to idle from any state.
     public func cancel() {
         recordingState = .idle
+    }
+
+    /// Enforce the 60-second recording duration cap.
+    /// Call this when the recording timer fires.
+    /// Returns true if recording was capped.
+    @discardableResult
+    public func enforceDurationCap() -> Bool {
+        guard recordingState == .recording else { return false }
+        wasDurationCapped = true
+        stopRecording()
+        onDurationCap?()
+        return true
     }
 
     /// Handle hotkey press based on current recording mode.

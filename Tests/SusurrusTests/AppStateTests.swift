@@ -152,4 +152,50 @@ struct AppStateTests {
         state.handleHotkeyUp()
         #expect(state.recordingState == .recording)
     }
+
+    // MARK: - Duration cap (R9)
+
+    @Test("enforceDurationCap stops recording when recording")
+    func durationCapStopsRecording() {
+        let state = AppState()
+        state.startRecording()
+        let capped = state.enforceDurationCap()
+        #expect(capped == true)
+        #expect(state.recordingState == .processing)
+    }
+
+    @Test("enforceDurationCap is no-op when not recording")
+    func durationCapNoOpWhenNotRecording() {
+        let state = AppState()
+        let capped = state.enforceDurationCap()
+        #expect(capped == false)
+        #expect(state.recordingState == .idle)
+    }
+
+    @Test("enforceDurationCap sets wasDurationCapped flag")
+    func durationCapSetsFlag() {
+        let state = AppState()
+        #expect(state.wasDurationCapped == false)
+
+        state.startRecording()
+        state.enforceDurationCap()
+        #expect(state.wasDurationCapped == true)
+    }
+
+    @Test("wasDurationCapped resets on next recording")
+    func durationCappedResetsOnNextRecording() {
+        let state = AppState()
+        state.startRecording()
+        state.enforceDurationCap()
+        #expect(state.wasDurationCapped == true)
+
+        state.finishProcessing()
+        state.startRecording()
+        #expect(state.wasDurationCapped == false)
+    }
+
+    @Test("Max recording duration is 60 seconds")
+    func maxRecordingDuration() {
+        #expect(AppState.maxRecordingDuration == 60.0)
+    }
 }
