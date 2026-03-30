@@ -25,6 +25,11 @@ final class MockClipboardService: ClipboardManaging, @unchecked Sendable {
     func readText() -> String? {
         clipboardText
     }
+
+    @discardableResult
+    func simulatePaste() -> Bool {
+        true
+    }
 }
 
 @Suite("Clipboard Tests")

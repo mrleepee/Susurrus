@@ -4,6 +4,7 @@ import SusurrusKit
 struct MenuBarView: View {
     let appState: AppState
     let onLoad: (() -> Void)?
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         // R3: Menu items based on state
@@ -30,8 +31,25 @@ struct MenuBarView: View {
             }
 
             Divider()
+            Button("History...") {
+                NSApp.activate(ignoringOtherApps: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    openWindow(id: "history")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        NSApp.windows.first(where: { $0.title == "History" })?
+                            .orderFrontRegardless()
+                    }
+                }
+            }
             Button("Preferences...") {
-                // R3 placeholder — implemented in Phase 5
+                NSApp.activate(ignoringOtherApps: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    openWindow(id: "preferences")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        NSApp.windows.first(where: { $0.title == "Susurrus Preferences" })?
+                            .orderFrontRegardless()
+                    }
+                }
             }
             Divider()
             Button("Quit Susurrus") {

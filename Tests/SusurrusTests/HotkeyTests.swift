@@ -119,11 +119,11 @@ struct HotkeyTests {
         #expect(a != c)
     }
 
-    @Test("HotkeyCombo default value")
+    @Test("HotkeyCombo default value is Option+Cmd+R")
     func defaultCombo() {
         let `default` = HotkeyCombo.default
-        #expect(`default`.keyCode == 0)
-        #expect(`default`.modifiers == 0)
+        #expect(`default`.keyCode == 0x0F) // R
+        #expect(`default`.modifiers == 0x0900) // Option+Cmd
     }
 
     @Test("Hotkey combo persists to currentCombo")

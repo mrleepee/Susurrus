@@ -10,8 +10,11 @@ public struct HotkeyCombo: Sendable, Equatable, Codable {
         self.modifiers = modifiers
     }
 
-    /// Default hotkey: Cmd+Shift+A
-    public static let `default` = HotkeyCombo(keyCode: 0, modifiers: 0)
+    /// Default hotkey: Option+Space
+    public static let `default` = HotkeyCombo(keyCode: 0x31, modifiers: 0x0800)
+
+    /// LLM hotkey: Shift+Option+Space
+    public static let withLLM = HotkeyCombo(keyCode: 0x31, modifiers: 0x0A00)
 }
 
 /// Protocol for managing global hotkeys.

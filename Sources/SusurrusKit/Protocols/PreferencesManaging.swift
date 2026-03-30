@@ -23,4 +23,22 @@ public protocol PreferencesManaging: Sendable {
 
     /// Set the overridden input device identifier.
     func setInputDeviceID(_ id: String?)
+
+    /// Whether LLM post-processing is enabled.
+    func llmEnabled() -> Bool
+
+    /// Set LLM post-processing enabled.
+    func setLLMEnabled(_ enabled: Bool)
+
+    /// Get the LLM system prompt.
+    func llmSystemPrompt() -> String
+
+    /// Set the LLM system prompt.
+    func setLLMSystemPrompt(_ prompt: String)
+
+    /// Whether auto-paste at cursor is enabled.
+    func autoPasteEnabled() -> Bool
+
+    /// Set auto-paste at cursor enabled.
+    func setAutoPasteEnabled(_ enabled: Bool)
 }

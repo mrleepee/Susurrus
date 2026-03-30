@@ -9,6 +9,11 @@ public protocol ClipboardManaging: Sendable {
 
     /// Read the current clipboard text, if any.
     func readText() -> String?
+
+    /// Simulate Cmd+V keystroke to paste clipboard contents at cursor.
+    /// Returns true if the paste was sent, false if accessibility permissions are missing.
+    @discardableResult
+    func simulatePaste() -> Bool
 }
 
 /// Errors during clipboard operations.

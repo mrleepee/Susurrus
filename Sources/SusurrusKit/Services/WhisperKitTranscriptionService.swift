@@ -1,3 +1,4 @@
+import CoreML
 import Foundation
 import WhisperKit
 
@@ -13,6 +14,11 @@ public actor WhisperKitTranscriptionService: Transcribing {
 
     public init() {}
 
+    /// Set the vocabulary prompt (callable from outside the actor).
+    public func setVocabularyPrompt(_ prompt: String) {
+        vocabularyPrompt = prompt
+    }
+
     /// Whether the model is loaded and ready for transcription.
     public func isModelReady() -> Bool {
         modelReady
@@ -22,6 +28,10 @@ public actor WhisperKitTranscriptionService: Transcribing {
     /// Uses WhisperKit's default cache location (~/.cache/huggingface/hub/).
     public func setupModel(
         modelName: String = "base",
+        computeOptions: ModelComputeOptions = ModelComputeOptions(
+            audioEncoderCompute: .cpuAndNeuralEngine,
+            textDecoderCompute: .cpuAndNeuralEngine
+        ),
         onDownloadProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
         // Download with progress tracking
@@ -40,14 +50,25 @@ public actor WhisperKitTranscriptionService: Transcribing {
             }
         )
 
-        // Load from the downloaded location
-        let kit = try await WhisperKit(modelFolder: modelFolder.path)
+        // Load from the downloaded location with the given compute options
+        let kit = try await WhisperKit(modelFolder: modelFolder.path, computeOptions: computeOptions)
         self.whisperKit = kit
         modelReady = true
     }
 
     /// Transcribe audio buffer using WhisperKit.
     public func transcribe(audio: [Float]) async throws -> String {
+        let options = DecodingOptions(
+            task: .transcribe,
+            language: nil,
+            concurrentWorkerCount: 4,
+            chunkingStrategy: .vad
+        )
+        return try await transcribe(audio: audio, decodeOptions: options)
+    }
+
+    /// Transcribe audio buffer using WhisperKit with custom decoding options.
+    public func transcribe(audio: [Float], decodeOptions: DecodingOptions) async throws -> String {
         guard modelReady, let whisperKit else {
             throw TranscriptionError.modelNotReady
         }
@@ -55,17 +76,11 @@ public actor WhisperKitTranscriptionService: Transcribing {
             throw TranscriptionError.emptyAudio
         }
 
-        var promptTokens: [Int]? = nil
+        var options = decodeOptions
         if !vocabularyPrompt.isEmpty,
            let tokenizer = whisperKit.tokenizer {
-            promptTokens = tokenizer.encode(text: vocabularyPrompt)
+            options.promptTokens = tokenizer.encode(text: vocabularyPrompt)
         }
-
-        let options = DecodingOptions(
-            task: .transcribe,
-            language: nil,
-            promptTokens: promptTokens
-        )
 
         let transcriptionResult = try await whisperKit.transcribe(
             audioArray: audio,
@@ -78,8 +93,13 @@ public actor WhisperKitTranscriptionService: Transcribing {
 
         var text = firstResult.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
-        // WhisperKit may emit special tokens like [BLANK_AUDIO] — strip them
-        let noiseTokens = ["[BLANK_AUDIO]", "[NO_SPEECH]", "(blank_audio)"]
+        // WhisperKit may emit special tokens or hallucinate — strip them
+        let noiseTokens = [
+            "[BLANK_AUDIO]", "[NO_SPEECH]", "(blank_audio)",
+            "Thank you.", "Thanks for watching!", "Subscribe!",
+            "Bye.", "Bye!", "Thank you for watching.",
+            "The end.", "See you next time.", "Okay."
+        ]
         for token in noiseTokens {
             text = text.replacingOccurrences(of: token, with: "")
         }

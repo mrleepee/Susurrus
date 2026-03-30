@@ -1,5 +1,6 @@
 import SwiftUI
 import SusurrusKit
+import os.log
 
 @main
 struct SusurrusApp: App {
@@ -16,18 +17,41 @@ struct SusurrusApp: App {
     private let preferences = UserDefaultsPreferencesManager()
     private let vocabularyManager = VocabularyManager()
     private let hotkeyService = GlobalHotkeyService()
+    private let llmHotkeyService = GlobalHotkeyService()
     private let hotkeyStorage = HotkeyStorage()
     private let micPermissionManager = MicPermissionManager()
+    private let llmService = LLMService()
+    private let historyManager = TranscriptionHistoryManager()
 
     // Recording duration timer
     @State private var durationTimer: Timer?
 
     init() {
-        // R1: Hide Dock icon — app lives in menu bar only
+        // R1: Hide Dock icon — app lives in menu bar only.
+        // LSUIElement in Info.plist handles launch-time hiding, but the runtime
+        // call is also needed for SwiftUI's MenuBarExtra to persist correctly.
         NSApplication.shared.setActivationPolicy(.accessory)
+
+        // Prompt for Accessibility if not yet trusted (needed for auto-paste)
+        if !AXIsProcessTrusted() {
+            PasteboardClipboardService.promptAccessibility()
+        }
+
+        // Register hotkeys immediately (don't wait for menu bar click)
+        setupHotkeyIfNeeded()
+        setupLLMHotkeyIfNeeded()
+
+        // Start loading the Whisper model immediately so hotkey works sooner
+        startModelLoadingIfNeeded()
+
+        // Sync recording mode from preferences on launch
+        appState.recordingMode = preferences.recordingMode()
     }
 
     var menuBarIcon: String {
+        if !appState.modelReady {
+            return pulseOn ? MenuBarIcon.loadingFrameA : MenuBarIcon.loadingFrameB
+        }
         switch appState.recordingState {
         case .idle:
             return MenuBarIcon.symbolName(for: .idle)
@@ -46,11 +70,25 @@ struct SusurrusApp: App {
             MenuBarView(appState: appState) {
                 startModelLoadingIfNeeded()
                 setupHotkeyIfNeeded()
+                setupLLMHotkeyIfNeeded()
                 checkMicPermission()
             }
         }
         .onChange(of: appState.recordingState) { _, newState in
             handleStateChange(newState)
+        }
+
+        Window("Susurrus Preferences", id: "preferences") {
+            PreferencesView()
+        }
+        .onChange(of: preferences.selectedModel()) { _, newModel in
+            Task {
+                await reloadModel(newModel)
+            }
+        }
+
+        Window("History", id: "history") {
+            HistoryView()
         }
     }
 
@@ -65,18 +103,52 @@ struct SusurrusApp: App {
     }
 
     private func preloadModel() async {
+        let model = preferences.selectedModel()
+        UserDefaults.standard.set(model, forKey: "modelDownloadingName")
         do {
             try await transcriptionService.setupModel(
-                modelName: "base",
+                modelName: model,
                 onDownloadProgress: { progress in
                     Task { @MainActor in
                         appState.modelLoadProgress = progress
+                        UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
                     }
                 }
             )
             appState.modelReady = true
+            UserDefaults.standard.set("", forKey: "modelDownloadingName")
+            UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
             modelLoading = false
+            UserDefaults.standard.set("", forKey: "modelDownloadingName")
+            UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
+        }
+    }
+
+    private func reloadModel(_ modelName: String) async {
+        appState.modelReady = false
+        modelLoading = true
+        appState.modelLoadProgress = 0
+        UserDefaults.standard.set(modelName, forKey: "modelDownloadingName")
+        UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
+        await transcriptionService.unloadModel()
+        do {
+            try await transcriptionService.setupModel(
+                modelName: modelName,
+                onDownloadProgress: { progress in
+                    Task { @MainActor in
+                        appState.modelLoadProgress = progress
+                        UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
+                    }
+                }
+            )
+            appState.modelReady = true
+            UserDefaults.standard.set("", forKey: "modelDownloadingName")
+            UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
+        } catch {
+            modelLoading = false
+            UserDefaults.standard.set("", forKey: "modelDownloadingName")
+            UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         }
     }
 
@@ -88,7 +160,17 @@ struct SusurrusApp: App {
     }
 
     private func setupHotkeyIfNeeded() {
-        guard hotkeyStorage.isConfigured, !appState.hotkeyConfigured else { return }
+        guard !appState.hotkeyConfigured else { return }
+
+        // On first launch or when migrating from old hotkeys, set the default (Option+Space).
+        // Previous defaults: F6 (0x6F/0x3F), Option+Cmd+R (0x0F).
+        if !hotkeyStorage.isConfigured {
+            hotkeyStorage.save(combo: .default)
+        } else if let combo = hotkeyStorage.loadCombo(),
+                  combo.keyCode == 0x3F || combo.keyCode == 0x6F || combo.keyCode == 0x0F {
+            hotkeyStorage.save(combo: .default)
+        }
+
         guard let combo = hotkeyStorage.loadCombo() else { return }
 
         Task {
@@ -97,7 +179,9 @@ struct SusurrusApp: App {
                     combo: combo,
                     onKeyDown: { [self] in
                         Task { @MainActor in
+                            print("[Susurrus] Hotkey down — state: \(appState.recordingState), modelReady: \(appState.modelReady)")
                             let started = appState.handleHotkeyDown()
+                            print("[Susurrus] handleHotkeyDown -> started=\(started), newState=\(appState.recordingState)")
                             if started {
                                 // Request permission if needed
                                 if appState.micPermission == .undetermined {
@@ -128,6 +212,44 @@ struct SusurrusApp: App {
         }
     }
 
+    private func setupLLMHotkeyIfNeeded() {
+        guard !appState.llmHotkeyConfigured else { return }
+
+        let combo = HotkeyCombo.withLLM // Shift+Option+Space
+        Task {
+            do {
+                try await llmHotkeyService.register(
+                    combo: combo,
+                    onKeyDown: { [self] in
+                        Task { @MainActor in
+                            appState.forceLLM = true
+                            let started = appState.handleHotkeyDown()
+                            if started {
+                                if appState.micPermission == .undetermined {
+                                    let perm = await micPermissionManager.requestPermission()
+                                    appState.micPermission = perm
+                                }
+                                guard appState.micPermission == .granted else {
+                                    appState.forceLLM = false
+                                    appState.cancel()
+                                    return
+                                }
+                            }
+                        }
+                    },
+                    onKeyUp: { [self] in
+                        Task { @MainActor in
+                            appState.handleHotkeyUp()
+                        }
+                    }
+                )
+                appState.llmHotkeyConfigured = true
+            } catch {
+                // LLM hotkey registration failed
+            }
+        }
+    }
+
     // MARK: - State handling
 
     private func handleStateChange(_ newState: RecordingState) {
@@ -146,21 +268,44 @@ struct SusurrusApp: App {
         case .processing:
             stopDurationTimer()
             let appendMode = preferences.appendToClipboard()
+            let shouldLLM = appState.forceLLM || preferences.llmEnabled()
+            appState.forceLLM = false
             Task {
                 do {
                     let audioBuffer = try await audioCapture.stopCapture()
-                    let text = try await transcriptionService.transcribe(audio: audioBuffer)
+                    // Sync vocabulary bias before transcription
+                    let vocab = vocabularyManager.promptString()
+                    await transcriptionService.setVocabularyPrompt(vocab)
+
+                    var text = try await transcriptionService.transcribe(audio: audioBuffer)
 
                     if !text.isEmpty {
+                        if shouldLLM {
+                            do {
+                                let prompt = preferences.llmSystemPrompt()
+                                text = try await llmService.process(text: text, systemPrompt: prompt)
+                            } catch {
+                                // LLM failed — use raw transcription
+                            }
+                        }
                         if appendMode {
                             clipboard.appendText(text)
                         } else {
                             clipboard.writeText(text)
                         }
-                        notificationService.showNotification(
-                            title: "Susurrus",
-                            body: "Copied to clipboard"
-                        )
+                        let autoPaste = preferences.autoPasteEnabled()
+                        Logger(subsystem: "com.susurrus.app", category: "Flow").info("autoPaste=\(autoPaste), AX=\(AXIsProcessTrusted())")
+                        if autoPaste {
+                            try? await Task.sleep(for: .milliseconds(150))
+                            let pasted = clipboard.simulatePaste()
+                            if !pasted {
+                                notificationService.showNotification(
+                                    title: "Susurrus",
+                                    body: "Auto-paste requires Accessibility access. Enable in System Settings > Privacy & Security > Accessibility."
+                                )
+                            }
+                        }
+                        historyManager.add(text)
                     } else {
                         notificationService.showNotification(
                             title: "Susurrus",

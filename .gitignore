@@ -17,3 +17,12 @@ Package.resolved
 
 # WhisperKit models (downloaded at runtime)
 /Models/
+
+# Claude Code
+.claude/
+
+# Local environment (contains API keys)
+.env
+
+# App bundle output
+build/

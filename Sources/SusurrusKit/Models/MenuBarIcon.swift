@@ -1,25 +1,29 @@
 import AppKit
 
 /// Maps recording state to the appropriate menu bar icon (SF Symbol name).
+/// Uses waveform icons to avoid collision with the macOS system microphone indicator.
 public enum MenuBarIcon {
     /// SF Symbol names for the recording pulse animation cycle.
-    public static let recordingFrameA = "mic.fill"
-    public static let recordingFrameB = "mic"
+    public static let recordingFrameA = "waveform.circle.fill"
+    public static let recordingFrameB = "waveform.circle"
 
     /// SF Symbol names for the processing spinner animation cycle.
-    public static let processingFrameA = "mic.badge.xmark"
-    public static let processingFrameB = "mic.badge.ellipsis"
+    public static let processingFrameA = "ellipsis.circle.fill"
+    public static let processingFrameB = "ellipsis.circle"
+
+    /// SF Symbol for model loading / not-ready state.
+    public static let loadingFrameA = "arrow.down.circle.fill"
+    public static let loadingFrameB = "arrow.down.circle"
 
     /// Returns the SF Symbol name for the given recording state.
-    /// For recording state, returns frame A (filled mic) as the base icon.
     public static func symbolName(for state: RecordingState) -> String {
         switch state {
         case .idle:
-            "mic"
+            "waveform"
         case .recording:
             recordingFrameA
         case .processing:
-            "mic.badge.xmark"
+            processingFrameA
         }
     }
 

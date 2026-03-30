@@ -27,6 +27,13 @@ public final class AppState {
     /// Whether a hotkey has been configured.
     public var hotkeyConfigured = false
 
+    /// Whether the LLM hotkey (Shift+Option+Space) has been configured.
+    public var llmHotkeyConfigured = false
+
+    /// When true, the next transcription will include LLM post-processing
+    /// regardless of the llmEnabled preference.
+    public var forceLLM = false
+
     /// Download/load progress for the model (0.0 to 1.0).
     public var modelLoadProgress: Double = 0
 
