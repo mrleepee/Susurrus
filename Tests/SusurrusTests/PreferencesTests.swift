@@ -68,27 +68,4 @@ struct PreferencesTests {
         manager.setAppendToClipboard(false)
         #expect(manager.appendToClipboard() == false)
     }
-
-    // MARK: - Input device override (R21)
-
-    @Test("Default input device is nil (use system default)")
-    func defaultInputDevice() {
-        let manager = makeManager()
-        #expect(manager.inputDeviceID() == nil)
-    }
-
-    @Test("Set and get input device ID")
-    func setInputDevice() {
-        let manager = makeManager()
-        manager.setInputDeviceID("BuiltInMicrophoneDevice")
-        #expect(manager.inputDeviceID() == "BuiltInMicrophoneDevice")
-    }
-
-    @Test("Clear input device override")
-    func clearInputDevice() {
-        let manager = makeManager()
-        manager.setInputDeviceID("SomeDevice")
-        manager.setInputDeviceID(nil)
-        #expect(manager.inputDeviceID() == nil)
-    }
 }

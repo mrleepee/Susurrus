@@ -18,12 +18,6 @@ public protocol PreferencesManaging: Sendable {
     /// Set append-to-clipboard mode.
     func setAppendToClipboard(_ enabled: Bool)
 
-    /// Get the overridden input device identifier, if any.
-    func inputDeviceID() -> String?
-
-    /// Set the overridden input device identifier.
-    func setInputDeviceID(_ id: String?)
-
     /// Whether LLM post-processing is enabled.
     func llmEnabled() -> Bool
 

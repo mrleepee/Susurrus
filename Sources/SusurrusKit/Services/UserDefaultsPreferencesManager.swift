@@ -52,14 +52,6 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
         defaults.set(enabled, forKey: Keys.appendToClipboard)
     }
 
-    public func inputDeviceID() -> String? {
-        defaults.string(forKey: "inputDeviceID")
-    }
-
-    public func setInputDeviceID(_ id: String?) {
-        defaults.set(id, forKey: "inputDeviceID")
-    }
-
     public func llmEnabled() -> Bool {
         defaults.bool(forKey: Keys.llmEnabled)
     }

@@ -1,12 +1,10 @@
 import SwiftUI
 import SusurrusKit
-import AVFoundation
 
 struct PreferencesView: View {
     @AppStorage("recordingMode") private var recordingMode = "push-to-talk"
     @AppStorage("appendToClipboard") private var appendToClipboard = false
     @AppStorage("selectedModel") private var selectedModel = "base"
-    @AppStorage("inputDeviceID") private var inputDeviceID: String = ""
     @AppStorage("llmEnabled") private var llmEnabled = false
     @AppStorage("autoPasteEnabled") private var autoPasteEnabled = false
     @State private var axTrusted = false
@@ -21,7 +19,6 @@ struct PreferencesView: View {
     @AppStorage("modelDownloadProgress") private var modelDownloadProgress: Double = 0
     @AppStorage("modelDownloadingName") private var modelDownloadingName: String = ""
 
-    @State private var inputDevices: [(id: String, name: String)] = []
     @State private var cachedModels: Set<String> = []
     @State private var escapeMonitor: Any?
 
@@ -47,7 +44,6 @@ struct PreferencesView: View {
         }
         .frame(minWidth: 500, idealWidth: 550, minHeight: 350, idealHeight: 400)
         .onAppear {
-            loadInputDevices()
             loadCachedModels()
             axTrusted = PasteboardClipboardService.isAccessibilityTrusted()
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -124,12 +120,6 @@ struct PreferencesView: View {
                 }
             }
 
-            Picker("Input Device", selection: $inputDeviceID) {
-                Text("System Default").tag("")
-                ForEach(inputDevices, id: \.id) { device in
-                    Text(device.name).tag(device.id)
-                }
-            }
         }
         .formStyle(.grouped)
     }
@@ -306,20 +296,6 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
-    }
-
-    // MARK: - Device Discovery
-
-    private func loadInputDevices() {
-        let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInMicrophone, .externalUnknown],
-            mediaType: .audio,
-            position: .unspecified
-        )
-        inputDevices = discovery.devices.compactMap { device in
-            guard let uniqueID = device.value(forKey: "uniqueID") as? String else { return nil }
-            return (id: uniqueID, name: device.localizedName)
-        }
     }
 
     // MARK: - Cache Check
