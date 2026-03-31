@@ -65,7 +65,8 @@ struct LLMTests {
 
     @Test("LLMService rejects empty text")
     func rejectEmptyText() async {
-        let service = LLMService(apiKey: "test-key")
+        // Provide a test API key via apiKeyOverride so we bypass real config.
+        let service = LLMService(apiKeyOverride: "test-key-for-empty-text-check")
         do {
             _ = try await service.process(text: "   ", systemPrompt: "clean up")
             #expect(Bool(false), "Should have thrown")

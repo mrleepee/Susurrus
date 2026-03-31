@@ -1,0 +1,26 @@
+
+======================================================================
+MUTATION TESTING REPORT
+======================================================================
+Total mutations applied: 10
+  Killed (caught by tests):   0
+  Survived (weak tests):      10
+  Errors (couldn't apply):    0
+
+Kill rate: 0.0%
+⚠️  LOW kill rate — tests are weak and likely have gaps
+
+By operator:
+  booleanLiteral: 0/10 killed (0%)
+
+Surviving mutations (test weaknesses):
+  [bool_true_Sources/Susurrus/MenuBarView.swift_35] Sources/Susurrus/MenuBarView.swift:35 — booleanLiteral: true → false
+  [bool_true_Sources/Susurrus/MenuBarView.swift_45] Sources/Susurrus/MenuBarView.swift:45 — booleanLiteral: true → false
+  [bool_true_Sources/Susurrus/PreferencesView.swift_151] Sources/Susurrus/PreferencesView.swift:151 — booleanLiteral: true → false
+  [bool_false_Sources/Susurrus/PreferencesView.swift_6] Sources/Susurrus/PreferencesView.swift:6 — booleanLiteral: false → true
+  [bool_false_Sources/Susurrus/PreferencesView.swift_8] Sources/Susurrus/PreferencesView.swift:8 — booleanLiteral: false → true
+  [bool_false_Sources/Susurrus/PreferencesView.swift_9] Sources/Susurrus/PreferencesView.swift:9 — booleanLiteral: false → true
+  [bool_false_Sources/Susurrus/PreferencesView.swift_10] Sources/Susurrus/PreferencesView.swift:10 — booleanLiteral: false → true
+  [bool_false_Sources/Susurrus/PreferencesView.swift_16] Sources/Susurrus/PreferencesView.swift:16 — booleanLiteral: false → true
+  [bool_true_Sources/Susurrus/SusurrusApp.swift_99] Sources/Susurrus/SusurrusApp.swift:99 — booleanLiteral: true → false
+  [bool_true_Sources/Susurrus/SusurrusApp.swift_118] Sources/Susurrus/SusurrusApp.swift:118 — booleanLiteral: true → false

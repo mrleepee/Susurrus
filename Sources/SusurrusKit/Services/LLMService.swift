@@ -7,9 +7,13 @@ import Foundation
 /// 3. Hardcoded defaults
 public final class LLMService: LLMProcessing, @unchecked Sendable {
     private let session: URLSession
+    /// Optional override for the API key. When set, overrides all config sources
+    /// (UserDefaults, .env file). Intended for testing and internal use.
+    private let apiKeyOverride: String?
 
-    public init(session: URLSession = .shared) {
+    public init(session: URLSession = .shared, apiKeyOverride: String? = nil) {
         self.session = session
+        self.apiKeyOverride = apiKeyOverride
     }
 
     // MARK: - Configuration
@@ -59,7 +63,7 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
         let defaults = UserDefaults.standard
         let env = Self.loadEnvFile()
 
-        let apiKey = defaults.string(forKey: "llmApiKey") ?? env["LLM_API_KEY"] ?? ""
+        let apiKey = apiKeyOverride ?? defaults.string(forKey: "llmApiKey") ?? env["LLM_API_KEY"] ?? ""
         let model = defaults.string(forKey: "llmModel") ?? env["LLM_MODEL"] ?? "MiniMax-M2.5"
         let endpoint = defaults.string(forKey: "llmEndpoint") ?? env["LLM_ENDPOINT"] ?? "https://api.minimax.io/anthropic/v1/messages"
 
