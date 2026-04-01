@@ -12,7 +12,6 @@ struct SusurrusApp: App {
     // Services
     private let transcriptionService = WhisperKitTranscriptionService()
     private let streamingService = StreamingTranscriptionService()
-    private let audioCapture = AudioCaptureService()
     private let clipboard = PasteboardClipboardService()
     private let notificationService = UserNotificationService()
     private let preferences = UserDefaultsPreferencesManager()
@@ -27,6 +26,10 @@ struct SusurrusApp: App {
     // Recording duration timer
     @State private var durationTimer: Timer?
 
+    // Throttle: minimum interval between overlay updates (ms)
+    private let overlayThrottleInterval: TimeInterval = 0.1
+    private var lastOverlayUpdate: Date = .distantPast
+
     // Streaming overlay window
     private var overlayWindow: StreamingOverlayWindow?
 
@@ -35,6 +38,17 @@ struct SusurrusApp: App {
 
         if !AXIsProcessTrusted() {
             PasteboardClipboardService.promptAccessibility()
+        }
+
+        // Register hotkeys immediately (don't wait for menu bar click)
+        // Note: setupHotkeyIfNeeded and setupLLMHotkeyIfNeeded are called
+        // from MenuBarView.onAppear to avoid actor isolation issues in init.
+        // They are also called here for the case where Accessibility is already granted.
+        Task { @MainActor in
+            startModelLoadingIfNeeded()
+            setupHotkeyIfNeeded()
+            setupLLMHotkeyIfNeeded()
+            appState.recordingMode = preferences.recordingMode()
         }
     }
 
@@ -50,9 +64,9 @@ struct SusurrusApp: App {
         case .processing:
             return pulseOn ? MenuBarIcon.processingFrameA : MenuBarIcon.processingFrameB
         case .streaming:
-            return MenuBarIcon.streamingSymbolName
+            return pulseOn ? MenuBarIcon.streamingFrameA : MenuBarIcon.streamingFrameB
         case .finalizing:
-            return MenuBarIcon.finalizingSymbolName
+            return pulseOn ? MenuBarIcon.finalizingFrameA : MenuBarIcon.finalizingFrameB
         }
     }
 
@@ -281,9 +295,12 @@ struct SusurrusApp: App {
     }
 
     /// Called whenever appState.interimText changes.
-    /// Updates the overlay with the latest confirmed/unconfirmed text.
+    /// Throttled to avoid rebuilding the overlay on every audio callback (~10/sec).
     private func handleInterimTextChange(_ interim: InterimTranscript?) {
         guard let interim else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastOverlayUpdate) >= overlayThrottleInterval else { return }
+        lastOverlayUpdate = now
         overlayWindow?.show(confirmed: interim.confirmed, unconfirmed: interim.unconfirmed)
     }
 

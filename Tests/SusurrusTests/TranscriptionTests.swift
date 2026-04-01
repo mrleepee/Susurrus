@@ -24,7 +24,6 @@ actor MockTranscriptionService: Transcribing {
 /// Mock streaming transcription service for testing.
 actor MockStreamTranscriptionService: StreamTranscribing {
     var shouldFail = false
-    var shouldThrowNoSpeech = false
     var mockTranscript = InterimTranscript(confirmed: "Hello ", unconfirmed: "world", isFinal: false)
     var mockFinalText = "Hello world"
     var startCallCount = 0
@@ -40,16 +39,18 @@ actor MockStreamTranscriptionService: StreamTranscribing {
 
     func stopStreamTranscription() async throws -> String {
         stopCallCount += 1
-        if shouldThrowNoSpeech { throw TranscriptionError.noSpeechDetected }
         if shouldFail { throw TranscriptionError.audioCaptureFailed }
+        // Auto-detect empty final text as no speech (consistent with real service)
+        if mockFinalText.isEmpty { throw TranscriptionError.noSpeechDetected }
         // Emit final transcript
         lastCallback?(InterimTranscript(confirmed: mockFinalText, unconfirmed: "", isFinal: true))
         return mockFinalText
     }
 
+    func setMockResult(_ text: String) { mockFinalText = text }
+
     func reset() {
         shouldFail = false
-        shouldThrowNoSpeech = false
         startCallCount = 0
         stopCallCount = 0
         lastCallback = nil

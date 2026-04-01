@@ -9,7 +9,7 @@ public actor StreamingTranscriptionService {
     // MARK: - Types
 
     /// Callback type for delivering interim transcripts.
-    /// Fired on the AudioStreamTranscriber's executor; dispatched to MainActor.
+    /// Fired on the AudioStreamTranscriber's executor; re-dispatched to this actor.
     public typealias InterimCallback = @Sendable (InterimTranscript) -> Void
 
     // MARK: - State
@@ -24,6 +24,14 @@ public actor StreamingTranscriptionService {
     /// Callback invoked on each interim transcript update.
     private var interimCallback: InterimCallback?
 
+    /// The last observed state from the transcriber's callback.
+    /// Used by stopStreamTranscription() to return the final transcript
+    /// without polling or sleeping.
+    private var lastTranscriberState: AudioStreamTranscriber.State?
+
+    /// Tracks whether the stream has emitted a final transcript.
+    private var finalTextEmitted = false
+
     // MARK: - Init
 
     public init() {}
@@ -36,7 +44,6 @@ public actor StreamingTranscriptionService {
     }
 
     /// Load the model from the given folder.
-    /// Reuses the same setup as WhisperKitTranscriptionService for consistency.
     public func setupModel(
         modelName: String = "base",
         computeOptions: ModelComputeOptions = ModelComputeOptions(
@@ -70,6 +77,8 @@ public actor StreamingTranscriptionService {
         streamTranscriber = nil
         whisperKit = nil
         modelReady = false
+        lastTranscriberState = nil
+        finalTextEmitted = false
     }
 
     // MARK: - Vocabulary
@@ -91,7 +100,13 @@ public actor StreamingTranscriptionService {
             throw TranscriptionError.modelNotReady
         }
 
+        guard let tokenizer = whisperKit.tokenizer else {
+            throw TranscriptionError.transcriptionFailed("Tokenizer not available")
+        }
+
         self.interimCallback = callback
+        self.lastTranscriberState = nil
+        self.finalTextEmitted = false
 
         // Build DecodingOptions, applying vocabulary prompt if set
         var options = DecodingOptions(
@@ -101,8 +116,7 @@ public actor StreamingTranscriptionService {
             chunkingStrategy: .vad
         )
 
-        if !vocabularyPrompt.isEmpty,
-           let tokenizer = whisperKit.tokenizer {
+        if !vocabularyPrompt.isEmpty {
             options.promptTokens = tokenizer.encode(text: vocabularyPrompt)
         }
 
@@ -112,7 +126,7 @@ public actor StreamingTranscriptionService {
             featureExtractor: whisperKit.featureExtractor,
             segmentSeeker: whisperKit.segmentSeeker,
             textDecoder: whisperKit.textDecoder,
-            tokenizer: whisperKit.tokenizer!,
+            tokenizer: tokenizer,
             audioProcessor: whisperKit.audioProcessor,
             decodingOptions: options,
             requiredSegmentsForConfirmation: 2,
@@ -120,7 +134,7 @@ public actor StreamingTranscriptionService {
             compressionCheckWindow: 60,
             useVAD: true,
             stateChangeCallback: { [weak self] oldState, newState in
-                self?.handleStateChange(oldState: oldState, newState: newState)
+                self?.enqueueStateChange(oldState: oldState, newState: newState)
             }
         )
 
@@ -137,18 +151,30 @@ public actor StreamingTranscriptionService {
 
         transcriber.stopStreamTranscription()
 
-        // Give the transcriber a moment to finalise
-        try? await Task.sleep(for: .milliseconds(200))
+        // Read the final state that was captured via callback — no sleep needed.
+        // If the final transcript was already delivered through the callback
+        // (isFinal = true), use that text directly.
+        if finalTextEmitted, let state = lastTranscriberState {
+            let text = Self.extractFinalText(from: state)
+            let cleaned = Self.stripNoiseTokens(from: text)
+            streamTranscriber = nil
+            interimCallback = nil
+            guard !cleaned.isEmpty else {
+                throw TranscriptionError.noSpeechDetected
+            }
+            return cleaned
+        }
 
-        // Read final state
-        let state = await transcriber.currentState
+        // Fallback: use the last observed state
+        let state = lastTranscriberState
+        streamTranscriber = nil
+        interimCallback = nil
 
-        self.streamTranscriber = nil
-        self.interimCallback = nil
+        guard let state else {
+            throw TranscriptionError.noSpeechDetected
+        }
 
         let text = Self.extractFinalText(from: state)
-
-        // Strip noise tokens
         let cleaned = Self.stripNoiseTokens(from: text)
 
         guard !cleaned.isEmpty else {
@@ -163,32 +189,38 @@ public actor StreamingTranscriptionService {
         streamTranscriber?.stopStreamTranscription()
         streamTranscriber = nil
         interimCallback = nil
+        lastTranscriberState = nil
+        finalTextEmitted = false
     }
 
     // MARK: - State change handler
 
-    /// Handles AudioStreamTranscriber state changes, dispatched from the actor's executor.
-    /// Must dispatch to MainActor for UI updates.
-    private nonisolated func handleStateChange(
+    /// Receives state changes from AudioStreamTranscriber on its executor thread,
+    /// captures the state, and re-dispatches to this actor for processing.
+    /// Named explicitly to clarify it does NOT run on MainActor.
+    private nonisolated func enqueueStateChange(
         oldState: AudioStreamTranscriber.State,
         newState: AudioStreamTranscriber.State
     ) {
         Task {
-            await handleStateChangeOnMain(oldState: oldState, newState: newState)
+            await handleStateChange(oldState: oldState, newState: newState)
         }
     }
 
-    private func handleStateChangeOnMain(
+    private func handleStateChange(
         oldState: AudioStreamTranscriber.State,
         newState: AudioStreamTranscriber.State
     ) {
+        // Always capture the latest state for stopStreamTranscription() to read
+        lastTranscriberState = newState
+
         // Extract confirmed text from confirmed segments
         let confirmed = newState.confirmedSegments
             .map(\.text)
             .joined(separator: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Unconfirmed text — prefer unconfirmedSegments if available, else currentText
+        // Unconfirmed text — prefer unconfirmedSegments if available
         let unconfirmed: String
         if !newState.unconfirmedSegments.isEmpty {
             unconfirmed = newState.unconfirmedSegments
@@ -202,6 +234,10 @@ public actor StreamingTranscriptionService {
 
         // Detect if stream has ended (isRecording = false and we had text)
         let isFinal = !newState.isRecording && !(confirmed.isEmpty && unconfirmed.isEmpty)
+
+        if isFinal {
+            finalTextEmitted = true
+        }
 
         let transcript = InterimTranscript(
             confirmed: confirmed,
@@ -236,35 +272,5 @@ public actor StreamingTranscriptionService {
             result = result.replacingOccurrences(of: token, with: "")
         }
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-// MARK: - AudioStreamTranscriber extension for currentState
-
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
-private extension AudioStreamTranscriber {
-    var currentState: State {
-        // Access the internal state property for reading after stop
-        // Note: AudioStreamTranscriber is an actor, so we read state via async
-        // This is a best-effort read; for fully accurate final text use
-        // the callback's final emission instead.
-        return State()
-    }
-}
-
-@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
-private extension AudioStreamTranscriber.State {
-    init() {
-        self.init(
-            isRecording: false,
-            currentFallbacks: 0,
-            lastBufferSize: 0,
-            lastConfirmedSegmentEndSeconds: 0,
-            bufferEnergy: [],
-            currentText: "",
-            confirmedSegments: [],
-            unconfirmedSegments: [],
-            unconfirmedText: []
-        )
     }
 }

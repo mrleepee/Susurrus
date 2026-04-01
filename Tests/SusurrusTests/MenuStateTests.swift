@@ -77,4 +77,14 @@ struct MenuStateTests {
         let actions = MenuState.visibleActions(for: .finalizing)
         #expect(actions == [.startRecording, .preferences, .quit])
     }
+
+    @Test("All states include Preferences and Quit")
+    func allStatesIncludeCoreItems() {
+        let allStates: [RecordingState] = [.idle, .recording, .processing, .streaming, .finalizing]
+        for state in allStates {
+            let actions = MenuState.visibleActions(for: state)
+            #expect(actions.contains(.preferences), "Preferences missing in \(state)")
+            #expect(actions.contains(.quit), "Quit missing in \(state)")
+        }
+    }
 }
