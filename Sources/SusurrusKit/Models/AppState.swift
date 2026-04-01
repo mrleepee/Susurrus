@@ -15,7 +15,12 @@ public final class AppState {
     /// Current recording mode (push-to-talk or toggle).
     public var recordingMode: RecordingMode = .pushToTalk
 
+    /// Live interim transcript during a streaming session.
+    /// Set by the streaming transcription callback and consumed by the overlay.
+    public var interimText: InterimTranscript?
+
     /// Whether the last recording was capped by the duration limit.
+    /// Must be consumed after the cap notification is shown (Behaviour 2.6).
     public private(set) var wasDurationCapped = false
 
     /// Whether the WhisperKit model is loaded and ready for transcription.
@@ -45,7 +50,9 @@ public final class AppState {
 
     public init() {}
 
-    /// Transition to recording state from idle.
+    // MARK: - Batch mode (Phase 7: removed after streaming is wired)
+
+    /// Transition to recording state from idle (batch mode).
     /// Requires model to be ready.
     public func startRecording() {
         guard recordingState == .idle, modelReady else { return }
@@ -53,50 +60,88 @@ public final class AppState {
         recordingState = .recording
     }
 
-    /// Stop recording and begin processing.
+    /// Stop recording and begin processing (batch mode).
     public func stopRecording() {
         guard recordingState == .recording else { return }
         recordingState = .processing
     }
 
-    /// Transition back to idle after processing completes.
+    /// Transition back to idle after processing completes (batch mode).
     public func finishProcessing() {
         guard recordingState == .processing else { return }
         transcriptionProgress = 0
         recordingState = .idle
     }
 
-    /// Cancel and return to idle from any state.
-    public func cancel() {
+    // MARK: - Streaming mode
+
+    /// Begin a streaming session. Requires model to be ready.
+    /// Sets interimText to nil/empty and resets wasDurationCapped.
+    public func startStreaming() {
+        guard recordingState == .idle, modelReady else { return }
+        wasDurationCapped = false
+        interimText = nil
+        recordingState = .streaming
+    }
+
+    /// Stop the streaming session and begin finalization.
+    public func stopStreaming() {
+        guard recordingState == .streaming else { return }
+        recordingState = .finalizing
+    }
+
+    /// Transition back to idle after finalization completes.
+    /// Clears interimText.
+    public func finishStreaming() {
+        guard recordingState == .finalizing else { return }
+        interimText = nil
         recordingState = .idle
     }
+
+    // MARK: - Duration cap
 
     /// Enforce the 60-second recording duration cap.
     /// Call this when the recording timer fires.
     /// Returns true if recording was capped.
     @discardableResult
     public func enforceDurationCap() -> Bool {
-        guard recordingState == .recording else { return false }
+        guard recordingState == .recording || recordingState == .streaming else { return false }
         wasDurationCapped = true
-        stopRecording()
+        stopStreaming()
         onDurationCap?()
         return true
     }
 
+    /// Consume the wasDurationCapped flag after the cap notification has been shown.
+    /// Called by the app after the notification fires (Behaviour 2.6).
+    public func consumeDurationCapped() {
+        wasDurationCapped = false
+    }
+
+    // MARK: - Cancel
+
+    /// Cancel and return to idle from any state.
+    public func cancel() {
+        recordingState = .idle
+        interimText = nil
+    }
+
+    // MARK: - Hotkey handling
+
     /// Handle hotkey press based on current recording mode.
-    /// Returns true if recording started, false if stopped.
+    /// Returns true if recording started, false if stopped or cancelled.
     @discardableResult
     public func handleHotkeyDown() -> Bool {
         switch recordingMode {
         case .pushToTalk:
-            startRecording()
-            return recordingState == .recording
+            startStreaming()
+            return recordingState == .streaming
         case .toggle:
             if recordingState == .idle {
-                startRecording()
+                startStreaming()
                 return true
-            } else if recordingState == .recording {
-                stopRecording()
+            } else if recordingState == .streaming {
+                stopStreaming()
                 return false
             }
             return false
@@ -106,6 +151,6 @@ public final class AppState {
     /// Handle hotkey release (used for push-to-talk mode).
     public func handleHotkeyUp() {
         guard recordingMode == .pushToTalk else { return }
-        stopRecording()
+        stopStreaming()
     }
 }
