@@ -8,6 +8,8 @@ struct SusurrusApp: App {
     @State private var pulseOn = false
     @State private var pulseTimer: Timer?
     @State private var modelLoading = false
+    /// Live observation of recordingMode preference (fixes #9).
+    @AppStorage("recordingMode") private var recordingMode = "push-to-talk"
 
     // Services
     private let transcriptionService = WhisperKitTranscriptionService()
@@ -29,6 +31,13 @@ struct SusurrusApp: App {
     // Throttle: minimum interval between overlay updates (ms)
     private let overlayThrottleInterval: TimeInterval = 0.1
     private var lastOverlayUpdate: Date = .distantPast
+
+    /// Set to true while a model reload is in flight; disables model picker in UI.
+    @State private var modelReloading = false
+
+    /// The currently in-flight model reload task. Stored so it can be cancelled
+    /// when the user selects a different model before the current reload finishes.
+    @State private var currentModelReloadTask: Task<Void, Never>?
 
     // Streaming overlay window
     private var overlayWindow: StreamingOverlayWindow?
@@ -88,15 +97,34 @@ struct SusurrusApp: App {
         .onChange(of: appState.interimText) { _, newInterim in
             handleInterimTextChange(newInterim)
         }
+        .onChange(of: recordingMode) { _, newMode in
+            // Sync live preference change to AppState (fixes #9)
+            if let mode = RecordingMode(rawValue: newMode) {
+                appState.recordingMode = mode
+            }
+        }
 
         Window("Susurrus Preferences", id: "preferences") {
             PreferencesView()
         }
         .onChange(of: preferences.selectedModel()) { _, newModel in
-            Task {
+            // Cancel any in-flight reload before starting a new one
+            currentModelReloadTask?.cancel()
+            let task = Task { @MainActor in
+                modelReloading = true
+                UserDefaults.standard.set(true, forKey: "modelReloading")
                 await reloadModel(newModel)
+                modelReloading = false
+                UserDefaults.standard.set(false, forKey: "modelReloading")
             }
+            currentModelReloadTask = task
         }
+
+    /// The currently in-flight model reload task. Stored so it can be cancelled
+    /// when the user selects a different model before the current reload finishes.
+    @State private var currentModelReloadTask: Task<Void, Never>?
+
+    @State private var modelReloading = false
 
         Window("History", id: "history") {
             HistoryView()
