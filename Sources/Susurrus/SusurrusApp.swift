@@ -11,6 +11,7 @@ struct SusurrusApp: App {
 
     // Services
     private let transcriptionService = WhisperKitTranscriptionService()
+    private let streamingService = StreamingTranscriptionService()
     private let audioCapture = AudioCaptureService()
     private let clipboard = PasteboardClipboardService()
     private let notificationService = UserNotificationService()
@@ -26,26 +27,15 @@ struct SusurrusApp: App {
     // Recording duration timer
     @State private var durationTimer: Timer?
 
+    // Streaming overlay window
+    private var overlayWindow: StreamingOverlayWindow?
+
     init() {
-        // R1: Hide Dock icon — app lives in menu bar only.
-        // LSUIElement in Info.plist handles launch-time hiding, but the runtime
-        // call is also needed for SwiftUI's MenuBarExtra to persist correctly.
         NSApplication.shared.setActivationPolicy(.accessory)
 
-        // Prompt for Accessibility if not yet trusted (needed for auto-paste)
         if !AXIsProcessTrusted() {
             PasteboardClipboardService.promptAccessibility()
         }
-
-        // Register hotkeys immediately (don't wait for menu bar click)
-        setupHotkeyIfNeeded()
-        setupLLMHotkeyIfNeeded()
-
-        // Start loading the Whisper model immediately so hotkey works sooner
-        startModelLoadingIfNeeded()
-
-        // Sync recording mode from preferences on launch
-        appState.recordingMode = preferences.recordingMode()
     }
 
     var menuBarIcon: String {
@@ -59,6 +49,10 @@ struct SusurrusApp: App {
             return pulseOn ? MenuBarIcon.recordingFrameA : MenuBarIcon.recordingFrameB
         case .processing:
             return pulseOn ? MenuBarIcon.processingFrameA : MenuBarIcon.processingFrameB
+        case .streaming:
+            return MenuBarIcon.streamingSymbolName
+        case .finalizing:
+            return MenuBarIcon.finalizingSymbolName
         }
     }
 
@@ -76,6 +70,9 @@ struct SusurrusApp: App {
         }
         .onChange(of: appState.recordingState) { _, newState in
             handleStateChange(newState)
+        }
+        .onChange(of: appState.interimText) { _, newInterim in
+            handleInterimTextChange(newInterim)
         }
 
         Window("Susurrus Preferences", id: "preferences") {
@@ -115,6 +112,16 @@ struct SusurrusApp: App {
                     }
                 }
             )
+            // Also preload the streaming service with the same model
+            try await streamingService.setupModel(
+                modelName: model,
+                onDownloadProgress: { progress in
+                    Task { @MainActor in
+                        appState.modelLoadProgress = progress
+                        UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
+                    }
+                }
+            )
             appState.modelReady = true
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
@@ -132,8 +139,18 @@ struct SusurrusApp: App {
         UserDefaults.standard.set(modelName, forKey: "modelDownloadingName")
         UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         await transcriptionService.unloadModel()
+        await streamingService.unloadModel()
         do {
             try await transcriptionService.setupModel(
+                modelName: modelName,
+                onDownloadProgress: { progress in
+                    Task { @MainActor in
+                        appState.modelLoadProgress = progress
+                        UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
+                    }
+                }
+            )
+            try await streamingService.setupModel(
                 modelName: modelName,
                 onDownloadProgress: { progress in
                     Task { @MainActor in
@@ -162,8 +179,6 @@ struct SusurrusApp: App {
     private func setupHotkeyIfNeeded() {
         guard !appState.hotkeyConfigured else { return }
 
-        // On first launch or when migrating from old hotkeys, set the default (Option+Space).
-        // Previous defaults: F6 (0x6F/0x3F), Option+Cmd+R (0x0F).
         if !hotkeyStorage.isConfigured {
             hotkeyStorage.save(combo: .default)
         } else if let combo = hotkeyStorage.loadCombo(),
@@ -179,11 +194,8 @@ struct SusurrusApp: App {
                     combo: combo,
                     onKeyDown: { [self] in
                         Task { @MainActor in
-                            print("[Susurrus] Hotkey down — state: \(appState.recordingState), modelReady: \(appState.modelReady)")
                             let started = appState.handleHotkeyDown()
-                            print("[Susurrus] handleHotkeyDown -> started=\(started), newState=\(appState.recordingState)")
                             if started {
-                                // Request permission if needed
                                 if appState.micPermission == .undetermined {
                                     let perm = await micPermissionManager.requestPermission()
                                     appState.micPermission = perm
@@ -215,7 +227,7 @@ struct SusurrusApp: App {
     private func setupLLMHotkeyIfNeeded() {
         guard !appState.llmHotkeyConfigured else { return }
 
-        let combo = HotkeyCombo.withLLM // Shift+Option+Space
+        let combo = HotkeyCombo.withLLM
         Task {
             do {
                 try await llmHotkeyService.register(
@@ -250,84 +262,136 @@ struct SusurrusApp: App {
         }
     }
 
-    // MARK: - State handling
+    // MARK: - State change handling
 
     private func handleStateChange(_ newState: RecordingState) {
         updatePulseAnimation(newState)
 
         switch newState {
-        case .recording:
-            startDurationTimer()
-            Task {
-                do {
-                    try await audioCapture.startCapture()
-                } catch {
-                    appState.cancel()
+        case .streaming:
+            startStreamingSession()
+        case .finalizing:
+            stopStreamingSession()
+        case .idle:
+            stopDurationTimer()
+        case .recording, .processing:
+            // Batch mode — handled by Phase 7; no-op for now
+            break
+        }
+    }
+
+    /// Called whenever appState.interimText changes.
+    /// Updates the overlay with the latest confirmed/unconfirmed text.
+    private func handleInterimTextChange(_ interim: InterimTranscript?) {
+        guard let interim else { return }
+        overlayWindow?.show(confirmed: interim.confirmed, unconfirmed: interim.unconfirmed)
+    }
+
+    // MARK: - Streaming session
+
+    private func startStreamingSession() {
+        startDurationTimer()
+
+        // Lazily create the overlay window
+        if overlayWindow == nil {
+            overlayWindow = StreamingOverlayWindow()
+        }
+
+        // Sync vocabulary bias
+        let vocab = vocabularyManager.promptString()
+        Task {
+            await streamingService.setVocabularyPrompt(vocab)
+        }
+
+        // Start streaming
+        Task {
+            do {
+                try await streamingService.startStreamTranscription { [weak self] transcript in
+                    Task { @MainActor in
+                        self?.appState.interimText = transcript
+                    }
+                }
+            } catch {
+                Task { @MainActor in
+                    self.appState.cancel()
+                    self.notificationService.showNotification(
+                        title: "Susurrus",
+                        body: "Streaming failed to start"
+                    )
                 }
             }
-        case .processing:
-            stopDurationTimer()
-            let appendMode = preferences.appendToClipboard()
-            let shouldLLM = appState.forceLLM || preferences.llmEnabled()
-            appState.forceLLM = false
-            Task {
-                do {
-                    let audioBuffer = try await audioCapture.stopCapture()
-                    // Sync vocabulary bias before transcription
-                    let vocab = vocabularyManager.promptString()
-                    await transcriptionService.setVocabularyPrompt(vocab)
+        }
+    }
 
-                    var text = try await transcriptionService.transcribe(audio: audioBuffer)
+    private func stopStreamingSession() {
+        stopDurationTimer()
+        overlayWindow?.hide()
 
-                    if !text.isEmpty {
-                        if shouldLLM {
-                            do {
-                                let prompt = preferences.llmSystemPrompt()
-                                text = try await llmService.process(text: text, systemPrompt: prompt)
-                            } catch {
-                                // LLM failed — use raw transcription
-                            }
+        let appendMode = preferences.appendToClipboard()
+        let shouldLLM = appState.forceLLM || preferences.llmEnabled()
+        appState.forceLLM = false
+
+        Task {
+            do {
+                let text = try await streamingService.stopStreamTranscription()
+
+                if !text.isEmpty {
+                    var finalText = text
+
+                    if shouldLLM {
+                        do {
+                            let prompt = preferences.llmSystemPrompt()
+                            finalText = try await llmService.process(text: text, systemPrompt: prompt)
+                        } catch {
+                            // LLM failed — use raw transcription
                         }
-                        if appendMode {
-                            clipboard.appendText(text)
-                        } else {
-                            clipboard.writeText(text)
-                        }
-                        let autoPaste = preferences.autoPasteEnabled()
-                        Logger(subsystem: "com.susurrus.app", category: "Flow").info("autoPaste=\(autoPaste), AX=\(AXIsProcessTrusted())")
-                        if autoPaste {
-                            try? await Task.sleep(for: .milliseconds(150))
-                            let pasted = clipboard.simulatePaste()
-                            if !pasted {
-                                notificationService.showNotification(
-                                    title: "Susurrus",
-                                    body: "Auto-paste requires Accessibility access. Enable in System Settings > Privacy & Security > Accessibility."
-                                )
-                            }
-                        }
-                        historyManager.add(text)
-                    } else {
-                        notificationService.showNotification(
-                            title: "Susurrus",
-                            body: "No speech detected"
-                        )
                     }
-                } catch TranscriptionError.noSpeechDetected {
+
+                    if appendMode {
+                        clipboard.appendText(finalText)
+                    } else {
+                        clipboard.writeText(finalText)
+                    }
+
+                    let autoPaste = preferences.autoPasteEnabled()
+                    Logger(subsystem: "com.susurrus.app", category: "Flow").info("autoPaste=\(autoPaste)")
+                    if autoPaste {
+                        try? await Task.sleep(for: .milliseconds(150))
+                        let pasted = clipboard.simulatePaste()
+                        if !pasted {
+                            notificationService.showNotification(
+                                title: "Susurrus",
+                                body: "Auto-paste requires Accessibility access. Enable in System Settings > Privacy & Security > Accessibility."
+                            )
+                        }
+                    }
+
+                    historyManager.add(finalText)
+                } else {
                     notificationService.showNotification(
                         title: "Susurrus",
                         body: "No speech detected"
                     )
-                } catch {
-                    // Transcription failed — clipboard is untouched (R17)
                 }
-                appState.finishProcessing()
+            } catch TranscriptionError.noSpeechDetected {
+                notificationService.showNotification(
+                    title: "Susurrus",
+                    body: "No speech detected"
+                )
+            } catch {
+                // Transcription failed — clipboard untouched
             }
-        case .idle:
-            stopDurationTimer()
+
+            // Consume the duration cap flag after notification (Behaviour 2.6)
+            if appState.wasDurationCapped {
+                appState.consumeDurationCapped()
+            }
+
+            appState.finishStreaming()
         }
     }
 
-    // MARK: - Duration cap (R9)
+    // MARK: - Duration cap
 
     private func startDurationTimer() {
         durationTimer?.invalidate()
@@ -357,7 +421,7 @@ struct SusurrusApp: App {
         pulseTimer?.invalidate()
         pulseTimer = nil
 
-        guard state == .recording || state == .processing else {
+        guard state == .streaming || state == .finalizing || state == .recording || state == .processing else {
             pulseOn = false
             return
         }

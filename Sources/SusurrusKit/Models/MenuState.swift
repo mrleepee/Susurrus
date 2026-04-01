@@ -13,17 +13,19 @@ public enum MenuState {
         switch state {
         case .idle, .processing:
             return .startRecording
-        case .recording:
+        case .recording, .streaming:
             return .stopRecording
+        case .finalizing:
+            return .startRecording
         }
     }
 
     /// Whether the recording action is enabled in the current state.
     public static func isRecordingEnabled(for state: RecordingState) -> Bool {
         switch state {
-        case .idle, .recording:
+        case .idle, .recording, .streaming:
             return true
-        case .processing:
+        case .processing, .finalizing:
             return false
         }
     }
