@@ -260,9 +260,22 @@ struct SusurrusApp: App {
                     }
                 )
                 appState.hotkeyConfigured = true
+            } catch let error as HotkeyError {
+                let reason: String
+                if case .registrationFailed(let msg) = error {
+                    reason = msg
+                } else {
+                    reason = String(describing: error)
+                }
+                notificationService.showNotification(
+                    title: "Susurrus",
+                    body: "Hotkey registration failed: \(reason). The hotkey may conflict with another app."
+                )
             } catch {
-                // Hotkey registration failed
-            }
+                notificationService.showNotification(
+                    title: "Susurrus",
+                    body: "Hotkey registration failed for an unknown reason."
+                )
         }
     }
 
@@ -298,9 +311,22 @@ struct SusurrusApp: App {
                     }
                 )
                 appState.llmHotkeyConfigured = true
+            } catch let error as HotkeyError {
+                let reason: String
+                if case .registrationFailed(let msg) = error {
+                    reason = msg
+                } else {
+                    reason = String(describing: error)
+                }
+                notificationService.showNotification(
+                    title: "Susurrus",
+                    body: "LLM hotkey registration failed: \(reason). The hotkey may conflict with another app."
+                )
             } catch {
-                // LLM hotkey registration failed
-            }
+                notificationService.showNotification(
+                    title: "Susurrus",
+                    body: "LLM hotkey registration failed for an unknown reason."
+                )
         }
     }
 
