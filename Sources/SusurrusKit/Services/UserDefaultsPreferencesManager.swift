@@ -18,6 +18,18 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        // Register defaults so all consumers (UserDefaultsPreferencesManager
+        // and @AppStorage) see the same initial values (fixes #10).
+        registerDefaults()
+    }
+
+    private func registerDefaults() {
+        defaults.register(defaults: [
+            Keys.recordingMode: RecordingMode.pushToTalk.rawValue,
+            Keys.autoPasteEnabled: true,
+            Keys.appendToClipboard: false,
+            Keys.llmEnabled: false,
+        ])
     }
 
     /// Factory for testing with an isolated UserDefaults suite.

@@ -181,7 +181,9 @@ struct SusurrusApp: App {
         UserDefaults.standard.set(modelName, forKey: "modelDownloadingName")
         UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         await transcriptionService.unloadModel()
+        try Task.checkCancellation()
         await streamingService.unloadModel()
+        try Task.checkCancellation()
         do {
             try await transcriptionService.setupModel(
                 modelName: modelName,
@@ -192,6 +194,7 @@ struct SusurrusApp: App {
                     }
                 }
             )
+            try Task.checkCancellation()
             try await streamingService.setupModel(
                 modelName: modelName,
                 onDownloadProgress: { progress in
@@ -201,7 +204,13 @@ struct SusurrusApp: App {
                     }
                 }
             )
+            try Task.checkCancellation()
             appState.modelReady = true
+            UserDefaults.standard.set("", forKey: "modelDownloadingName")
+            UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
+        } catch is CancellationError {
+            // Reload was cancelled — model is not ready; let the next selection restart
+            modelLoading = false
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
