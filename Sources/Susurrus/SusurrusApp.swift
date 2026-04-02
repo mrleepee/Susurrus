@@ -120,11 +120,6 @@ struct SusurrusApp: App {
             currentModelReloadTask = task
         }
 
-    /// The currently in-flight model reload task. Stored so it can be cancelled
-    /// when the user selects a different model before the current reload finishes.
-    @State private var currentModelReloadTask: Task<Void, Never>?
-
-    @State private var modelReloading = false
 
         Window("History", id: "history") {
             HistoryView()
@@ -181,7 +176,9 @@ struct SusurrusApp: App {
         UserDefaults.standard.set(modelName, forKey: "modelDownloadingName")
         UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         await transcriptionService.unloadModel()
+        try Task.checkCancellation()
         await streamingService.unloadModel()
+        try Task.checkCancellation()
         do {
             try await transcriptionService.setupModel(
                 modelName: modelName,
@@ -192,6 +189,7 @@ struct SusurrusApp: App {
                     }
                 }
             )
+            try Task.checkCancellation()
             try await streamingService.setupModel(
                 modelName: modelName,
                 onDownloadProgress: { progress in
@@ -201,6 +199,7 @@ struct SusurrusApp: App {
                     }
                 }
             )
+            try Task.checkCancellation()
             appState.modelReady = true
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
