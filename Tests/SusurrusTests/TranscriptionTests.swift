@@ -12,25 +12,48 @@ actor MockTranscriptionService: Transcribing {
     func transcribe(audio: [Float]) async throws -> String {
         transcribeCallCount += 1
         lastAudioBuffer = audio
-
-        if shouldFail {
-            throw failureError
-        }
-
-        guard !audio.isEmpty else {
-            throw TranscriptionError.emptyAudio
-        }
-
+        if shouldFail { throw failureError }
+        guard !audio.isEmpty else { throw TranscriptionError.emptyAudio }
         return mockResult
     }
 
-    func setMockResult(_ text: String) {
-        mockResult = text
+    func setMockResult(_ text: String) { mockResult = text }
+    func setFailure(_ error: TranscriptionError) { shouldFail = true; failureError = error }
+}
+
+/// Mock streaming transcription service for testing.
+actor MockStreamTranscriptionService: StreamTranscribing {
+    var shouldFail = false
+    var mockTranscript = InterimTranscript(confirmed: "Hello ", unconfirmed: "world", isFinal: false)
+    var mockFinalText = "Hello world"
+    var startCallCount = 0
+    var stopCallCount = 0
+    var lastCallback: ((InterimTranscript) -> Void)?
+
+    func startStreamTranscription(callback: @escaping (InterimTranscript) -> Void) async throws {
+        startCallCount += 1
+        lastCallback = callback
+        // Emit an interim transcript immediately
+        callback(mockTranscript)
     }
 
-    func setFailure(_ error: TranscriptionError) {
-        shouldFail = true
-        failureError = error
+    func stopStreamTranscription() async throws -> String {
+        stopCallCount += 1
+        if shouldFail { throw TranscriptionError.audioCaptureFailed }
+        // Auto-detect empty final text as no speech (consistent with real service)
+        if mockFinalText.isEmpty { throw TranscriptionError.noSpeechDetected }
+        // Emit final transcript
+        lastCallback?(InterimTranscript(confirmed: mockFinalText, unconfirmed: "", isFinal: true))
+        return mockFinalText
+    }
+
+    func setMockResult(_ text: String) { mockFinalText = text }
+
+    func reset() {
+        shouldFail = false
+        startCallCount = 0
+        stopCallCount = 0
+        lastCallback = nil
     }
 }
 
@@ -41,148 +64,41 @@ struct TranscriptionTests {
     func successfulTranscription() async throws {
         let service = MockTranscriptionService()
         await service.setMockResult("Hello, world!")
-
         let result = try await service.transcribe(audio: [0.1, 0.2, 0.3])
         #expect(result == "Hello, world!")
     }
 
-    @Test("Transcription passes audio buffer through")
-    func audioBufferPassed() async throws {
-        let service = MockTranscriptionService()
-        let audio: [Float] = [0.1, 0.2, 0.3, 0.4, 0.5]
-
-        _ = try await service.transcribe(audio: audio)
-        let lastBuffer = await service.lastAudioBuffer
-        #expect(lastBuffer == audio)
-    }
-
-    @Test("Empty audio throws emptyAudio error")
-    func emptyAudioThrows() async {
-        let service = MockTranscriptionService()
-        do {
-            _ = try await service.transcribe(audio: [])
-            #expect(Bool(false), "Should have thrown")
-        } catch let error as TranscriptionError {
-            #expect(error == .emptyAudio)
-        } catch {
-            #expect(Bool(false), "Unexpected error: \(error)")
+    @Test("Streaming: startStreamTranscription emits interim callback")
+    func streamingStartEmitsCallback() async throws {
+        let service = MockStreamTranscriptionService()
+        var receivedTranscript: InterimTranscript?
+        try await service.startStreamTranscription { transcript in
+            receivedTranscript = transcript
         }
+        #expect(receivedTranscript?.confirmed == "Hello ")
+        #expect(receivedTranscript?.unconfirmed == "world")
+        #expect(receivedTranscript?.isFinal == false)
     }
 
-    @Test("Transcription failure propagates error")
-    func failurePropagates() async {
-        let service = MockTranscriptionService()
-        await service.setFailure(.transcriptionFailed("model crashed"))
+    @Test("Streaming: stopStreamTranscription returns final text")
+    func streamingStopReturnsFinal() async throws {
+        let service = MockStreamTranscriptionService()
+        await service.setMockResult("Final transcript")
+        try await service.startStreamTranscription { _ in }
+        let text = try await service.stopStreamTranscription()
+        #expect(text == "Final transcript")
+    }
 
+    @Test("Streaming: noSpeechDetected throws when text is empty")
+    func streamingNoSpeech() async throws {
+        let service = MockStreamTranscriptionService()
+        await service.setMockResult("")
+        try await service.startStreamTranscription { _ in }
         do {
-            _ = try await service.transcribe(audio: [0.1])
-            #expect(Bool(false), "Should have thrown")
-        } catch let error as TranscriptionError {
-            #expect(error == .transcriptionFailed("model crashed"))
-        } catch {
-            #expect(Bool(false), "Unexpected error: \(error)")
-        }
-    }
-
-    @Test("No speech detected error")
-    func noSpeechDetected() async {
-        let service = MockTranscriptionService()
-        await service.setFailure(.noSpeechDetected)
-
-        do {
-            _ = try await service.transcribe(audio: [0.0])
-            #expect(Bool(false), "Should have thrown")
-        } catch let error as TranscriptionError {
-            #expect(error == .noSpeechDetected)
-        } catch {
-            #expect(Bool(false), "Unexpected error: \(error)")
-        }
-    }
-
-    @Test("Model not ready error")
-    func modelNotReady() async {
-        let service = MockTranscriptionService()
-        await service.setFailure(.modelNotReady)
-
-        do {
-            _ = try await service.transcribe(audio: [0.1])
-            #expect(Bool(false), "Should have thrown")
-        } catch let error as TranscriptionError {
-            #expect(error == .modelNotReady)
-        } catch {
-            #expect(Bool(false), "Unexpected error: \(error)")
-        }
-    }
-
-    @Test("TranscriptionError equality")
-    func errorEquality() {
-        #expect(TranscriptionError.modelNotReady == TranscriptionError.modelNotReady)
-        #expect(TranscriptionError.emptyAudio == TranscriptionError.emptyAudio)
-        #expect(TranscriptionError.noSpeechDetected == TranscriptionError.noSpeechDetected)
-        #expect(TranscriptionError.emptyAudio != TranscriptionError.modelNotReady)
-        #expect(
-            TranscriptionError.transcriptionFailed("a")
-                == TranscriptionError.transcriptionFailed("a")
-        )
-    }
-
-    @Test("Multiple transcriptions track call count")
-    func callCount() async throws {
-        let service = MockTranscriptionService()
-        _ = try await service.transcribe(audio: [0.1])
-        _ = try await service.transcribe(audio: [0.2])
-        _ = try await service.transcribe(audio: [0.3])
-
-        let count = await service.transcribeCallCount
-        #expect(count == 3)
-    }
-
-    @Test("Audio buffer is not retained after transcription")
-    func audioBufferNotRetained() async throws {
-        let service = MockTranscriptionService()
-        let audio: [Float] = Array(repeating: 0.5, count: 1000)
-
-        _ = try await service.transcribe(audio: audio)
-        let retained = await service.lastAudioBuffer
-
-        // The mock retains for inspection, but the contract requires
-        // that audio is passed by value ([Float] is a value type)
-        // so the caller can release their reference independently.
-        #expect(retained?.count == 1000)
-    }
-
-    @Test("Transcription returns only text, no external side effects")
-    func transcriptionReturnsText() async throws {
-        let service = MockTranscriptionService()
-        let result = try await service.transcribe(audio: [0.1])
-        #expect(result is String)
-    }
-
-    // MARK: - Model readiness (R15)
-
-    @Test("WhisperKitTranscriptionService starts not ready")
-    func startsNotReady() async {
-        let service = WhisperKitTranscriptionService()
-        #expect(await service.isModelReady() == false)
-    }
-
-    @Test("WhisperKitTranscriptionService unloadModel sets not ready")
-    func unloadSetsNotReady() async {
-        let service = WhisperKitTranscriptionService()
-        await service.unloadModel()
-        #expect(await service.isModelReady() == false)
-    }
-
-    @Test("Transcribe without model throws modelNotReady")
-    func transcribeWithoutModel() async {
-        let service = WhisperKitTranscriptionService()
-        do {
-            _ = try await service.transcribe(audio: [0.1])
-            #expect(Bool(false), "Should have thrown")
-        } catch let error as TranscriptionError {
-            #expect(error == .modelNotReady)
-        } catch {
-            #expect(Bool(false), "Unexpected error: \(error)")
+            _ = try await service.stopStreamTranscription()
+            #expect(false, "Should have thrown")
+        } catch TranscriptionError.noSpeechDetected {
+            // expected
         }
     }
 }

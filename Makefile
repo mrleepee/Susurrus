@@ -17,7 +17,7 @@ bundle: release
 	mkdir -p $(APP_BUNDLE)/Contents/Resources
 	cp .build/release/$(APP_NAME) $(APP_BUNDLE)/Contents/MacOS/
 	cp Info.plist $(APP_BUNDLE)/Contents/
-	@if [ -f .env ]; then cp .env $(APP_BUNDLE)/Contents/Resources/; fi
+	# Never ship .env or any secrets in the bundle — API keys belong in macOS Keychain only
 	codesign --force --sign - $(APP_BUNDLE)
 	@echo "Built $(APP_BUNDLE)"
 

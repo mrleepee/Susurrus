@@ -7,23 +7,31 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        // R3: Menu items based on state
         Group {
-            if appState.recordingState == .recording {
+            // R3 / Phase 6: Menu items based on state
+            if appState.recordingState == .recording || appState.recordingState == .streaming {
                 Button("Stop Recording") {
-                    appState.stopRecording()
+                    appState.stopStreaming()
                 }
             } else {
                 Button("Start Recording") {
-                    appState.startRecording()
+                    appState.startStreaming()
                 }
-                .disabled(!appState.modelReady || appState.recordingState == .processing)
+                .disabled(
+                    !appState.modelReady
+                    || appState.recordingState == .processing
+                    || appState.recordingState == .finalizing
+                )
             }
 
             if appState.recordingState == .processing {
                 ProgressView(value: appState.transcriptionProgress) {
                     Text("Transcribing...")
                 }
+            } else if appState.recordingState == .finalizing {
+                // No progress bar during finalization — user just waits
+                Text("Finalizing...")
+                    .foregroundColor(.secondary)
             } else if !appState.modelReady {
                 ProgressView(value: appState.modelLoadProgress) {
                     Text("Loading model...")

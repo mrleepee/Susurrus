@@ -2,17 +2,21 @@ import Foundation
 
 /// LLM post-processing service using Anthropic-compatible API.
 /// Reads configuration from (in priority order):
-/// 1. UserDefaults (set via Preferences UI)
-/// 2. Bundled .env file (Contents/Resources/.env)
-/// 3. Hardcoded defaults
+/// 1. macOS Keychain (API key — never stored in UserDefaults or .env)
+/// 2. UserDefaults (model, endpoint)
+/// 3. Bundled .env file (model, endpoint only — NOT the API key)
+/// 4. Hardcoded defaults
 public final class LLMService: LLMProcessing, @unchecked Sendable {
     private let session: URLSession
-    /// Optional override for the API key. When set, overrides all config sources
-    /// (UserDefaults, .env file). Intended for testing and internal use.
+    private let keychain: KeychainService
+
+    /// Optional override for the API key. When set, overrides all config sources.
+    /// Intended for testing only — do not use in production.
     private let apiKeyOverride: String?
 
     public init(session: URLSession = .shared, apiKeyOverride: String? = nil) {
         self.session = session
+        self.keychain = KeychainService()
         self.apiKeyOverride = apiKeyOverride
     }
 
@@ -24,15 +28,16 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
         let endpoint: String
     }
 
+    /// Loads .env file from the bundle's Resources directory.
+    /// Used only for non-sensitive config (model, endpoint).
+    /// The API key is NEVER loaded from .env in production.
     private static func loadEnvFile() -> [String: String] {
         var env: [String: String] = [:]
-        // Check bundle Resources first, then project root
         let candidates: [URL] = {
             var paths: [URL] = []
             if let bundleURL = Bundle.main.url(forResource: ".env", withExtension: nil, subdirectory: nil) {
                 paths.append(bundleURL)
             }
-            // Fallback: look next to the executable (for development)
             if let execPath = Bundle.main.executablePath {
                 let execDir = URL(fileURLWithPath: execPath).deletingLastPathComponent()
                 paths.append(execDir.appendingPathComponent("../Resources/.env"))
@@ -47,7 +52,6 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
                 guard !trimmed.hasPrefix("#"), let eq = trimmed.firstIndex(of: "=") else { continue }
                 let key = String(trimmed[..<eq]).trimmingCharacters(in: .whitespaces)
                 var value = String(trimmed[trimmed.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
-                // Strip surrounding quotes
                 if (value.hasPrefix("\"") && value.hasSuffix("\"")) ||
                    (value.hasPrefix("'") && value.hasSuffix("'")) {
                     value = String(value.dropFirst().dropLast())
@@ -63,7 +67,11 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
         let defaults = UserDefaults.standard
         let env = Self.loadEnvFile()
 
-        let apiKey = apiKeyOverride ?? defaults.string(forKey: "llmApiKey") ?? env["LLM_API_KEY"] ?? ""
+        // API key: Keychain (primary), apiKeyOverride (testing), else ""
+        // Never fall back to .env or UserDefaults for the API key.
+        let apiKey = apiKeyOverride ?? keychain.get("llmApiKey") ?? ""
+
+        // Model and endpoint: UserDefaults with .env and hardcoded defaults as fallbacks
         let model = defaults.string(forKey: "llmModel") ?? env["LLM_MODEL"] ?? "MiniMax-M2.5"
         let endpoint = defaults.string(forKey: "llmEndpoint") ?? env["LLM_ENDPOINT"] ?? "https://api.minimax.io/anthropic/v1/messages"
 
@@ -76,7 +84,7 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
         let config = resolveConfig()
 
         guard !config.apiKey.isEmpty else {
-            throw LLMError.requestFailed("API key not configured. Set it in Preferences > LLM or in the .env file.")
+            throw LLMError.requestFailed("API key not configured. Set it in Preferences > LLM.")
         }
 
         guard let endpointURL = URL(string: config.endpoint) else {
@@ -115,14 +123,12 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
             throw LLMError.requestFailed("HTTP \(httpResponse.statusCode): \(body)")
         }
 
-        // Anthropic response format: content is an array of blocks
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contentBlocks = json["content"] as? [[String: Any]]
         else {
             throw LLMError.invalidResponse
         }
 
-        // Take the first "text" block (skip "thinking" blocks)
         for block in contentBlocks {
             if block["type"] as? String == "text",
                let blockText = block["text"] as? String,

@@ -15,6 +15,18 @@ public enum MenuBarIcon {
     public static let loadingFrameA = "arrow.down.circle.fill"
     public static let loadingFrameB = "arrow.down.circle"
 
+    /// SF Symbol for streaming state (live waveform).
+    public static let streamingFrameA = "waveform.circle.fill"
+    public static let streamingFrameB = "waveform.circle"
+
+    /// SF Symbol for finalizing state.
+    public static let finalizingFrameA = "ellipsis.circle.fill"
+    public static let finalizingFrameB = "ellipsis.circle"
+
+    /// Convenience accessors for streaming/finalizing states.
+    public static let streamingSymbolName = "waveform.circle.fill"
+    public static let finalizingSymbolName = "ellipsis.circle.fill"
+
     /// Returns the SF Symbol name for the given recording state.
     public static func symbolName(for state: RecordingState) -> String {
         switch state {
@@ -24,6 +36,10 @@ public enum MenuBarIcon {
             recordingFrameA
         case .processing:
             processingFrameA
+        case .streaming:
+            streamingFrameA
+        case .finalizing:
+            finalizingFrameA
         }
     }
 
@@ -36,6 +52,10 @@ public enum MenuBarIcon {
             "Susurrus — Recording"
         case .processing:
             "Susurrus — Processing"
+        case .streaming:
+            "Susurrus — Streaming"
+        case .finalizing:
+            "Susurrus — Finalizing"
         }
     }
 }

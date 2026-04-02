@@ -29,6 +29,11 @@ public final class AudioCaptureService: AudioCapturing, @unchecked Sendable {
     private func lock() { os_unfair_lock_lock(&unfairLock) }
     private func unlock() { os_unfair_lock_unlock(&unfairLock) }
 
+    /// Resets the capturing flag. Call inside lock.
+    private func resetCapturingFlag() {
+        capturingFlag = false
+    }
+
     public func isCurrentlyCapturing() async -> Bool {
         lock()
         defer { unlock() }
@@ -45,20 +50,25 @@ public final class AudioCaptureService: AudioCapturing, @unchecked Sendable {
         capturingFlag = true
         unlock()
 
-        // Lazily set up engine, converter, and tap (once only)
-        if engine == nil {
-            try setupEngine()
-        }
+        // If setupEngine() or engine.start() throws, we must reset the flag
+        // so later recording attempts don't fail with .alreadyCapturing.
+        do {
+            // Lazily set up engine, converter, and tap (once only)
+            if engine == nil {
+                try setupEngine()
+            }
 
-        guard let engine else {
-            lock()
-            capturingFlag = false
-            unlock()
-            throw AudioCaptureError.engineFailure("Engine not available")
-        }
+            guard let engine else {
+                lock(); resetCapturingFlag(); unlock()
+                throw AudioCaptureError.engineFailure("Engine not available")
+            }
 
-        if !engine.isRunning {
-            try engine.start()
+            if !engine.isRunning {
+                try engine.start()
+            }
+        } catch {
+            lock(); resetCapturingFlag(); unlock()
+            throw error
         }
     }
 

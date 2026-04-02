@@ -1,19 +1,21 @@
 import SwiftUI
 import SusurrusKit
 
+private let keychain = KeychainService()
+
 struct PreferencesView: View {
     @AppStorage("recordingMode") private var recordingMode = "push-to-talk"
     @AppStorage("appendToClipboard") private var appendToClipboard = false
     @AppStorage("selectedModel") private var selectedModel = "base"
     @AppStorage("llmEnabled") private var llmEnabled = false
-    @AppStorage("autoPasteEnabled") private var autoPasteEnabled = false
+    @AppStorage("autoPasteEnabled") private var autoPasteEnabled = true
     @State private var axTrusted = false
-    @AppStorage("llmApiKey") private var llmApiKey: String = ""
     @AppStorage("llmModel") private var llmModel: String = "MiniMax-M2.5"
     @AppStorage("llmEndpoint") private var llmEndpoint: String = "https://api.minimax.io/anthropic/v1/messages"
     @AppStorage("llmSystemPrompt") private var llmSystemPrompt = UserDefaultsPreferencesManager.defaultLLMPrompt
     @State private var vocabularyText: String = ""
     @State private var showApiKey: Bool = false
+    @State private var apiKeyText: String = ""
 
     // Download state bridged from SusurrusApp via UserDefaults
     @AppStorage("modelDownloadProgress") private var modelDownloadProgress: Double = 0
@@ -21,6 +23,8 @@ struct PreferencesView: View {
 
     @State private var cachedModels: Set<String> = []
     @State private var escapeMonitor: Any?
+    /// True while a model reload is in flight — greys out the model picker.
+    @State private var modelReloading = false
 
     private let modelOptions: [(id: String, label: String, detail: String)] = [
         ("base", "Base", "Fastest • ~140MB"),
@@ -53,6 +57,10 @@ struct PreferencesView: View {
                 }
                 return event
             }
+            // Observe modelReloading state to disable picker during reload
+            observeModelReloading()
+            // Load API key from Keychain on appear
+            apiKeyText = keychain.get("llmApiKey") ?? ""
         }
         .onDisappear {
             if let monitor = escapeMonitor {
@@ -71,6 +79,13 @@ struct PreferencesView: View {
             // Refresh cache list when download completes
             if newProgress >= 1.0 {
                 loadCachedModels()
+            }
+        }
+        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+            // Poll modelReloading flag written by SusurrusApp
+            let reloading = UserDefaults.standard.bool(forKey: "modelReloading")
+            if modelReloading != reloading {
+                modelReloading = reloading
             }
         }
     }
@@ -228,8 +243,23 @@ struct PreferencesView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .disabled(modelReloading)
+        .opacity(modelReloading ? 0.5 : 1.0)
+        .overlay {
+            if modelReloading {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .controlSize(.small)
+                    Text("Switching model...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+            }
+        }
         .onTapGesture {
-            guard selectedModel != option.id else { return }
+            guard !modelReloading, selectedModel != option.id else { return }
             selectedModel = option.id
         }
     }
@@ -259,11 +289,18 @@ struct PreferencesView: View {
             Section {
                 HStack {
                     if showApiKey {
-                        TextField("API Key", text: $llmApiKey)
+                        TextField("API Key", text: $apiKeyText)
                             .textFieldStyle(.roundedBorder)
+                            .onChange(of: apiKeyText) { _, newValue in
+                                // Save to Keychain on every keystroke
+                                keychain.set(newValue, for: "llmApiKey")
+                            }
                     } else {
-                        SecureField("API Key", text: $llmApiKey)
+                        SecureField("API Key", text: $apiKeyText)
                             .textFieldStyle(.roundedBorder)
+                            .onChange(of: apiKeyText) { _, newValue in
+                                keychain.set(newValue, for: "llmApiKey")
+                            }
                     }
                     Button(action: { showApiKey.toggle() }) {
                         Image(systemName: showApiKey ? "eye.slash" : "eye")
@@ -299,6 +336,12 @@ struct PreferencesView: View {
     }
 
     // MARK: - Cache Check
+
+    /// Reads the modelReloading flag from UserDefaults (written by SusurrusApp)
+    /// and keeps the local state in sync. Called on .onAppear.
+    private func observeModelReloading() {
+        modelReloading = UserDefaults.standard.bool(forKey: "modelReloading")
+    }
 
     private func loadCachedModels() {
         let fm = FileManager.default
