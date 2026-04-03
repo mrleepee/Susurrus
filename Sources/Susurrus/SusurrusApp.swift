@@ -1,6 +1,22 @@
 import SwiftUI
 import SusurrusKit
+import AVFoundation
 import os.log
+
+private let log = Logger(subsystem: "com.susurrus.app", category: "App")
+
+/// NSLog wrapper — always visible in Console.app and `log show`, unlike os.Logger info.
+private func traceApp(_ message: String) {
+    let path = NSHomeDirectory() + "/susurrus_debug.log"
+    let line = "\(Date()) \(message)\n"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        handle.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: Data(line.utf8))
+    }
+}
 
 @main
 struct SusurrusApp: App {
@@ -30,7 +46,7 @@ struct SusurrusApp: App {
 
     // Throttle: minimum interval between overlay updates (ms)
     private let overlayThrottleInterval: TimeInterval = 0.1
-    private var lastOverlayUpdate: Date = .distantPast
+    @State private var lastOverlayUpdate: Date = .distantPast
 
     /// Set to true while a model reload is in flight; disables model picker in UI.
     @State private var modelReloading = false
@@ -40,7 +56,7 @@ struct SusurrusApp: App {
     @State private var currentModelReloadTask: Task<Void, Never>?
 
     // Streaming overlay window
-    private var overlayWindow: StreamingOverlayWindow?
+    @State private var overlayWindow: StreamingOverlayWindow?
 
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -49,16 +65,9 @@ struct SusurrusApp: App {
             PasteboardClipboardService.promptAccessibility()
         }
 
-        // Register hotkeys immediately (don't wait for menu bar click)
         // Note: setupHotkeyIfNeeded and setupLLMHotkeyIfNeeded are called
         // from MenuBarView.onAppear to avoid actor isolation issues in init.
-        // They are also called here for the case where Accessibility is already granted.
-        Task { @MainActor in
-            startModelLoadingIfNeeded()
-            setupHotkeyIfNeeded()
-            setupLLMHotkeyIfNeeded()
-            appState.recordingMode = preferences.recordingMode()
-        }
+        // Model loading also starts from onAppear.
     }
 
     var menuBarIcon: String {
@@ -89,6 +98,9 @@ struct SusurrusApp: App {
                 setupHotkeyIfNeeded()
                 setupLLMHotkeyIfNeeded()
                 checkMicPermission()
+                appState.recordingMode = preferences.recordingMode()
+                appState.onStreamingStart = { self.startStreamingSession() }
+                appState.onStreamingStop = { self.stopStreamingSession() }
             }
         }
         .onChange(of: appState.recordingState) { _, newState in
@@ -120,12 +132,6 @@ struct SusurrusApp: App {
             currentModelReloadTask = task
         }
 
-    /// The currently in-flight model reload task. Stored so it can be cancelled
-    /// when the user selects a different model before the current reload finishes.
-    @State private var currentModelReloadTask: Task<Void, Never>?
-
-    @State private var modelReloading = false
-
         Window("History", id: "history") {
             HistoryView()
         }
@@ -136,6 +142,7 @@ struct SusurrusApp: App {
     private func startModelLoadingIfNeeded() {
         guard !modelLoading else { return }
         modelLoading = true
+        traceApp("startModelLoadingIfNeeded: starting model load")
         Task {
             await preloadModel()
         }
@@ -143,31 +150,37 @@ struct SusurrusApp: App {
 
     private func preloadModel() async {
         let model = preferences.selectedModel()
+        traceApp("preloadModel: loading model '\(model)'")
         UserDefaults.standard.set(model, forKey: "modelDownloadingName")
+        let state = appState
+        let transcription = transcriptionService
+        let streaming = streamingService
         do {
-            try await transcriptionService.setupModel(
+            try await transcription.setupModel(
                 modelName: model,
                 onDownloadProgress: { progress in
                     Task { @MainActor in
-                        appState.modelLoadProgress = progress
+                        state.modelLoadProgress = progress
                         UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
                     }
                 }
             )
             // Also preload the streaming service with the same model
-            try await streamingService.setupModel(
+            try await streaming.setupModel(
                 modelName: model,
                 onDownloadProgress: { progress in
                     Task { @MainActor in
-                        appState.modelLoadProgress = progress
+                        state.modelLoadProgress = progress
                         UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
                     }
                 }
             )
-            appState.modelReady = true
+            state.modelReady = true
+            traceApp("preloadModel: model loaded successfully")
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
+            traceApp("preloadModel: FAILED: \(error)")
             modelLoading = false
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
@@ -175,33 +188,36 @@ struct SusurrusApp: App {
     }
 
     private func reloadModel(_ modelName: String) async {
-        appState.modelReady = false
+        let state = appState
+        let transcription = transcriptionService
+        let streaming = streamingService
+        state.modelReady = false
         modelLoading = true
-        appState.modelLoadProgress = 0
+        state.modelLoadProgress = 0
         UserDefaults.standard.set(modelName, forKey: "modelDownloadingName")
         UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
-        await transcriptionService.unloadModel()
-        await streamingService.unloadModel()
+        await transcription.unloadModel()
+        await streaming.unloadModel()
         do {
-            try await transcriptionService.setupModel(
+            try await transcription.setupModel(
                 modelName: modelName,
                 onDownloadProgress: { progress in
                     Task { @MainActor in
-                        appState.modelLoadProgress = progress
+                        state.modelLoadProgress = progress
                         UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
                     }
                 }
             )
-            try await streamingService.setupModel(
+            try await streaming.setupModel(
                 modelName: modelName,
                 onDownloadProgress: { progress in
                     Task { @MainActor in
-                        appState.modelLoadProgress = progress
+                        state.modelLoadProgress = progress
                         UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
                     }
                 }
             )
-            appState.modelReady = true
+            state.modelReady = true
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
@@ -212,9 +228,11 @@ struct SusurrusApp: App {
     }
 
     private func checkMicPermission() {
+        let state = appState
+        let micManager = micPermissionManager
         Task {
-            let permission = await micPermissionManager.checkPermission()
-            appState.micPermission = permission
+            let permission = await micManager.checkPermission()
+            state.micPermission = permission
         }
     }
 
@@ -230,21 +248,30 @@ struct SusurrusApp: App {
 
         guard let combo = hotkeyStorage.loadCombo() else { return }
 
+        // Capture reference types only — do NOT capture `self` (the struct).
+        // SwiftUI recreates the App struct on each body evaluation, so a captured
+        // `self` would hold stale `@State` storage and cause use-after-free crashes.
+        let state = appState
+        let micManager = micPermissionManager
+        let notifications = notificationService
+
         Task {
             do {
                 try await hotkeyService.register(
                     combo: combo,
-                    onKeyDown: { [self] in
+                    onKeyDown: {
                         Task { @MainActor in
-                            let started = appState.handleHotkeyDown()
+                            traceApp("Hotkey down fired, state=\(String(describing: state.recordingState))")
+                            let started = state.handleHotkeyDown()
                             if started {
-                                if appState.micPermission == .undetermined {
-                                    let perm = await micPermissionManager.requestPermission()
-                                    appState.micPermission = perm
+                                if state.micPermission == .undetermined {
+                                    let perm = await micManager.requestPermission()
+                                    state.micPermission = perm
                                 }
-                                guard appState.micPermission == .granted else {
-                                    appState.cancel()
-                                    notificationService.showNotification(
+                                guard state.micPermission == .granted else {
+                                    traceApp("Hotkey: mic permission not granted, cancelling")
+                                    state.cancel()
+                                    notifications.showNotification(
                                         title: "Susurrus",
                                         body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
                                     )
@@ -253,15 +280,16 @@ struct SusurrusApp: App {
                             }
                         }
                     },
-                    onKeyUp: { [self] in
+                    onKeyUp: {
                         Task { @MainActor in
-                            appState.handleHotkeyUp()
+                            state.handleHotkeyUp()
                         }
                     }
                 )
-                appState.hotkeyConfigured = true
+                state.hotkeyConfigured = true
+                traceApp("Hotkey registered successfully")
             } catch {
-                // Hotkey registration failed
+                traceApp("Hotkey registration failed: \(error)")
             }
         }
     }
@@ -270,34 +298,39 @@ struct SusurrusApp: App {
         guard !appState.llmHotkeyConfigured else { return }
 
         let combo = HotkeyCombo.withLLM
+
+        // Capture reference types only — same reason as setupHotkeyIfNeeded.
+        let state = appState
+        let micManager = micPermissionManager
+
         Task {
             do {
                 try await llmHotkeyService.register(
                     combo: combo,
-                    onKeyDown: { [self] in
+                    onKeyDown: {
                         Task { @MainActor in
-                            appState.forceLLM = true
-                            let started = appState.handleHotkeyDown()
+                            state.forceLLM = true
+                            let started = state.handleHotkeyDown()
                             if started {
-                                if appState.micPermission == .undetermined {
-                                    let perm = await micPermissionManager.requestPermission()
-                                    appState.micPermission = perm
+                                if state.micPermission == .undetermined {
+                                    let perm = await micManager.requestPermission()
+                                    state.micPermission = perm
                                 }
-                                guard appState.micPermission == .granted else {
-                                    appState.forceLLM = false
-                                    appState.cancel()
+                                guard state.micPermission == .granted else {
+                                    state.forceLLM = false
+                                    state.cancel()
                                     return
                                 }
                             }
                         }
                     },
-                    onKeyUp: { [self] in
+                    onKeyUp: {
                         Task { @MainActor in
-                            appState.handleHotkeyUp()
+                            state.handleHotkeyUp()
                         }
                     }
                 )
-                appState.llmHotkeyConfigured = true
+                state.llmHotkeyConfigured = true
             } catch {
                 // LLM hotkey registration failed
             }
@@ -307,17 +340,17 @@ struct SusurrusApp: App {
     // MARK: - State change handling
 
     private func handleStateChange(_ newState: RecordingState) {
+        traceApp("handleStateChange: \(String(describing: newState))")
         updatePulseAnimation(newState)
 
         switch newState {
         case .streaming:
-            startStreamingSession()
+            break // handled by onStreamingStart callback
         case .finalizing:
-            stopStreamingSession()
+            break // handled by onStreamingStop callback
         case .idle:
             stopDurationTimer()
         case .recording, .processing:
-            // Batch mode — handled by Phase 7; no-op for now
             break
         }
     }
@@ -335,6 +368,52 @@ struct SusurrusApp: App {
     // MARK: - Streaming session
 
     private func startStreamingSession() {
+        // Check mic permission synchronously. If not determined, request it.
+        // If denied, show notification and cancel.
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        traceApp("startStreamingSession: micStatus=\(micStatus.rawValue), cached=\(String(describing: appState.micPermission))")
+
+        switch micStatus {
+        case .authorized:
+            appState.micPermission = .granted
+        case .notDetermined:
+            traceApp("startStreamingSession: requesting mic permission")
+            // Request permission asynchronously, then retry
+            let state = appState
+            let micManager = micPermissionManager
+            let notifications = notificationService
+            Task { @MainActor in
+                let perm = await micManager.requestPermission()
+                state.micPermission = perm
+                if perm == .granted {
+                    traceApp("startStreamingSession: permission granted, restarting session")
+                    state.cancel() // reset to idle
+                    state.startStreaming() // re-enter streaming
+                } else {
+                    traceApp("startStreamingSession: permission denied after request")
+                    state.cancel()
+                    notifications.showNotification(
+                        title: "Susurrus",
+                        body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
+                    )
+                }
+            }
+            return
+        case .denied, .restricted:
+            traceApp("startStreamingSession: mic permission denied, cancelling")
+            appState.cancel()
+            notificationService.showNotification(
+                title: "Susurrus",
+                body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
+            )
+            return
+        @unknown default:
+            traceApp("startStreamingSession: unknown mic status, cancelling")
+            appState.cancel()
+            return
+        }
+
+        traceApp("startStreamingSession: starting streaming session")
         startDurationTimer()
 
         // Lazily create the overlay window
@@ -348,18 +427,27 @@ struct SusurrusApp: App {
             await streamingService.setVocabularyPrompt(vocab)
         }
 
+        // Capture reference types only for the streaming Task
+        let state = appState
+        let streaming = streamingService
+        let notifications = notificationService
+        let overlay = overlayWindow
+
         // Start streaming
         Task {
             do {
-                try await streamingService.startStreamTranscription { [weak self] transcript in
+                traceApp("startStreamingSession: calling startStreamTranscription")
+                try await streaming.startStreamTranscription { transcript in
                     Task { @MainActor in
-                        self?.appState.interimText = transcript
+                        state.interimText = transcript
+                        overlay?.show(confirmed: transcript.confirmed, unconfirmed: transcript.unconfirmed)
                     }
                 }
             } catch {
+                traceApp("startStreamingSession: streaming failed: \(error.localizedDescription)")
                 Task { @MainActor in
-                    self.appState.cancel()
-                    self.notificationService.showNotification(
+                    state.cancel()
+                    notifications.showNotification(
                         title: "Susurrus",
                         body: "Streaming failed to start"
                     )
@@ -376,50 +464,59 @@ struct SusurrusApp: App {
         let shouldLLM = appState.forceLLM || preferences.llmEnabled()
         appState.forceLLM = false
 
+        // Capture reference types only
+        let state = appState
+        let streaming = streamingService
+        let notifications = notificationService
+        let clip = clipboard
+        let prefs = preferences
+        let llm = llmService
+        let history = historyManager
+
         Task {
             do {
-                let text = try await streamingService.stopStreamTranscription()
+                let text = try await streaming.stopStreamTranscription()
 
                 if !text.isEmpty {
                     var finalText = text
 
                     if shouldLLM {
                         do {
-                            let prompt = preferences.llmSystemPrompt()
-                            finalText = try await llmService.process(text: text, systemPrompt: prompt)
+                            let prompt = prefs.llmSystemPrompt()
+                            finalText = try await llm.process(text: text, systemPrompt: prompt)
                         } catch {
                             // LLM failed — use raw transcription
                         }
                     }
 
                     if appendMode {
-                        clipboard.appendText(finalText)
+                        clip.appendText(finalText)
                     } else {
-                        clipboard.writeText(finalText)
+                        clip.writeText(finalText)
                     }
 
-                    let autoPaste = preferences.autoPasteEnabled()
+                    let autoPaste = prefs.autoPasteEnabled()
                     Logger(subsystem: "com.susurrus.app", category: "Flow").info("autoPaste=\(autoPaste)")
                     if autoPaste {
                         try? await Task.sleep(for: .milliseconds(150))
-                        let pasted = clipboard.simulatePaste()
+                        let pasted = clip.simulatePaste()
                         if !pasted {
-                            notificationService.showNotification(
+                            notifications.showNotification(
                                 title: "Susurrus",
                                 body: "Auto-paste requires Accessibility access. Enable in System Settings > Privacy & Security > Accessibility."
                             )
                         }
                     }
 
-                    historyManager.add(finalText)
+                    history.add(finalText)
                 } else {
-                    notificationService.showNotification(
+                    notifications.showNotification(
                         title: "Susurrus",
                         body: "No speech detected"
                     )
                 }
             } catch TranscriptionError.noSpeechDetected {
-                notificationService.showNotification(
+                notifications.showNotification(
                     title: "Susurrus",
                     body: "No speech detected"
                 )
@@ -428,11 +525,11 @@ struct SusurrusApp: App {
             }
 
             // Consume the duration cap flag after notification (Behaviour 2.6)
-            if appState.wasDurationCapped {
-                appState.consumeDurationCapped()
+            if state.wasDurationCapped {
+                state.consumeDurationCapped()
             }
 
-            appState.finishStreaming()
+            state.finishStreaming()
         }
     }
 
@@ -440,13 +537,15 @@ struct SusurrusApp: App {
 
     private func startDurationTimer() {
         durationTimer?.invalidate()
+        let state = appState
+        let notifications = notificationService
         durationTimer = Timer.scheduledTimer(
             withTimeInterval: AppState.maxRecordingDuration,
             repeats: false
         ) { _ in
             Task { @MainActor in
-                if appState.enforceDurationCap() {
-                    notificationService.showNotification(
+                if state.enforceDurationCap() {
+                    notifications.showNotification(
                         title: "Susurrus",
                         body: "Recording capped at 60 seconds"
                     )

@@ -1,6 +1,6 @@
 import CoreML
 import Foundation
-import WhisperKit
+@preconcurrency import WhisperKit
 
 /// Streaming transcription service using WhisperKit's AudioStreamTranscriber.
 /// Manages a live audio pipeline and delivers interim transcripts via callback.
@@ -149,7 +149,7 @@ public actor StreamingTranscriptionService {
             return ""
         }
 
-        transcriber.stopStreamTranscription()
+        await transcriber.stopStreamTranscription()
 
         // Read the final state that was captured via callback — no sleep needed.
         // If the final transcript was already delivered through the callback
@@ -185,8 +185,8 @@ public actor StreamingTranscriptionService {
     }
 
     /// Stop streaming without returning a result (e.g., on cancel).
-    public func cancelStreamTranscription() {
-        streamTranscriber?.stopStreamTranscription()
+    public func cancelStreamTranscription() async {
+        await streamTranscriber?.stopStreamTranscription()
         streamTranscriber = nil
         interimCallback = nil
         lastTranscriberState = nil
@@ -259,15 +259,20 @@ public actor StreamingTranscriptionService {
         return all.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Strips hallucinated noise tokens from transcribed text.
+    /// Strips Whisper special tokens and hallucinated noise from transcribed text.
     private static func stripNoiseTokens(from text: String) -> String {
+        // Strip Whisper special tokens: <|startoftranscript|>, <|en|>, <|transcribe|>, <|0.00|>, etc.
+        var result = text.replacingOccurrences(
+            of: "<\\|[^|]+\\|>",
+            with: "",
+            options: .regularExpression
+        )
         let noiseTokens = [
             "[BLANK_AUDIO]", "[NO_SPEECH]", "(blank_audio)",
             "Thank you.", "Thanks for watching!", "Subscribe!",
             "Bye.", "Bye!", "Thank you for watching.",
             "The end.", "See you next time.", "Okay."
         ]
-        var result = text
         for token in noiseTokens {
             result = result.replacingOccurrences(of: token, with: "")
         }

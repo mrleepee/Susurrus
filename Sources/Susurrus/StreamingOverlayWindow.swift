@@ -49,7 +49,6 @@ final class StreamingOverlayWindow: NSPanel {
         )
 
         // Behaviour 1.4 / R8: do not steal focus from active application
-        canBecomeKey = false
         ignoresMouseEvents = false
 
         level = .floating
@@ -59,7 +58,7 @@ final class StreamingOverlayWindow: NSPanel {
 
         // Content view: frosted glass card
         let visualEffect = NSVisualEffectView()
-        visualEffect.material = .ultraThinMaterial
+        visualEffect.material = .hudWindow
         visualEffect.state = .active
         visualEffect.wantsLayer = true
         visualEffect.layer?.cornerRadius = 14
@@ -173,10 +172,9 @@ final class StreamingOverlayWindow: NSPanel {
         let newView = StreamingOverlayView(confirmed: confirmed, unconfirmed: unconfirmed)
         hostingView.rootView = newView
 
-        // Resize to fit content, capped at maxWidth
-        let targetSize = newView.sizeThatFits(CGSize(width: Self.maxWidth, height: .greatestFiniteMagnitude))
-        let newHeight = min(targetSize.height, 120) // cap height to prevent huge overlays
-        let newWidth = min(targetSize.width + 32, Self.maxWidth) // +32 for horizontal padding
+        let fittingSize = hostingView.fittingSize
+        let newHeight = min(fittingSize.height, 120) // cap height to prevent huge overlays
+        let newWidth = min(fittingSize.width + 32, Self.maxWidth) // +32 for horizontal padding
 
         hostingView.frame.size = CGSize(width: newWidth, height: newHeight)
 

@@ -31,7 +31,7 @@ struct StreamingOverlayView: View {
     }
 }
 
-#if DEBUG
+#if canImport(PreviewsMacros) && DEBUG
 #Preview {
     StreamingOverlayView(confirmed: "Hello ", unconfirmed: "world")
         .background(Color.clear)

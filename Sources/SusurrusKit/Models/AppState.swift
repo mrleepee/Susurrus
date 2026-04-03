@@ -1,4 +1,18 @@
+import Foundation
 import Observation
+
+/// Debug trace — writes to ~/susurrus_debug.log for immediate visibility without Xcode.
+private func trace(_ message: String) {
+    let path = NSHomeDirectory() + "/susurrus_debug.log"
+    let line = "\(Date()) \(message)\n"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        handle.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: Data(line.utf8))
+    }
+}
 
 /// Central state management for the app.
 /// Manages recording state transitions and recording mode that drive UI updates.
@@ -24,7 +38,9 @@ public final class AppState {
     public private(set) var wasDurationCapped = false
 
     /// Whether the WhisperKit model is loaded and ready for transcription.
-    public var modelReady = false
+    public var modelReady = false {
+        didSet { trace("modelReady changed to \(modelReady)") }
+    }
 
     /// Current microphone permission state.
     public var micPermission: MicPermission = .undetermined
@@ -39,6 +55,11 @@ public final class AppState {
     /// regardless of the llmEnabled preference.
     public var forceLLM = false
 
+    /// Callbacks invoked when streaming starts/stops, set by the app layer.
+    /// Bypasses SwiftUI .onChange which doesn't fire reliably on MenuBarExtra.
+    public var onStreamingStart: (() -> Void)?
+    public var onStreamingStop: (() -> Void)?
+
     /// Download/load progress for the model (0.0 to 1.0).
     public var modelLoadProgress: Double = 0
 
@@ -48,7 +69,9 @@ public final class AppState {
     /// Callback invoked when recording should be auto-stopped due to duration cap.
     public var onDurationCap: (() -> Void)?
 
-    public init() {}
+    public init() {
+        trace("AppState.init()")
+    }
 
     // MARK: - Batch mode (Phase 7: removed after streaming is wired)
 
@@ -78,16 +101,23 @@ public final class AppState {
     /// Begin a streaming session. Requires model to be ready.
     /// Sets interimText to nil/empty and resets wasDurationCapped.
     public func startStreaming() {
-        guard recordingState == .idle, modelReady else { return }
+        guard recordingState == .idle, modelReady else {
+            trace("startStreaming: guard failed, state=\(recordingState), modelReady=\(modelReady)")
+            return
+        }
         wasDurationCapped = false
         interimText = nil
         recordingState = .streaming
+        trace("startStreaming: state set to .streaming")
+        onStreamingStart?()
     }
 
     /// Stop the streaming session and begin finalization.
     public func stopStreaming() {
         guard recordingState == .streaming else { return }
         recordingState = .finalizing
+        trace("stopStreaming: state set to .finalizing")
+        onStreamingStop?()
     }
 
     /// Transition back to idle after finalization completes.
