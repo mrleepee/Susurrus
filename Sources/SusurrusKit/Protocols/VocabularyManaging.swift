@@ -8,6 +8,10 @@ public protocol VocabularyManaging: Sendable {
 
     /// Get the words joined as a prompt string for WhisperKit.
     func promptString() -> String
+
+    /// Get a context string describing vocabulary terms with categories for LLM prompt injection.
+    /// Returns an empty string if vocabulary is empty or not categorized.
+    func llmContextString() -> String
 }
 
 /// Errors during vocabulary management.

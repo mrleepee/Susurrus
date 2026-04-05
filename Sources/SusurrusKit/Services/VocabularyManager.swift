@@ -25,4 +25,10 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     public func promptString() -> String {
         vocabularyWords().joined(separator: ", ")
     }
+
+    public func llmContextString() -> String {
+        // Flat vocabulary has no category context — return empty string.
+        // F9 will override this with category-annotated entries.
+        ""
+    }
 }

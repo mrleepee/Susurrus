@@ -40,6 +40,7 @@ struct SusurrusApp: App {
     private let micPermissionManager = MicPermissionManager()
     private let llmService = LLMService()
     private let historyManager = TranscriptionHistoryManager()
+    private let promptComposer = PromptComposer()
 
     // Recording duration timer
     @State private var durationTimer: Timer?
@@ -482,7 +483,10 @@ struct SusurrusApp: App {
 
                     if shouldLLM {
                         do {
-                            let prompt = prefs.llmSystemPrompt()
+                            let prompt = promptComposer.compose(
+                                base: prefs.llmSystemPrompt(),
+                                vocabularyContext: vocabularyManager.llmContextString()
+                            )
                             finalText = try await llm.process(text: text, systemPrompt: prompt)
                         } catch {
                             // LLM failed — use raw transcription

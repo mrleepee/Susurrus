@@ -14,7 +14,7 @@ public protocol Transcribing: Sendable {
 /// Real implementation uses WhisperKit's AudioStreamTranscriber.
 public protocol StreamTranscribing: Sendable {
     /// Begin streaming transcription. Callback fires with interim transcripts.
-    func startStreamTranscription(callback: @escaping (InterimTranscript) -> Void) async throws
+    func startStreamTranscription(callback: @Sendable @escaping (InterimTranscript) -> Void) async throws
 
     /// Stop streaming and return the final transcript.
     func stopStreamTranscription() async throws -> String

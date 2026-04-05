@@ -1,8 +1,9 @@
-import XCTest
+import Testing
 @testable import SusurrusKit
 
+@Suite("AppState Tests")
 @MainActor
-final class AppStateTests: XCTestCase {
+struct AppStateTests {
 
     /// Helper: creates an AppState with modelReady=true for recording tests.
     private func makeReadyState() -> AppState {
@@ -13,160 +14,179 @@ final class AppStateTests: XCTestCase {
 
     // MARK: - Basic state transitions
 
-    func testInitialStateIsIdle() {
+    @Test("Initial state is idle")
+    func initialStateIsIdle() {
         let state = AppState()
-        XCTAssertEqual(state.recordingState, .idle)
+        #expect(state.recordingState == .idle)
     }
 
     // MARK: - Batch mode
 
-    func testStartRecordingTransitionsFromIdleToRecording() {
+    @Test("Start recording transitions from idle to recording")
+    func startRecordingTransitions() {
         let state = makeReadyState()
         state.startRecording()
-        XCTAssertEqual(state.recordingState, .recording)
+        #expect(state.recordingState == .recording)
     }
 
-    func testStartRecordingNoOpWhenModelNotReady() {
+    @Test("Start recording no-op when model not ready")
+    func startRecordingNoOpWhenNotReady() {
         let state = AppState()
         state.modelReady = false
         state.startRecording()
-        XCTAssertEqual(state.recordingState, .idle)
+        #expect(state.recordingState == .idle)
     }
 
-    func testStopRecordingTransitionsFromRecordingToProcessing() {
+    @Test("Stop recording transitions from recording to processing")
+    func stopRecordingTransitions() {
         let state = makeReadyState()
         state.startRecording()
         state.stopRecording()
-        XCTAssertEqual(state.recordingState, .processing)
+        #expect(state.recordingState == .processing)
     }
 
     // MARK: - Streaming mode
 
-    func testStartStreamingTransitionsFromIdleToStreaming() {
+    @Test("Start streaming transitions from idle to streaming")
+    func startStreamingTransitions() {
         let state = makeReadyState()
         state.startStreaming()
-        XCTAssertEqual(state.recordingState, .streaming)
+        #expect(state.recordingState == .streaming)
     }
 
-    func testStartStreamingNoOpWhenNotReady() {
+    @Test("Start streaming no-op when not ready")
+    func startStreamingNoOpWhenNotReady() {
         let state = AppState()
         state.modelReady = false
         state.startStreaming()
-        XCTAssertEqual(state.recordingState, .idle)
+        #expect(state.recordingState == .idle)
     }
 
-    func testStartStreamingNoOpWhenNotIdle() {
+    @Test("Start streaming no-op when not idle")
+    func startStreamingNoOpWhenNotIdle() {
         let state = makeReadyState()
         state.startStreaming()
         state.startStreaming()
-        XCTAssertEqual(state.recordingState, .streaming)
+        #expect(state.recordingState == .streaming)
     }
 
-    func testStartStreamingResetsInterimText() {
+    @Test("Start streaming resets interim text")
+    func startStreamingResetsInterimText() {
         let state = makeReadyState()
         state.interimText = InterimTranscript(confirmed: "old", unconfirmed: "text", isFinal: false)
         state.startStreaming()
-        XCTAssertNil(state.interimText)
+        #expect(state.interimText == nil)
     }
 
-    func testStopStreamingTransitionsFromStreamingToFinalizing() {
+    @Test("Stop streaming transitions from streaming to finalizing")
+    func stopStreamingTransitions() {
         let state = makeReadyState()
         state.startStreaming()
         state.stopStreaming()
-        XCTAssertEqual(state.recordingState, .finalizing)
+        #expect(state.recordingState == .finalizing)
     }
 
-    func testStopStreamingNoOpWhenNotStreaming() {
+    @Test("Stop streaming no-op when not streaming")
+    func stopStreamingNoOpWhenNotStreaming() {
         let state = makeReadyState()
         state.stopStreaming()
-        XCTAssertEqual(state.recordingState, .idle)
+        #expect(state.recordingState == .idle)
     }
 
-    func testFinishStreamingReturnsToIdleAndClearsInterimText() {
+    @Test("Finish streaming returns to idle and clears interim text")
+    func finishStreamingReturnsToIdle() {
         let state = makeReadyState()
         state.startStreaming()
         state.stopStreaming()
         state.finishStreaming()
-        XCTAssertEqual(state.recordingState, .idle)
-        XCTAssertNil(state.interimText)
+        #expect(state.recordingState == .idle)
+        #expect(state.interimText == nil)
     }
 
-    func testInterimTextSettable() {
+    @Test("Interim text settable")
+    func interimTextSettable() {
         let state = makeReadyState()
         state.startStreaming()
         let transcript = InterimTranscript(confirmed: "Hello ", unconfirmed: "world", isFinal: false)
         state.interimText = transcript
-        XCTAssertEqual(state.interimText?.confirmed, "Hello ")
-        XCTAssertEqual(state.interimText?.unconfirmed, "world")
-        XCTAssertEqual(state.interimText?.isFinal, false)
+        #expect(state.interimText?.confirmed == "Hello ")
+        #expect(state.interimText?.unconfirmed == "world")
+        #expect(state.interimText?.isFinal == false)
     }
 
     // MARK: - Duration cap
 
-    func testEnforceDurationCapStopsStreaming() {
+    @Test("Enforce duration cap stops streaming")
+    func enforceDurationCapStopsStreaming() {
         let state = makeReadyState()
         state.startStreaming()
-        XCTAssertFalse(state.wasDurationCapped)
+        #expect(!state.wasDurationCapped)
         let enforced = state.enforceDurationCap()
-        XCTAssertTrue(enforced)
-        XCTAssertTrue(state.wasDurationCapped)
-        XCTAssertEqual(state.recordingState, .finalizing)
+        #expect(enforced)
+        #expect(state.wasDurationCapped)
+        #expect(state.recordingState == .finalizing)
     }
 
-    func testEnforceDurationCapNoOpWhenIdle() {
+    @Test("Enforce duration cap no-op when idle")
+    func enforceDurationCapNoOpWhenIdle() {
         let state = makeReadyState()
         let enforced = state.enforceDurationCap()
-        XCTAssertFalse(enforced)
-        XCTAssertFalse(state.wasDurationCapped)
+        #expect(!enforced)
+        #expect(!state.wasDurationCapped)
     }
 
-    func testConsumeDurationCappedResetsFlag() {
+    @Test("Consume duration capped resets flag")
+    func consumeDurationCappedResetsFlag() {
         let state = makeReadyState()
         state.startStreaming()
         _ = state.enforceDurationCap()
-        XCTAssertTrue(state.wasDurationCapped)
+        #expect(state.wasDurationCapped)
         state.consumeDurationCapped()
-        XCTAssertFalse(state.wasDurationCapped)
+        #expect(!state.wasDurationCapped)
     }
 
     // MARK: - Hotkey push-to-talk
 
-    func testHotkeyDownStartsStreaming() {
+    @Test("Hotkey down starts streaming in push-to-talk")
+    func hotkeyDownStartsStreaming() {
         let state = makeReadyState()
         state.recordingMode = .pushToTalk
         let started = state.handleHotkeyDown()
-        XCTAssertTrue(started)
-        XCTAssertEqual(state.recordingState, .streaming)
+        #expect(started)
+        #expect(state.recordingState == .streaming)
     }
 
-    func testHotkeyUpStopsStreaming() {
+    @Test("Hotkey up stops streaming in push-to-talk")
+    func hotkeyUpStopsStreaming() {
         let state = makeReadyState()
         state.recordingMode = .pushToTalk
         state.handleHotkeyDown()
         state.handleHotkeyUp()
-        XCTAssertEqual(state.recordingState, .finalizing)
+        #expect(state.recordingState == .finalizing)
     }
 
     // MARK: - Hotkey toggle
 
-    func testHotkeyDownToggle() {
+    @Test("Hotkey toggle starts then stops")
+    func hotkeyDownToggle() {
         let state = makeReadyState()
         state.recordingMode = .toggle
         let first = state.handleHotkeyDown()
-        XCTAssertTrue(first)
-        XCTAssertEqual(state.recordingState, .streaming)
+        #expect(first)
+        #expect(state.recordingState == .streaming)
         let second = state.handleHotkeyDown()
-        XCTAssertFalse(second)
-        XCTAssertEqual(state.recordingState, .finalizing)
+        #expect(!second)
+        #expect(state.recordingState == .finalizing)
     }
 
     // MARK: - Cancel
 
-    func testCancelReturnsToIdleFromAnyState() {
+    @Test("Cancel returns to idle from any state")
+    func cancelReturnsToIdle() {
         let state = makeReadyState()
         state.startStreaming()
         state.cancel()
-        XCTAssertEqual(state.recordingState, .idle)
-        XCTAssertNil(state.interimText)
+        #expect(state.recordingState == .idle)
+        #expect(state.interimText == nil)
     }
 }

@@ -30,7 +30,7 @@ actor MockStreamTranscriptionService: StreamTranscribing {
     var stopCallCount = 0
     var lastCallback: ((InterimTranscript) -> Void)?
 
-    func startStreamTranscription(callback: @escaping (InterimTranscript) -> Void) async throws {
+    func startStreamTranscription(callback: @Sendable @escaping (InterimTranscript) -> Void) async throws {
         startCallCount += 1
         lastCallback = callback
         // Emit an interim transcript immediately
@@ -71,7 +71,7 @@ struct TranscriptionTests {
     @Test("Streaming: startStreamTranscription emits interim callback")
     func streamingStartEmitsCallback() async throws {
         let service = MockStreamTranscriptionService()
-        var receivedTranscript: InterimTranscript?
+        nonisolated(unsafe) var receivedTranscript: InterimTranscript?
         try await service.startStreamTranscription { transcript in
             receivedTranscript = transcript
         }
@@ -96,7 +96,7 @@ struct TranscriptionTests {
         try await service.startStreamTranscription { _ in }
         do {
             _ = try await service.stopStreamTranscription()
-            #expect(false, "Should have thrown")
+            #expect(Bool(false), "Should have thrown")
         } catch TranscriptionError.noSpeechDetected {
             // expected
         }
