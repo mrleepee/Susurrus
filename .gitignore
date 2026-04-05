@@ -26,3 +26,8 @@ Package.resolved
 
 # App bundle output
 build/
+
+# Benchmark artifacts
+.venv/
+test_clip_*.wav
+test_raw_*.txt

@@ -56,7 +56,7 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 | Transcription engine | WhisperKit (argmaxinc/WhisperKit) |
 | Hotkey | NSEvent global/local monitors for system-wide key capture |
 | Clipboard | NSPasteboard |
-| LLM | MiniMax M2.5 via Anthropic-compatible API endpoint |
+| LLM | llama.cpp server with Gemma 4 E2B (local, offline); MiniMax M2.5 (cloud fallback) |
 | Distribution | Direct download (.dmg), notarized |
 
 ## Not in Scope (v1)
@@ -515,9 +515,315 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 
 ### B. Future Considerations (v2+)
 
-- Full streaming transcription (record-while-transcribe via AudioStreamTranscriber)
-- Auto-paste via clipboard + simulated `Cmd+V` (opt-in, requires Accessibility)
-- Per-app prompt templates ("formal writing mode" for email, "code comment mode" for IDE)
-- LFM2-Audio as alternative backend to WhisperKit
-- Hotkey reconfiguration UI with key capture
-- Vocabulary editor with autocomplete
+- ~~Full streaming transcription (record-while-transcribe via AudioStreamTranscriber)~~ ✅ Shipped in v1.1
+- ~~Auto-paste via clipboard + simulated `Cmd+V` (opt-in, requires Accessibility)~~ ✅ Shipped in v1.1
+- ~~Hotkey reconfiguration UI with key capture~~ ✅ Shipped in v1.1
+- ~~Transcription history panel~~ ✅ Shipped in v1.1
+- ~~LLM post-processing~~ ✅ Shipped in v1.1 (cloud-based via MiniMax M2.5)
+
+#### Competitive Features (inspired by Wispr Flow)
+
+| # | Feature | Description | Priority | Dependencies |
+|---|---------|-------------|----------|--------------|
+| F1 | Context-aware spelling | Read surrounding text from the focused app's text field via Accessibility APIs; extract proper nouns and domain terms; inject into Whisper's vocabulary prompt before transcription starts. Makes uncommon names spell correctly without manual vocabulary entry. | High | Accessibility API (already used for auto-paste) |
+| F2 | AI cleanup as default | Make LLM post-processing the default experience (not opt-in). Whisper output is inherently messy — filler words, bad punctuation, false starts. AI cleanup should "just work" with a sensible default prompt. User can disable or customise. | High | Local llama.cpp + Gemma 4 E2B (validated: 0.58s for 10s speech, fully offline) |
+| F3 | Voice snippets / shortcuts | User-defined voice shortcuts that expand to pre-saved text blocks. E.g. "insert signature" → full email signature, "insert address" → home address. Triggered by a keyword phrase detected in the transcription. | Medium | None (post-processing layer) |
+| F4 | Whispering mode | Optimise for quiet/whispered input by adjusting Whisper's silence threshold and energy detection. Allows use in quiet environments without disturbing others. | Medium | AudioProcessor parameter tuning |
+| F5 | Per-app prompt templates | Detect the frontmost application and apply context-appropriate LLM prompts automatically. "Formal writing" for email clients, "code comment" for IDEs, "casual" for messaging apps. | Medium | Accessibility API for frontmost app detection, local LLM |
+| F6 | On-device LLM via Gemma 4 | Replace cloud LLM with local Gemma 4 E2B via llama.cpp for fully offline, private text post-processing. Eliminates latency, network dependency, and subscription cost. | Medium | llama.cpp server, ~3-4 GB RAM (Q4_K_S quantization) |
+| F7 | Multi-language transcription | Support language selection in Whisper DecodingOptions. Gemma 3 supports 140+ languages and could auto-detect language for post-processing. | Low | Whisper language config, UI for language picker |
+| F8 | Vocabulary editor with autocomplete | Enhanced vocabulary UI that suggests completions from a built-in dictionary and the user's transcription history. Reduces friction of adding new terms. | Low | None |
+| F9 | Ontological vocabulary | Categorise vocabulary entries into typed groups: People, Places, Projects, Technical Terms, Products, Acronyms, etc. Categories enable context-aware injection — ASR bias (promptTokens) gets proper nouns and technical terms, while LLM cleanup prompt gets category context ("DataBid is a product name, always capitalize"). Supports user-defined categories. | High | Vocabulary model refactor, Preferences UI |
+| F10 | Edit-driven learning | When users edit transcriptions in the history panel, store correction pairs (raw → edited). Inject the most relevant pairs into the LLM cleanup prompt as few-shot examples. Captures user-specific preferences (capitalisation, filler word tolerance, style) without fine-tuning. Auto-extracts proper noun corrections back into vocabulary. | High | History edit UI, correction pair storage, prompt engineering |
+| F11 | Project notebooks | Named notebooks that accumulate transcriptions as project context. Dual output: text always goes to clipboard (primary workflow preserved), and also appends to the active notebook. Notebook content is injected into the LLM cleanup prompt as domain context. User edits notebook entries to refine context. Menu bar has notebook selector. Preferences has notebook management (create, rename, delete, export). | High | Notebook data model, Preferences UI, Menu bar UI, LLM prompt integration |
+
+#### Context-Aware Spelling — Technical Detail
+
+The highest-impact competitive feature. Implementation path:
+
+1. **Before streaming starts**: Use `AXUIElementCopyAttributeValue(AXUIElement.systemWide, kAXFocusedUIElement)` to get the focused text field
+2. **Read text content**: `AXUIElementCopyAttributeValue(focusedElement, kAXValueAttribute)` returns the full text
+3. **Extract proper nouns**: Simple heuristic — capitalised words not at sentence start, words matching NER patterns (person names, org names, product names)
+4. **Inject into vocabulary prompt**: `contextExtracted + " " + vocabularyManager.promptString()` → passed to `DecodingOptions.promptTokens`
+5. **Fallback**: If AX read fails (terminal, Electron apps with broken a11y, password fields), use static vocabulary only
+
+**Limitations**: 50-200ms latency for complex documents, not all apps expose text via accessibility, requires Accessibility permission (already granted for auto-paste).
+
+#### On-Device LLM — Architecture Decision: WhisperKit + llama.cpp/Gemma 4 E2B
+
+**Decision**: Hybrid architecture using WhisperKit for ASR + llama.cpp server with Gemma 4 E2B for text cleanup.
+
+**Benchmark results (M2 Pro 32GB, 2026-04-05):**
+
+##### Gemma 4 MLX — Direct Audio Transcription (mlx-vlm)
+
+| Model | 10s audio (hot) | 20s audio (hot) | Memory | Throughput | Audio cap |
+|-------|-----------------|-----------------|--------|------------|-----------|
+| E2B (2.3B) | 1.09s | 2.09s | ~10.7 GB | 35 tok/s | ~20s hard limit |
+| E4B (4.5B) | 1.95s | 3.97s | ~16.4 GB | 18 tok/s | ~20s hard limit |
+
+Key finding: Both models have a hard audio context cap at ~750 audio tokens (~20-25s). Content beyond this is silently truncated. This makes Gemma 4 unsuitable as a primary ASR engine for dictation use cases.
+
+Combined ASR + cleanup in a single prompt works but adds no speed benefit over separate steps, and the cleanup quality from E2B is poor (leaves fillers, false starts).
+
+##### llama.cpp Server — Text Cleanup (E2B Q4_K_S, `--reasoning off`)
+
+| Input length | Gen tokens | Latency (best) | tok/s |
+|-------------|-----------|----------------|-------|
+| 10s speech (~40 words) | 21 tok | **0.58s** | 34.5 |
+| 20s speech (~80 words) | 58 tok | **1.39s** | 41.3 |
+| 60s speech (~180 words) | 140 tok | **3.24s** | 43.0 |
+
+Server startup: 3.7s (model cached). Memory: ~3-4 GB (Q4_K_S quantization).
+
+Concurrency scales to ~110 tok/s with 4 workers. Metal GPU cannot run parallel inferences on a single device — concurrency is request-level interleaving.
+
+**Critical**: Gemma 4 IT enables chain-of-thought thinking by default, which generates hundreds of hidden tokens before producing output. Use `--reasoning off` to disable. Without this flag, cleanup takes 8-20s instead of 0.5-3s.
+
+##### Why not Gemma 4 as primary ASR
+
+| | WhisperKit streaming | Gemma 4 E2B |
+|---|---|---|
+| Perceived latency | ~0s (live text) | 1-2s post-recording |
+| Max audio length | Unlimited (VAD chunking) | ~20s hard cap |
+| Streaming | Yes (interim results) | No (batch only) |
+| Memory | ~2-4 GB | ~10.7 GB |
+| Metal parallelism | Yes (concurrent workers) | No (command buffer conflict) |
+
+##### Recommended Architecture
+
+```
+User speaks → WhisperKit AudioStreamTranscriber (streaming ASR)
+                    ↓
+           Raw transcription text
+                    ↓
+    llama.cpp server (localhost:8321, Gemma 4 E2B Q4_K_S)
+           --reasoning off --port 8321 -ngl 99
+                    ↓
+           Cleaned text → clipboard → auto-paste
+```
+
+- **WhisperKit**: streaming ASR with interim results, handles any length, ~2-4 GB
+- **llama.cpp/Gemma 4 E2B**: local text cleanup, ~3-4 GB, sub-second for typical utterances
+- **Total memory**: ~6-8 GB for the full pipeline
+- **Fully offline**: no network, no API key, no subscription
+- **Graceful degradation**: if llama.cpp server unavailable, raw WhisperKit text goes to clipboard
+
+**Future path: E4B as unified ASR + LLM**
+
+Gemma 4 E4B/E2B have native audio input via a Conformer-based encoder (128-bin mel spectrogram, 16kHz). If Google releases models with longer audio context (>30s), a future pipeline could be:
+- Current: Audio → WhisperKit (ASR) → text → llama.cpp Gemma 4 (cleanup) → clipboard
+- Future: Audio → Gemma 4 (ASR + cleanup in one model) → clipboard
+
+This would eliminate WhisperKit dependency entirely. Blocked on the ~750 audio token context limit.
+
+#### Ontological Vocabulary — Technical Detail (F9)
+
+Vocabulary entries are typed, enabling smarter injection into both ASR and LLM pipelines.
+
+**Data model:**
+
+```
+VocabularyEntry {
+    term: String          // e.g. "DataBid"
+    category: VocabCategory
+    notes: String?        // optional context, e.g. "client's product"
+}
+
+VocabCategory: enum {
+    Person        // Names — inject into promptTokens + tell LLM "capitalize exactly as shown"
+    Place         // Locations — inject into promptTokens
+    Project       // Project codenames — inject into promptTokens + tell LLM context
+    Product       // Product/company names — inject + "always capitalize"
+    Technical     // Jargon, acronyms — inject into promptTokens
+    Acronym       // Short forms — inject + expansion hint for LLM
+    Custom        // User-defined category with label
+}
+```
+
+**Injection behaviour by pipeline stage:**
+
+1. **WhisperKit (ASR)**: All categories contribute to `DecodingOptions.promptTokens` — the model just needs to see the words to bias recognition. No category distinction needed at this stage.
+
+2. **LLM cleanup (llama.cpp/Gemma 4)**: Category context is injected into the cleanup prompt to guide post-processing:
+   - `"DataBid" is a product name — always capitalize as shown`
+   - `"ACS" is an acronym for "Advanced Client Services" — expand on first use if appropriate`
+   - `"Clay" is a project codename — treat as proper noun`
+
+**UI**: Preferences → Vocabulary tab shows a table with columns [Term | Category ▼ | Notes]. Category is a dropdown. Add button with autocomplete from transcription history.
+
+#### Edit-Driven Learning — Technical Detail (F10)
+
+When a user edits a transcription in the history panel, the system captures the correction pair and uses it to improve future LLM cleanup.
+
+**Flow:**
+
+1. User opens history entry, edits text (e.g. changes "so I think we need to get the databid sow signed" → "We need to get the DataBid SOW signed")
+2. System computes a lightweight diff (not character-level — sentence or clause level)
+3. Stores as a `CorrectionPair(raw, edited, timestamp)`
+4. Correction pairs are persisted in Application Support alongside history
+
+**How correction pairs improve cleanup:**
+
+The LLM cleanup prompt includes the most relevant recent corrections as few-shot examples:
+
+```
+System: You clean up transcriptions. Follow the user's demonstrated preferences.
+
+Examples of previous corrections by this user:
+- Raw: "so I think we need to get the databid sow signed"
+  Fixed: "We need to get the DataBid SOW signed."
+
+- Raw: "um ACS had with databid um had ended"
+  Fixed: "ACS had with DataBid had ended."
+
+Now clean up this transcription:
+{new raw text}
+```
+
+**Why this works better than fine-tuning:**
+- Instant feedback loop — no retraining, the next transcription immediately benefits
+- User can inspect and delete correction pairs they disagree with
+- Naturally captures style preferences (terse vs verbose, Oxford comma, capitalisation patterns)
+- Proper noun corrections auto-extracted: if a user consistently capitalises "DataBid", the system can suggest adding it to vocabulary as a Product
+
+**Implementation notes:**
+- Cap stored correction pairs at ~50 most recent to keep prompt size manageable
+- Select the 3-5 most relevant pairs for each cleanup request (similarity matching on shared vocabulary/terms)
+- Relevance scoring: number of shared vocabulary terms between correction pair and current transcription
+- Auto-prune pairs older than 90 days or when user deletes history entries
+- F10 depends on F9 for the auto-extraction of vocabulary from edits
+
+#### Project Notebooks — Technical Detail (F11)
+
+Named notebooks that accumulate transcriptions as project-specific context. The primary clipboard workflow is never disrupted — text always goes to clipboard, and optionally to the active notebook.
+
+**Data model:**
+
+```
+Notebook {
+    id: UUID
+    name: String              // e.g. "ACS", "Susurrus", "Personal"
+    createdAt: Date
+    entries: [NotebookEntry]
+}
+
+NotebookEntry {
+    id: UUID
+    timestamp: Date
+    rawText: String           // original WhisperKit output
+    cleanedText: String       // after LLM cleanup
+    editedText: String?       // user's manual edit (if any)
+}
+```
+
+Persisted in `~/Library/Application Support/Susurrus/Notebooks/` as JSON files.
+
+**Dual output flow:**
+
+1. User presses hotkey, speaks, releases
+2. WhisperKit produces raw text → LLM cleanup (with notebook context injected)
+3. Cleaned text → **clipboard** (always, primary workflow)
+4. Cleaned text → **active notebook** (if one is selected, append as new entry)
+5. Auto-paste fires as usual
+
+The clipboard workflow is identical whether or not a notebook is active. The notebook is purely additive.
+
+**Menu bar integration:**
+
+```
+┌─────────────────────────────┐
+│ 🔴 Stop Recording           │  (or "Start Recording" when idle)
+│ ─────────────────────────── │
+│ Notebook: ▸ ACS             │  ← submenu with notebook list
+│   ○ None (clipboard only)   │
+│   ● ACS                     │  ← active notebook (checkmark)
+│   ○ Susurrus                │
+│   ○ Personal                │
+│   ○ + New Notebook...       │
+│ ─────────────────────────── │
+│ Preferences...              │
+│ Quit Susurrus               │
+└─────────────────────────────┘
+```
+
+When "None" is selected, transcriptions go to clipboard only (current behaviour). When a notebook is selected, text also appends to that notebook. The active notebook persists across app restarts.
+
+**Preferences — Notebooks tab:**
+
+New tab alongside General, Model, LLM:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  General  │  Model  │  LLM  │  Notebooks  │        │
+│──────────────────────────────────────────────────────│
+│                                                      │
+│  Notebooks:                                          │
+│  ┌──────────┬───────────┬────────┬────────┐        │
+│  │ Name     │ Entries    │ Last   │        │        │
+│  ├──────────┼───────────┼────────┼────────┤        │
+│  │ ACS      │ 24 entries │ Today  │ [Edit] │        │
+│  │ Susurrus │ 12 entries │ 2d ago │ [Edit] │        │
+│  │ Personal │  3 entries │ 1w ago │ [Edit] │        │
+│  └──────────┴───────────┴────────┴────────┘        │
+│                                                      │
+│  [+ New Notebook]   [Delete]   [Export...]           │
+│                                                      │
+│  ── Notebook Settings ───────────────────────────── │
+│  Active notebook context:                            │
+│  ○ Last 5 entries as LLM context (recommended)      │
+│  ○ Last 10 entries                                   │
+│  ○ All entries                                       │
+│                                                      │
+│  ☑ Auto-detect notebook voice commands               │
+│    (e.g. "notebook ACS" switches active notebook)    │
+│                                                      │
+└─────────────────────────────────────────────────────┘
+```
+
+[Edit] opens a window showing the notebook's entries with inline editing. User can polish entries, remove duplicates, reorganise. These edits are the refined context that feeds back into LLM cleanup.
+
+**LLM prompt integration:**
+
+When a notebook is active, the cleanup prompt injects recent notebook entries as domain context:
+
+```
+System: You clean up transcriptions for a project called "ACS".
+Below is recent context from this project's notebook.
+Use this context for consistent terminology, style, and domain knowledge.
+
+Project context (recent entries):
+- We need to update the DataBid SOW before the end of the month.
+- The previous statement of work with ACS had ended or was about to end.
+- Clay project timeline: discovery phase complete, moving to implementation.
+
+Now clean up this transcription:
+{new raw text}
+```
+
+This gives the LLM three advantages over generic cleanup:
+1. **Terminology** — "DataBid" and "ACS" are already established, so the model capitalises them correctly
+2. **Style consistency** — if previous entries are terse, the model matches that style
+3. **Domain knowledge** — the model understands this is about client SOW renewals, not random text
+
+**Notebook entry editing (subsumes F10 correction pairs):**
+
+When the user edits a notebook entry, the system can derive correction pairs from the `cleanedText → editedText` diff. This is a richer signal than F10's history-only corrections because:
+- The user is deliberately curating project context (higher intent)
+- Edits accumulate across multiple transcriptions into a coherent document
+- The notebook provides surrounding context that makes corrections unambiguous
+
+**Voice command detection (opt-in):**
+
+If "Auto-detect notebook voice commands" is enabled in Preferences:
+1. LLM post-processing checks if the transcription starts with "notebook [name]"
+2. If matched, the transcription is NOT sent to clipboard — instead, the notebook is switched
+3. A brief notification confirms: "Switched to notebook: ACS"
+4. Subsequent recordings use that notebook's context
+
+This is fragile by nature (false positives on "notebook" in regular speech) so it's off by default. The menu bar selector is the primary switching mechanism.
+
+**Relationship to other features:**
+- F9 (ontological vocabulary): Notebook context complements vocabulary. Vocabulary provides term definitions, notebooks provide usage context. LLM prompt gets both.
+- F10 (edit-driven learning): Notebook editing subsumes correction pairs for project-specific style. F10 remains useful for global style preferences across all projects.
+- F1 (context-aware spelling): If the focused app is a text editor with an open document matching a notebook name, could auto-select that notebook.
