@@ -47,6 +47,8 @@ struct PreferencesView: View {
                 .tabItem { Label("Model", systemImage: "waveform") }
             llmTab
                 .tabItem { Label("LLM", systemImage: "sparkles") }
+            notebooksTab
+                .tabItem { Label("Notebooks", systemImage: "book") }
         }
         .frame(minWidth: 500, idealWidth: 550, minHeight: 350, idealHeight: 400)
         .onAppear {
@@ -431,5 +433,104 @@ struct PreferencesView: View {
             }
         }
         cachedModels = cached
+    }
+
+    // MARK: - Notebooks
+
+    @State private var notebookList: [Notebook] = []
+    @State private var newNotebookName: String = ""
+    @State private var selectedNotebookId: UUID?
+
+    private var notebooksTab: some View {
+        let manager = NotebookManager()
+        return Form {
+            Section {
+                if notebookList.isEmpty {
+                    Text("No notebooks yet. Create one below.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding()
+                } else {
+                    List(notebookList, selection: $selectedNotebookId) { notebook in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(notebook.name)
+                                    .fontWeight(.medium)
+                                Text("\(notebook.entries.count) entries • \(notebook.updatedAt, style: .relative)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if manager.activeNotebookId() == notebook.id {
+                                Text("Active")
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.blue.opacity(0.15))
+                                    .foregroundStyle(.blue)
+                                    .clipShape(Capsule())
+                            }
+                            Button {
+                                manager.deleteNotebook(id: notebook.id)
+                                loadNotebooks(manager)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.red.opacity(0.7))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .contextMenu {
+                            Button("Set Active") {
+                                manager.setActiveNotebookId(notebook.id)
+                                loadNotebooks(manager)
+                            }
+                            Button("Rename...") {
+                                // TODO: inline rename
+                            }
+                        }
+                    }
+                    .listStyle(.sidebar)
+                    .frame(minHeight: 150)
+                }
+            } header: {
+                Text("Notebooks")
+            }
+
+            Section {
+                HStack {
+                    TextField("Notebook name", text: $newNotebookName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            createNotebook(manager)
+                        }
+                    Button("Create") {
+                        createNotebook(manager)
+                    }
+                    .disabled(newNotebookName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            } header: {
+                Text("Create Notebook")
+            } footer: {
+                Text("Transcriptions are always copied to clipboard. When a notebook is active, text also appends to that notebook for LLM context.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            loadNotebooks(manager)
+        }
+    }
+
+    private func createNotebook(_ manager: NotebookManager) {
+        let name = newNotebookName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        manager.createNotebook(name: name)
+        newNotebookName = ""
+        loadNotebooks(manager)
+    }
+
+    private func loadNotebooks(_ manager: NotebookManager) {
+        notebookList = manager.notebooks()
     }
 }

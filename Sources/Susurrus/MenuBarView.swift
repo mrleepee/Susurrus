@@ -3,6 +3,7 @@ import SusurrusKit
 
 struct MenuBarView: View {
     let appState: AppState
+    let notebookManager: NotebookManaging
     let onLoad: (() -> Void)?
     @Environment(\.openWindow) private var openWindow
 
@@ -36,6 +37,33 @@ struct MenuBarView: View {
                 ProgressView(value: appState.modelLoadProgress) {
                     Text("Loading model...")
                 }
+            }
+
+            Divider()
+
+            // Notebook selector submenu
+            Menu {
+                Button("None (clipboard only)") {
+                    notebookManager.setActiveNotebookId(nil)
+                }
+                Divider()
+                let notebooks = notebookManager.notebooks()
+                let activeId = notebookManager.activeNotebookId()
+                ForEach(notebooks) { notebook in
+                    Button {
+                        notebookManager.setActiveNotebookId(notebook.id)
+                    } label: {
+                        HStack {
+                            Text(notebook.name)
+                            if activeId == notebook.id {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label("Notebook", systemImage: "book")
             }
 
             Divider()

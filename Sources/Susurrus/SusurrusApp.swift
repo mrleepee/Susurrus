@@ -41,6 +41,7 @@ struct SusurrusApp: App {
     private let llmService = LLMService()
     private let historyManager = TranscriptionHistoryManager()
     private let correctionManager = CorrectionLearningManager(vocabularyManager: VocabularyManager())
+    private let notebookManager = NotebookManager()
     private let promptComposer = PromptComposer()
 
     // Recording duration timer
@@ -95,7 +96,7 @@ struct SusurrusApp: App {
             "Susurrus",
             systemImage: menuBarIcon
         ) {
-            MenuBarView(appState: appState) {
+            MenuBarView(appState: appState, notebookManager: notebookManager) {
                 startModelLoadingIfNeeded()
                 setupHotkeyIfNeeded()
                 setupLLMHotkeyIfNeeded()
@@ -487,7 +488,8 @@ struct SusurrusApp: App {
                             let prompt = promptComposer.compose(
                                 base: prefs.llmSystemPrompt(),
                                 vocabularyContext: vocabularyManager.llmContextString(),
-                                correctionExamples: correctionManager.fewShotString(for: text, limit: 5)
+                                correctionExamples: correctionManager.fewShotString(for: text, limit: 5),
+                                notebookContext: notebookManager.activeNotebookContext()
                             )
                             finalText = try await llm.process(text: text, systemPrompt: prompt)
                         } catch {
@@ -515,6 +517,7 @@ struct SusurrusApp: App {
                     }
 
                     history.add(finalText, rawText: text)
+                    notebookManager.appendToActiveNotebook(text: finalText)
                 } else {
                     notifications.showNotification(
                         title: "Susurrus",
