@@ -13,7 +13,9 @@ struct PreferencesView: View {
     @AppStorage("llmModel") private var llmModel: String = "MiniMax-M2.5"
     @AppStorage("llmEndpoint") private var llmEndpoint: String = "https://api.minimax.io/anthropic/v1/messages"
     @AppStorage("llmSystemPrompt") private var llmSystemPrompt = UserDefaultsPreferencesManager.defaultLLMPrompt
-    @State private var vocabularyText: String = ""
+    @State private var entries: [VocabularyEntry] = []
+    @State private var newTerm: String = ""
+    @State private var newCategory: VocabularyCategory = .custom
     @State private var showApiKey: Bool = false
     @State private var apiKeyText: String = ""
 
@@ -145,29 +147,85 @@ struct PreferencesView: View {
         let vocabManager = VocabularyManager()
         return Form {
             Section {
-                TextEditor(text: $vocabularyText)
-                    .font(.system(size: 13, design: .monospaced))
-                    .frame(minHeight: 180)
-                    .scrollContentBackground(.visible)
+                if entries.isEmpty {
+                    Text("No vocabulary entries yet. Add terms below.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding()
+                } else {
+                    ForEach(VocabularyCategory.allCases, id: \.self) { category in
+                        let categoryEntries = entries.filter { $0.category == category }
+                        if !categoryEntries.isEmpty {
+                            Section {
+                                ForEach(categoryEntries) { entry in
+                                    HStack {
+                                        Text(entry.term)
+                                            .font(.body)
+                                        Spacer()
+                                        Text(category.displayName)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Button {
+                                            withAnimation { removeEntry(id: entry.id) }
+                                        } label: {
+                                            Image(systemName: "minus.circle.fill")
+                                                .foregroundStyle(.red.opacity(0.7))
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            } header: {
+                                Label(category.displayName, systemImage: category.systemImage)
+                            }
+                        }
+                    }
+                }
             } header: {
-                Text("Custom Vocabulary")
+                Text("Vocabulary")
             } footer: {
-                Text("One word or phrase per line. These bias WhisperKit toward recognising domain-specific terms (e.g. product names, technical jargon, proper nouns).")
+                Text("Terms are used to bias WhisperKit transcription and provide context to LLM cleanup.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+            }
+
+            Section {
+                HStack {
+                    TextField("Term", text: $newTerm)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { addEntry(vocabManager) }
+                    Picker("Category", selection: $newCategory) {
+                        ForEach(VocabularyCategory.allCases, id: \.self) { cat in
+                            Label(cat.displayName, systemImage: cat.systemImage)
+                                .tag(cat)
+                        }
+                    }
+                    .frame(width: 140)
+                    Button("Add") { addEntry(vocabManager) }
+                        .disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            } header: {
+                Text("Add Term")
             }
         }
         .formStyle(.grouped)
         .onAppear {
-            vocabularyText = vocabManager.vocabularyWords().joined(separator: "\n")
+            entries = vocabManager.entries()
         }
-        .onChange(of: vocabularyText) { _, newValue in
-            let words = newValue
-                .split(separator: "\n", omittingEmptySubsequences: true)
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-            vocabManager.setVocabularyWords(words)
-        }
+    }
+
+    private func addEntry(_ manager: VocabularyManager) {
+        let term = newTerm.trimmingCharacters(in: .whitespaces)
+        guard !term.isEmpty else { return }
+        let entry = VocabularyEntry(term: term, category: newCategory)
+        manager.addEntry(entry)
+        withAnimation { entries = manager.entries() }
+        newTerm = ""
+    }
+
+    private func removeEntry(id: UUID) {
+        let manager = VocabularyManager()
+        manager.removeEntry(id: id)
+        entries = manager.entries()
     }
 
     // MARK: - Model
