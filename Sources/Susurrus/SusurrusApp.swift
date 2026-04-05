@@ -40,6 +40,7 @@ struct SusurrusApp: App {
     private let micPermissionManager = MicPermissionManager()
     private let llmService = LLMService()
     private let historyManager = TranscriptionHistoryManager()
+    private let correctionManager = CorrectionLearningManager(vocabularyManager: VocabularyManager())
     private let promptComposer = PromptComposer()
 
     // Recording duration timer
@@ -485,7 +486,8 @@ struct SusurrusApp: App {
                         do {
                             let prompt = promptComposer.compose(
                                 base: prefs.llmSystemPrompt(),
-                                vocabularyContext: vocabularyManager.llmContextString()
+                                vocabularyContext: vocabularyManager.llmContextString(),
+                                correctionExamples: correctionManager.fewShotString(for: text, limit: 5)
                             )
                             finalText = try await llm.process(text: text, systemPrompt: prompt)
                         } catch {
@@ -512,7 +514,7 @@ struct SusurrusApp: App {
                         }
                     }
 
-                    history.add(finalText)
+                    history.add(finalText, rawText: text)
                 } else {
                     notifications.showNotification(
                         title: "Susurrus",
