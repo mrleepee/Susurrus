@@ -153,7 +153,15 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
             var index = loadIndex()
             guard let ni = index.firstIndex(where: { $0.id == notebookId }) else { return }
             guard let ei = index[ni].entries.firstIndex(where: { $0.id == entryId }) else { return }
-            index[ni].entries[ei] = NotebookEntry(id: entryId, text: newText, date: index[ni].entries[ei].date)
+            let existing = index[ni].entries[ei]
+            let originalText = existing.originalText ?? existing.text
+            index[ni].entries[ei] = NotebookEntry(
+                id: entryId,
+                text: newText,
+                originalText: newText == existing.text ? existing.originalText : originalText,
+                date: existing.date,
+                editedDate: newText == existing.text ? existing.editedDate : Date()
+            )
             index[ni].updatedAt = Date()
             saveIndex(index)
             saveNotebook(index[ni])

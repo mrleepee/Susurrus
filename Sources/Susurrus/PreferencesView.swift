@@ -633,6 +633,15 @@ struct PreferencesView: View {
                 Text(entry.date, style: .time)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                if entry.isEdited {
+                    Text("edited")
+                        .font(.caption2)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(.orange.opacity(0.15))
+                        .foregroundStyle(.orange)
+                        .clipShape(Capsule())
+                }
                 Spacer()
 
                 if editingEntryId != entry.id {
@@ -686,6 +695,11 @@ struct PreferencesView: View {
                 Text(entry.text)
                     .font(.system(size: 13))
                     .textSelection(.enabled)
+                if let diff = entry.diffDescription {
+                    Text(diff)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.orange.opacity(0.8))
+                }
             }
         }
         .padding(.vertical, 4)
@@ -710,6 +724,6 @@ struct PreferencesView: View {
             currentEntries = []
             return
         }
-        currentEntries = manager.notebookEntries(id: id)
+        currentEntries = NotebookEntry.sortedDescending(manager.notebookEntries(id: id))
     }
 }

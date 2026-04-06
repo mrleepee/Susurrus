@@ -39,6 +39,11 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 | R25 | VAD-based audio chunking for parallel transcription of longer utterances | Should | 7 |
 | R26 | Use Apple Neural Engine (ANE) for audio encoding and text decoding compute | Should | 7 |
 | R27 | Turbo and distil model variants available as speed/accuracy tradeoff options | Should | 7 |
+| R28 | Streaming transcription with live interim text displayed in a floating overlay | Must | 8 |
+| R29 | Overlay shows confirmed text in primary color and unconfirmed text in secondary color | Should | 8 |
+| R30 | Overlay does not steal focus from the active application | Must | 8 |
+| R31 | LLM automatically assigns each transcription to the most relevant notebook based on content | Should | 9 |
+| R32 | Notebook entries store original ASR text and edited text for Whisper training pairs | Must | 9 |
 
 ## Constraints
 
@@ -65,7 +70,6 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 |---|---|
 | Auto-insertion into focused text fields | Requires Accessibility API; violates privacy-first design |
 | Windows / Intel Mac support | WhisperKit requires Metal on Apple Silicon |
-| Full streaming transcription (record-while-transcribe) | Requires major pipeline restructure; deferred to v2 |
 | Speaker diarization | Not needed for single-user dictation |
 | Translation mode | Transcription-only for v1; translation is additive |
 
@@ -498,6 +502,155 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 
 ---
 
+## Phase 8 — Streaming Transcription
+
+> Real-time transcription with live interim text in a floating overlay, replacing batch processing.
+> Traces to: R28, R29, R30
+
+### Behaviours
+
+**Streaming overlay appears on hotkey press**
+- Given model loaded and mic permission granted
+- When the user presses the global hotkey
+- Then a floating overlay window appears near the menu bar icon
+- And `AudioStreamTranscriber` starts capturing audio
+- And `RecordingState` is `.streaming`
+
+**Live text updates in overlay (R28, R29)**
+- Given streaming is active
+- When `AudioStreamTranscriber` delivers an interim state change
+- Then the overlay displays confirmed text in primary color
+- And unconfirmed/in-flight text is shown in secondary color
+- And the overlay does not steal focus from the active application (R30)
+
+**Streaming stops on hotkey release**
+- Given streaming is active with confirmed text
+- When the user releases the hotkey
+- Then `RecordingState` transitions to `.finalizing`
+- And the overlay fades out over 300ms
+- And the final text is extracted from confirmed + unconfirmed segments
+- And text is written to clipboard, auto-pasted, saved to history, and appended to active notebook
+- And `RecordingState` transitions to `.idle`
+
+**Streaming flush catches trailing words**
+- Given streaming is active and the user releases the hotkey
+- When `stopStreamTranscription()` is called but `finalTextEmitted` is false
+- Then a 200ms flush delay allows pending audio chunks to finish processing
+- And the trailing words are captured in the final text
+
+**No speech detected during streaming**
+- Given streaming is active but no speech is detected
+- When streaming stops
+- Then a "No speech detected" notification is shown
+- And the clipboard is untouched
+- And `RecordingState` returns to `.idle`
+
+**VAD parameters tuned for minimal word loss**
+- Given streaming is active
+- When the user speaks with varying volume
+- Then `silenceThreshold` is set to `0.1` (catches quiet speech)
+- And `requiredSegmentsForConfirmation` is `1` (first words confirmed immediately)
+- And VAD does not cut off trailing words
+
+**60-second cap still enforced during streaming**
+- Given streaming is active for 60 seconds
+- When the duration timer fires
+- Then streaming stops, `wasDurationCapped` is set, final text is processed
+
+### Verification
+
+| # | Test | Method |
+|---|---|---|
+| 8.1 | Overlay appears on hotkey press with live text | Press hotkey, speak, verify overlay shows text in real-time |
+| 8.2 | Confirmed vs unconfirmed text colors differ | Observe overlay during streaming |
+| 8.3 | Overlay does not steal focus | Stream text while typing in another app |
+| 8.4 | Final text on clipboard after release | Speak, release hotkey, paste into TextEdit |
+| 8.5 | Trailing words not lost | Speak a sentence, release hotkey immediately, verify complete text |
+| 8.6 | No speech detected shows notification | Record silence, verify notification |
+| 8.7 | 60-second cap stops streaming with text | Stream for 60s+, verify auto-stop and text capture |
+
+---
+
+## Phase 9 — LLM-Driven Notebook Assignment & Edit Tracking
+
+> After transcription, the LLM classifies which notebook the text belongs to based on content and existing notebook context. Notebook entries store original ASR text alongside edits for Whisper fine-tuning.
+> Traces to: R31, R32
+
+### Behaviours
+
+**LLM classifies transcription into a notebook (R31)**
+- Given LLM is enabled and at least one notebook exists
+- When transcription completes with non-empty text
+- Then the LLM receives the transcription text and a list of all notebooks with their recent context
+- And the LLM returns the ID of the most relevant notebook, or `nil` if no match
+- And the transcription is appended to the selected notebook
+- And the text is also copied to clipboard (dual output preserved)
+
+**LLM notebook assignment prompt is separate from cleanup prompt**
+- Given LLM notebook assignment is enabled
+- When the classification request is made
+- Then a dedicated system prompt instructs the LLM to classify only (not rewrite)
+- And the prompt includes each notebook's name and last N entries as context
+- And the LLM returns a JSON response with `{"notebook_id": "<uuid>" | null}`
+
+**Manual notebook selection overrides LLM assignment**
+- Given a notebook is manually selected as active in the menu bar
+- When transcription completes
+- Then the text is appended to the manually selected notebook
+- And LLM notebook assignment is skipped
+
+**LLM assignment runs when no notebook is active**
+- Given no notebook is manually selected (active notebook is "None")
+- When transcription completes with non-empty text
+- Then the LLM classification runs to determine the best notebook
+- And if the LLM returns a notebook ID, the text is appended to that notebook
+
+**Notebook entry stores original ASR text (R32)**
+- Given a transcription is appended to a notebook
+- When the entry is created
+- Then `text` holds the final text (after LLM cleanup if applicable)
+- And `originalText` is nil (not yet edited)
+- And `date` is the transcription timestamp
+
+**Notebook entry preserves original on edit**
+- Given a notebook entry exists with `text` = "Data bid is great" and `originalText` = nil
+- When the user edits the text to "DataBid is great"
+- Then `text` is updated to "DataBid is great"
+- And `originalText` is set to "Data bid is great" (captured on first edit)
+- And `editedDate` is set to the current time
+
+**Edited entries show visual diff**
+- Given a notebook entry has been edited
+- When the entry is displayed in the notebook UI
+- Then an orange "edited" badge appears next to the timestamp
+- And the diff is shown below the text in monospace: `{Data bid → DataBid} is great`
+
+**Entries sorted newest first**
+- Given a notebook has multiple entries
+- When the notebook detail view is displayed
+- Then entries are listed in descending date order (newest at top)
+
+**LLM notebook assignment failure is non-blocking**
+- Given LLM notebook assignment is enabled
+- When the LLM classification call fails or times out
+- Then the transcription is still copied to clipboard
+- And no notebook assignment is made
+- And no error notification is shown (graceful degradation)
+
+### Verification
+
+| # | Test | Method |
+|---|---|---|
+| 9.1 | LLM assigns transcription to correct notebook | Create notebooks "ACS" and "Susurrus", transcribe about ACS topics, verify entry appears in ACS notebook |
+| 9.2 | LLM returns null for irrelevant transcription | Transcribe casual conversation, verify no notebook assignment |
+| 9.3 | Manual selection overrides LLM | Select "Susurrus" in menu bar, transcribe ACS content, verify entry in Susurrus notebook |
+| 9.4 | Original text preserved on edit | Edit notebook entry, verify originalText is set and diff is displayed |
+| 9.5 | Entries sorted newest first | Add entries at different times, verify sort order |
+| 9.6 | LLM failure doesn't block clipboard | Disable network, transcribe with LLM on, verify text still on clipboard |
+| 9.7 | Training pairs extractable | Get all entries where originalText != nil, verify (originalText → text) pairs |
+
+---
+
 ## Appendix
 
 ### A. Technical Stack Rationale
@@ -520,6 +673,10 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 - ~~Hotkey reconfiguration UI with key capture~~ ✅ Shipped in v1.1
 - ~~Transcription history panel~~ ✅ Shipped in v1.1
 - ~~LLM post-processing~~ ✅ Shipped in v1.1 (cloud-based via MiniMax M2.5)
+- ~~Streaming overlay with interim text~~ ✅ Shipped in v1.1
+- ~~Ontological vocabulary (F9)~~ ✅ Shipped
+- ~~Edit-driven learning (F10)~~ ✅ Shipped
+- ~~Project notebooks with dual output (F11)~~ ✅ Shipped
 
 #### Competitive Features (inspired by Wispr Flow)
 
@@ -536,6 +693,7 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 | F9 | Ontological vocabulary | Categorise vocabulary entries into typed groups: People, Places, Projects, Technical Terms, Products, Acronyms, etc. Categories enable context-aware injection — ASR bias (promptTokens) gets proper nouns and technical terms, while LLM cleanup prompt gets category context ("DataBid is a product name, always capitalize"). Supports user-defined categories. | High | Vocabulary model refactor, Preferences UI |
 | F10 | Edit-driven learning | When users edit transcriptions in the history panel, store correction pairs (raw → edited). Inject the most relevant pairs into the LLM cleanup prompt as few-shot examples. Captures user-specific preferences (capitalisation, filler word tolerance, style) without fine-tuning. Auto-extracts proper noun corrections back into vocabulary. | High | History edit UI, correction pair storage, prompt engineering |
 | F11 | Project notebooks | Named notebooks that accumulate transcriptions as project context. Dual output: text always goes to clipboard (primary workflow preserved), and also appends to the active notebook. Notebook content is injected into the LLM cleanup prompt as domain context. User edits notebook entries to refine context. Menu bar has notebook selector. Preferences has notebook management (create, rename, delete, export). | High | Notebook data model, Preferences UI, Menu bar UI, LLM prompt integration |
+| F12 | LLM-driven notebook assignment | After transcription completes, the LLM classifies the text against all existing notebooks and assigns it to the most relevant one. Eliminates manual notebook switching. Uses a dedicated classification prompt that receives notebook names and recent context, returns a notebook ID or null. Manual selection overrides. Failed classification falls back gracefully. | High | LLM integration, notebook context extraction |
 
 #### Context-Aware Spelling — Technical Detail
 
@@ -710,10 +868,10 @@ Notebook {
 
 NotebookEntry {
     id: UUID
-    timestamp: Date
-    rawText: String           // original WhisperKit output
-    cleanedText: String       // after LLM cleanup
-    editedText: String?       // user's manual edit (if any)
+    text: String              // current/latest text (after LLM cleanup + user edits)
+    originalText: String?     // original ASR text before first edit (nil if never edited)
+    date: Date
+    editedDate: Date?         // when last manually edited (nil if never edited)
 }
 ```
 
@@ -724,7 +882,7 @@ Persisted in `~/Library/Application Support/Susurrus/Notebooks/` as JSON files.
 1. User presses hotkey, speaks, releases
 2. WhisperKit produces raw text → LLM cleanup (with notebook context injected)
 3. Cleaned text → **clipboard** (always, primary workflow)
-4. Cleaned text → **active notebook** (if one is selected, append as new entry)
+4. Cleaned text → **assigned notebook** (LLM determines which, or manual selection)
 5. Auto-paste fires as usual
 
 The clipboard workflow is identical whether or not a notebook is active. The notebook is purely additive.
@@ -735,53 +893,41 @@ The clipboard workflow is identical whether or not a notebook is active. The not
 ┌─────────────────────────────┐
 │ 🔴 Stop Recording           │  (or "Start Recording" when idle)
 │ ─────────────────────────── │
-│ Notebook: ▸ ACS             │  ← submenu with notebook list
+│ Notebook: ▸ Auto            │  ← submenu with notebook list
+│   ● Auto (LLM assigns)      │  ← default: LLM decides
 │   ○ None (clipboard only)   │
-│   ● ACS                     │  ← active notebook (checkmark)
+│   ○ ACS                     │
 │   ○ Susurrus                │
 │   ○ Personal                │
-│   ○ + New Notebook...       │
 │ ─────────────────────────── │
 │ Preferences...              │
 │ Quit Susurrus               │
 └─────────────────────────────┘
 ```
 
-When "None" is selected, transcriptions go to clipboard only (current behaviour). When a notebook is selected, text also appends to that notebook. The active notebook persists across app restarts.
+"Auto" is the default — LLM classifies after each transcription. Manual selection overrides. "None" disables notebook capture entirely.
 
 **Preferences — Notebooks tab:**
 
-New tab alongside General, Model, LLM:
+Two-pane layout: notebook list on left, entry detail on right.
 
-```
-┌─────────────────────────────────────────────────────┐
-│  General  │  Model  │  LLM  │  Notebooks  │        │
-│──────────────────────────────────────────────────────│
-│                                                      │
-│  Notebooks:                                          │
-│  ┌──────────┬───────────┬────────┬────────┐        │
-│  │ Name     │ Entries    │ Last   │        │        │
-│  ├──────────┼───────────┼────────┼────────┤        │
-│  │ ACS      │ 24 entries │ Today  │ [Edit] │        │
-│  │ Susurrus │ 12 entries │ 2d ago │ [Edit] │        │
-│  │ Personal │  3 entries │ 1w ago │ [Edit] │        │
-│  └──────────┴───────────┴────────┴────────┘        │
-│                                                      │
-│  [+ New Notebook]   [Delete]   [Export...]           │
-│                                                      │
-│  ── Notebook Settings ───────────────────────────── │
-│  Active notebook context:                            │
-│  ○ Last 5 entries as LLM context (recommended)      │
-│  ○ Last 10 entries                                   │
-│  ○ All entries                                       │
-│                                                      │
-│  ☑ Auto-detect notebook voice commands               │
-│    (e.g. "notebook ACS" switches active notebook)    │
-│                                                      │
-└─────────────────────────────────────────────────────┘
-```
+- Left pane: create/rename/delete notebooks, set active, see entry count and last updated
+- Right pane: entries sorted newest first, each showing timestamp, text, and edit controls
+- Edited entries show orange "edited" badge and inline diff: `{original → edited}`
+- Each entry has pencil icon for editing, trash icon for deletion
 
-[Edit] opens a window showing the notebook's entries with inline editing. User can polish entries, remove duplicates, reorganise. These edits are the refined context that feeds back into LLM cleanup.
+**Notebook entry editing and Whisper training data:**
+
+When the user edits a notebook entry:
+- `originalText` captures the pre-edit text on first edit (preserved across subsequent edits)
+- `text` holds the current/latest version
+- `editedDate` records when the edit happened
+- The diff is displayed in the UI for transparency
+
+Training pairs for Whisper fine-tuning are extracted from entries where `originalText != nil`:
+- Input: `originalText` (raw ASR output)
+- Target: `text` (user-corrected version)
+- This is the key data structure for Phase 9's training pipeline
 
 **LLM prompt integration:**
 
@@ -806,24 +952,51 @@ This gives the LLM three advantages over generic cleanup:
 2. **Style consistency** — if previous entries are terse, the model matches that style
 3. **Domain knowledge** — the model understands this is about client SOW renewals, not random text
 
-**Notebook entry editing (subsumes F10 correction pairs):**
-
-When the user edits a notebook entry, the system can derive correction pairs from the `cleanedText → editedText` diff. This is a richer signal than F10's history-only corrections because:
-- The user is deliberately curating project context (higher intent)
-- Edits accumulate across multiple transcriptions into a coherent document
-- The notebook provides surrounding context that makes corrections unambiguous
-
-**Voice command detection (opt-in):**
-
-If "Auto-detect notebook voice commands" is enabled in Preferences:
-1. LLM post-processing checks if the transcription starts with "notebook [name]"
-2. If matched, the transcription is NOT sent to clipboard — instead, the notebook is switched
-3. A brief notification confirms: "Switched to notebook: ACS"
-4. Subsequent recordings use that notebook's context
-
-This is fragile by nature (false positives on "notebook" in regular speech) so it's off by default. The menu bar selector is the primary switching mechanism.
-
 **Relationship to other features:**
 - F9 (ontological vocabulary): Notebook context complements vocabulary. Vocabulary provides term definitions, notebooks provide usage context. LLM prompt gets both.
 - F10 (edit-driven learning): Notebook editing subsumes correction pairs for project-specific style. F10 remains useful for global style preferences across all projects.
+- F12 (LLM notebook assignment): Determines which notebook receives each transcription, replacing manual switching.
 - F1 (context-aware spelling): If the focused app is a text editor with an open document matching a notebook name, could auto-select that notebook.
+
+#### LLM-Driven Notebook Assignment — Technical Detail (F12)
+
+After transcription completes (and optional LLM cleanup), a second LLM call classifies the text into the most relevant notebook. This replaces manual notebook switching for users with multiple project notebooks.
+
+**Classification flow:**
+
+1. Transcription completes → text is on clipboard (primary output already delivered)
+2. System checks: is manual notebook selected? If yes, append to that notebook. Done.
+3. If "Auto" mode: system builds classification prompt with all notebook names + last 3 entries each
+4. LLM returns `{"notebook_id": "<uuid>"}` or `{"notebook_id": null}`
+5. If a notebook ID is returned, text is appended to that notebook
+6. If null or classification fails, text is clipboard-only (no notebook assignment)
+
+**Classification prompt:**
+
+```
+You are a notebook classifier. Given a transcription and a list of notebooks with recent entries,
+determine which notebook this transcription belongs to.
+
+Notebooks:
+1. "ACS" (id: abc-123)
+   - We need to update the DataBid SOW before the end of the month.
+   - The previous statement of work with ACS had ended.
+2. "Susurrus" (id: def-456)
+   - Streaming overlay now shows interim text in real-time.
+   - Fixed window opening bug caused by early return in Scene body.
+
+Transcription: "We should get the DataBid SOW signed before Friday"
+
+Respond with JSON only: {"notebook_id": "<uuid>" or null}
+```
+
+**Key design decisions:**
+- Classification runs AFTER clipboard write — the user never waits for notebook assignment
+- The classification prompt is separate from the cleanup prompt (different system prompt, different purpose)
+- Failed classification is non-blocking — clipboard still works, no error shown
+- "Auto" mode is the default for new users with notebooks; manual selection overrides
+- Classification can reuse the same LLM endpoint/config as cleanup (one extra API call per transcription)
+
+**Preferences integration:**
+- General tab: "Notebook assignment" selector — Auto (LLM) / Manual / None
+- When "Auto" is selected, the menu bar shows "Notebook: ▸ Auto" with LLM badge
