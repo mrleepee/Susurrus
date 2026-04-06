@@ -18,19 +18,8 @@ private func traceApp(_ message: String) {
     }
 }
 
-/// AppDelegate that triggers eager setup at launch — before any menu bar click.
-/// Stores closures set from SusurrusApp.body and fires them in applicationDidFinishLaunching.
-final class SusurrusAppDelegate: NSObject, NSApplicationDelegate {
-    var onLaunch: (() -> Void)?
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        onLaunch?()
-    }
-}
-
 @main
 struct SusurrusApp: App {
-    @NSApplicationDelegateAdaptor(SusurrusAppDelegate.self) var appDelegate
     @State private var appState = AppState()
     @State private var pulseOn = false
     @State private var pulseTimer: Timer?
@@ -100,26 +89,19 @@ struct SusurrusApp: App {
     }
 
     var body: some Scene {
-        // Wire eager launch via AppDelegate. Runs at app launch before any user interaction.
-        // Safe to capture self here — body is a computed property on a struct that SwiftUI
-        // evaluates once for the scene graph.
-        appDelegate.onLaunch = { [self] in
-            startModelLoadingIfNeeded()
-            checkMicPermission()
-            appState.recordingMode = preferences.recordingMode()
-            appState.onStreamingStart = { self.startStreamingSession() }
-            appState.onStreamingStop = { self.stopStreamingSession() }
-            observeWindowClose()
-        }
-
-        return MenuBarExtra(
+        MenuBarExtra(
             "Susurrus",
             systemImage: menuBarIcon
         ) {
             MenuBarView(appState: appState, notebookManager: notebookManager) {
-                // Hotkeys still need onAppear — Carbon API registration needs main run loop
+                startModelLoadingIfNeeded()
+                checkMicPermission()
                 setupHotkeyIfNeeded()
                 setupLLMHotkeyIfNeeded()
+                observeWindowClose()
+                appState.recordingMode = preferences.recordingMode()
+                appState.onStreamingStart = { self.startStreamingSession() }
+                appState.onStreamingStop = { self.stopStreamingSession() }
             }
         }
         .onChange(of: appState.recordingState) { _, newState in
@@ -173,11 +155,17 @@ struct SusurrusApp: App {
             forName: NSWindow.willCloseNotification,
             object: nil,
             queue: .main
-        ) { _ in
+        ) { notification in
+            // Only react to our titled windows closing, not menu bar popovers
+            guard let window = notification.object as? NSWindow,
+                  (window.title == "Susurrus Preferences" || window.title == "History") else {
+                return
+            }
             Task { @MainActor in
-                // Check if any visible windows remain (excluding menu bar popover)
-                let visibleWindows = NSApp.windows.filter { window in
-                    window.isVisible && window.title != "Susurrus"
+                // Delay slightly to let the window actually close
+                try? await Task.sleep(for: .milliseconds(100))
+                let visibleWindows = NSApp.windows.filter { w in
+                    w.isVisible && (w.title == "Susurrus Preferences" || w.title == "History")
                 }
                 if visibleWindows.isEmpty {
                     NSApp.setActivationPolicy(.accessory)

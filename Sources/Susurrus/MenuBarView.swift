@@ -73,12 +73,16 @@ struct MenuBarView: View {
             Button("History...") {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "history")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    openWindow(id: "history")
+                }
             }
             Button("Preferences...") {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "preferences")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    openWindow(id: "preferences")
+                }
             }
             Divider()
             Button("Show Debug Log") {
