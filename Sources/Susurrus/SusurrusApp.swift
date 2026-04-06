@@ -18,14 +18,26 @@ private func traceApp(_ message: String) {
     }
 }
 
+/// AppDelegate that triggers eager setup at launch — before any menu bar click.
+/// Stores closures set from SusurrusApp.body and fires them in applicationDidFinishLaunching.
+final class SusurrusAppDelegate: NSObject, NSApplicationDelegate {
+    var onLaunch: (() -> Void)?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        onLaunch?()
+    }
+}
+
 @main
 struct SusurrusApp: App {
+    @NSApplicationDelegateAdaptor(SusurrusAppDelegate.self) var appDelegate
     @State private var appState = AppState()
     @State private var pulseOn = false
     @State private var pulseTimer: Timer?
     @State private var modelLoading = false
     /// Live observation of recordingMode preference (fixes #9).
     @AppStorage("recordingMode") private var recordingMode = "push-to-talk"
+    @Environment(\.openWindow) private var openWindow
 
     // Services
     private let transcriptionService = WhisperKitTranscriptionService()
@@ -67,10 +79,6 @@ struct SusurrusApp: App {
         if !AXIsProcessTrusted() {
             PasteboardClipboardService.promptAccessibility()
         }
-
-        // Note: setupHotkeyIfNeeded and setupLLMHotkeyIfNeeded are called
-        // from MenuBarView.onAppear to avoid actor isolation issues in init.
-        // Model loading also starts from onAppear.
     }
 
     var menuBarIcon: String {
@@ -92,18 +100,26 @@ struct SusurrusApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra(
+        // Wire eager launch via AppDelegate. Runs at app launch before any user interaction.
+        // Safe to capture self here — body is a computed property on a struct that SwiftUI
+        // evaluates once for the scene graph.
+        appDelegate.onLaunch = { [self] in
+            startModelLoadingIfNeeded()
+            checkMicPermission()
+            appState.recordingMode = preferences.recordingMode()
+            appState.onStreamingStart = { self.startStreamingSession() }
+            appState.onStreamingStop = { self.stopStreamingSession() }
+            observeWindowClose()
+        }
+
+        return MenuBarExtra(
             "Susurrus",
             systemImage: menuBarIcon
         ) {
             MenuBarView(appState: appState, notebookManager: notebookManager) {
-                startModelLoadingIfNeeded()
+                // Hotkeys still need onAppear — Carbon API registration needs main run loop
                 setupHotkeyIfNeeded()
                 setupLLMHotkeyIfNeeded()
-                checkMicPermission()
-                appState.recordingMode = preferences.recordingMode()
-                appState.onStreamingStart = { self.startStreamingSession() }
-                appState.onStreamingStop = { self.stopStreamingSession() }
             }
         }
         .onChange(of: appState.recordingState) { _, newState in
@@ -137,6 +153,36 @@ struct SusurrusApp: App {
 
         Window("History", id: "history") {
             HistoryView()
+        }
+    }
+
+    // MARK: - Window management
+
+    /// Opens a SwiftUI Window scene by temporarily switching to .regular
+    /// activation policy so the window can become key and visible.
+    private func openWindowWithActivation(id: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.setActivationPolicy(.regular)
+        openWindow(id: id)
+    }
+
+    /// Observes window close notifications to revert to .accessory policy
+    /// when no visible windows remain (keeps menu bar icon clean).
+    private func observeWindowClose() {
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                // Check if any visible windows remain (excluding menu bar popover)
+                let visibleWindows = NSApp.windows.filter { window in
+                    window.isVisible && window.title != "Susurrus"
+                }
+                if visibleWindows.isEmpty {
+                    NSApp.setActivationPolicy(.accessory)
+                }
+            }
         }
     }
 
@@ -451,8 +497,8 @@ struct SusurrusApp: App {
                 Task { @MainActor in
                     state.cancel()
                     notifications.showNotification(
-                        title: "Susurrus",
-                        body: "Streaming failed to start"
+                        title: "Susurrus Error",
+                        body: "Streaming failed: \(error.localizedDescription)"
                     )
                 }
             }
@@ -475,15 +521,19 @@ struct SusurrusApp: App {
         let prefs = preferences
         let llm = llmService
         let history = historyManager
+        let nbManager = notebookManager
 
         Task {
             do {
+                traceApp("stopStreamingSession: calling stopStreamTranscription")
                 let text = try await streaming.stopStreamTranscription()
+                traceApp("stopStreamingSession: got text (\(text.count) chars): \(text.prefix(100))")
 
                 if !text.isEmpty {
                     var finalText = text
 
                     if shouldLLM {
+                        traceApp("stopStreamingSession: starting LLM processing")
                         do {
                             let prompt = promptComposer.compose(
                                 base: prefs.llmSystemPrompt(),
@@ -492,11 +542,13 @@ struct SusurrusApp: App {
                                 notebookContext: notebookManager.activeNotebookContext()
                             )
                             finalText = try await llm.process(text: text, systemPrompt: prompt)
+                            traceApp("stopStreamingSession: LLM done, finalText=\(finalText.prefix(50))")
                         } catch {
-                            // LLM failed — use raw transcription
+                            traceApp("stopStreamingSession: LLM cleanup failed: \(error.localizedDescription)")
                         }
                     }
 
+                    traceApp("stopStreamingSession: writing to clipboard")
                     if appendMode {
                         clip.appendText(finalText)
                     } else {
@@ -504,7 +556,7 @@ struct SusurrusApp: App {
                     }
 
                     let autoPaste = prefs.autoPasteEnabled()
-                    Logger(subsystem: "com.susurrus.app", category: "Flow").info("autoPaste=\(autoPaste)")
+                    traceApp("stopStreamingSession: autoPaste=\(autoPaste)")
                     if autoPaste {
                         try? await Task.sleep(for: .milliseconds(150))
                         let pasted = clip.simulatePaste()
@@ -516,8 +568,11 @@ struct SusurrusApp: App {
                         }
                     }
 
+                    traceApp("stopStreamingSession: saving to history")
                     history.add(finalText, rawText: text)
-                    notebookManager.appendToActiveNotebook(text: finalText)
+                    traceApp("stopStreamingSession: appending to notebook")
+                    nbManager.appendToActiveNotebook(text: finalText)
+                    traceApp("stopStreamingSession: done")
                 } else {
                     notifications.showNotification(
                         title: "Susurrus",
@@ -525,12 +580,17 @@ struct SusurrusApp: App {
                     )
                 }
             } catch TranscriptionError.noSpeechDetected {
+                traceApp("stopStreamingSession: no speech detected")
                 notifications.showNotification(
                     title: "Susurrus",
                     body: "No speech detected"
                 )
             } catch {
-                // Transcription failed — clipboard untouched
+                traceApp("stopStreamingSession: transcription failed: \(error.localizedDescription)")
+                notifications.showNotification(
+                    title: "Susurrus Error",
+                    body: error.localizedDescription
+                )
             }
 
             // Consume the duration cap flag after notification (Behaviour 2.6)

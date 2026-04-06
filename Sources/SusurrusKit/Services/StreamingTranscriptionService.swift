@@ -129,8 +129,8 @@ public actor StreamingTranscriptionService {
             tokenizer: tokenizer,
             audioProcessor: whisperKit.audioProcessor,
             decodingOptions: options,
-            requiredSegmentsForConfirmation: 2,
-            silenceThreshold: 0.3,
+            requiredSegmentsForConfirmation: 1,
+            silenceThreshold: 0.1,
             compressionCheckWindow: 60,
             useVAD: true,
             stateChangeCallback: { [weak self] oldState, newState in
@@ -150,6 +150,12 @@ public actor StreamingTranscriptionService {
         }
 
         await transcriber.stopStreamTranscription()
+
+        // Flush: allow pending audio chunks to finish processing before reading final state.
+        // Without this, words spoken right before the hotkey release can be lost.
+        if !finalTextEmitted {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
 
         // Read the final state that was captured via callback — no sleep needed.
         // If the final transcript was already delivered through the callback

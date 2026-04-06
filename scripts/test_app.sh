@@ -101,5 +101,14 @@ echo "=== Smoke Test Results ==="
 echo "Debug log:"
 cat "$DEBUG_LOG"
 echo ""
+
+# Check for any error-level entries in the log
+if grep -qiE "FAILED|error:|crash" "$DEBUG_LOG" 2>/dev/null; then
+    warn "Potential errors detected in debug log (see above)"
+else
+    log "No errors detected in debug log"
+fi
+
 log "All smoke tests passed. App is running and model is loaded."
 echo "Next: manually test Start Recording → speak → Stop Recording → check clipboard"
+echo "Tip: use 'make dev' to run from terminal with live log output"

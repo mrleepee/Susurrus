@@ -440,97 +440,276 @@ struct PreferencesView: View {
     @State private var notebookList: [Notebook] = []
     @State private var newNotebookName: String = ""
     @State private var selectedNotebookId: UUID?
+    @State private var currentEntries: [NotebookEntry] = []
+    @State private var editingEntryId: UUID?
+    @State private var editingEntryText: String = ""
+    @State private var renamingNotebookId: UUID?
+    @State private var renameText: String = ""
 
     private var notebooksTab: some View {
         let manager = NotebookManager()
-        return Form {
-            Section {
+        return HSplitView {
+            // Left pane: notebook list
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Notebooks")
+                    .font(.headline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+
                 if notebookList.isEmpty {
-                    Text("No notebooks yet. Create one below.")
+                    Text("No notebooks yet.\nCreate one below.")
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .multilineTextAlignment(.center)
                         .padding()
                 } else {
                     List(notebookList, selection: $selectedNotebookId) { notebook in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(notebook.name)
-                                    .fontWeight(.medium)
-                                Text("\(notebook.entries.count) entries • \(notebook.updatedAt, style: .relative)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if manager.activeNotebookId() == notebook.id {
-                                Text("Active")
-                                    .font(.caption2)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.blue.opacity(0.15))
-                                    .foregroundStyle(.blue)
-                                    .clipShape(Capsule())
-                            }
-                            Button {
-                                manager.deleteNotebook(id: notebook.id)
-                                loadNotebooks(manager)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .foregroundStyle(.red.opacity(0.7))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .contextMenu {
-                            Button("Set Active") {
-                                manager.setActiveNotebookId(notebook.id)
-                                loadNotebooks(manager)
-                            }
-                            Button("Rename...") {
-                                // TODO: inline rename
-                            }
-                        }
+                        notebookRow(notebook, manager: manager)
                     }
                     .listStyle(.sidebar)
-                    .frame(minHeight: 150)
                 }
-            } header: {
-                Text("Notebooks")
-            }
 
-            Section {
+                Divider()
+
+                // Create new notebook
                 HStack {
-                    TextField("Notebook name", text: $newNotebookName)
+                    TextField("New notebook", text: $newNotebookName)
                         .textFieldStyle(.roundedBorder)
-                        .onSubmit {
-                            createNotebook(manager)
-                        }
-                    Button("Create") {
-                        createNotebook(manager)
+                        .onSubmit { createNotebook(manager) }
+                    Button(action: { createNotebook(manager) }) {
+                        Image(systemName: "plus")
                     }
                     .disabled(newNotebookName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-            } header: {
-                Text("Create Notebook")
-            } footer: {
-                Text("Transcriptions are always copied to clipboard. When a notebook is active, text also appends to that notebook for LLM context.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                .padding(8)
             }
+            .frame(minWidth: 200, idealWidth: 250, maxWidth: 350)
+
+            // Right pane: entries for selected notebook
+            entryDetailPane(manager: manager)
+                .frame(minWidth: 300, idealWidth: 400)
         }
-        .formStyle(.grouped)
+        .frame(minWidth: 550, idealWidth: 700, minHeight: 350, idealHeight: 450)
         .onAppear {
             loadNotebooks(manager)
         }
+        .onChange(of: selectedNotebookId) { _, newId in
+            loadEntries(manager)
+            editingEntryId = nil
+        }
+    }
+
+    @ViewBuilder
+    private func notebookRow(_ notebook: Notebook, manager: NotebookManager) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                if renamingNotebookId == notebook.id {
+                    TextField("Notebook name", text: $renameText)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            let trimmed = renameText.trimmingCharacters(in: .whitespaces)
+                            if !trimmed.isEmpty {
+                                manager.renameNotebook(id: notebook.id, newName: trimmed)
+                                loadNotebooks(manager)
+                            }
+                            renamingNotebookId = nil
+                        }
+                        .onExitCommand {
+                            renamingNotebookId = nil
+                        }
+                } else {
+                    Text(notebook.name)
+                        .fontWeight(.medium)
+                    Text("\(notebook.entries.count) entries • \(notebook.updatedAt, style: .relative)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if manager.activeNotebookId() == notebook.id {
+                Text("Active")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.blue.opacity(0.15))
+                    .foregroundStyle(.blue)
+                    .clipShape(Capsule())
+            }
+            Button {
+                manager.setActiveNotebookId(notebook.id)
+                loadNotebooks(manager)
+            } label: {
+                Image(systemName: manager.activeNotebookId() == notebook.id ? "bookmark.fill" : "bookmark")
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+            .help("Set as active notebook")
+
+            Button {
+                renameText = notebook.name
+                renamingNotebookId = notebook.id
+            } label: {
+                Image(systemName: "pencil")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Rename notebook")
+
+            Button {
+                manager.deleteNotebook(id: notebook.id)
+                if selectedNotebookId == notebook.id {
+                    selectedNotebookId = nil
+                    currentEntries = []
+                }
+                loadNotebooks(manager)
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundStyle(.red.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+            .help("Delete notebook")
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func entryDetailPane(manager: NotebookManager) -> some View {
+        if let selectedId = selectedNotebookId,
+           let notebook = notebookList.first(where: { $0.id == selectedId }) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack {
+                    Text(notebook.name)
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                    Text("\(currentEntries.count) entries")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Active notebook context: last entries used for LLM prompt")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+                Divider()
+
+                if currentEntries.isEmpty {
+                    Text("No entries yet.\nTranscriptions will appear here when this notebook is active.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                } else {
+                    List {
+                        ForEach(currentEntries) { entry in
+                            entryRow(entry, notebookId: notebook.id, manager: manager)
+                        }
+                    }
+                    .listStyle(.inset)
+                }
+            }
+        } else {
+            VStack {
+                Image(systemName: "book")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.quaternary)
+                Text("Select a notebook to view entries")
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func entryRow(_ entry: NotebookEntry, notebookId: UUID, manager: NotebookManager) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(entry.date, style: .date)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(entry.date, style: .time)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+
+                if editingEntryId != entry.id {
+                    Button {
+                        editingEntryId = entry.id
+                        editingEntryText = entry.text
+                    } label: {
+                        Image(systemName: "pencil")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Edit entry")
+                }
+
+                Button {
+                    manager.deleteEntry(notebookId: notebookId, entryId: entry.id)
+                    loadEntries(manager)
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.red.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Delete entry")
+            }
+
+            if editingEntryId == entry.id {
+                VStack(alignment: .trailing, spacing: 6) {
+                    TextEditor(text: $editingEntryText)
+                        .font(.system(size: 13))
+                        .frame(minHeight: 80)
+                        .border(Color(nsColor: .separatorColor), width: 1)
+
+                    HStack(spacing: 8) {
+                        Button("Cancel") {
+                            editingEntryId = nil
+                        }
+                        Button("Save") {
+                            manager.updateEntry(
+                                notebookId: notebookId,
+                                entryId: entry.id,
+                                newText: editingEntryText
+                            )
+                            editingEntryId = nil
+                            loadEntries(manager)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(editingEntryText.isEmpty)
+                    }
+                }
+            } else {
+                Text(entry.text)
+                    .font(.system(size: 13))
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private func createNotebook(_ manager: NotebookManager) {
         let name = newNotebookName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        manager.createNotebook(name: name)
+        let nb = manager.createNotebook(name: name)
         newNotebookName = ""
         loadNotebooks(manager)
+        selectedNotebookId = nb.id
     }
 
     private func loadNotebooks(_ manager: NotebookManager) {
         notebookList = manager.notebooks()
+        loadEntries(manager)
+    }
+
+    private func loadEntries(_ manager: NotebookManager) {
+        guard let id = selectedNotebookId else {
+            currentEntries = []
+            return
+        }
+        currentEntries = manager.notebookEntries(id: id)
     }
 }

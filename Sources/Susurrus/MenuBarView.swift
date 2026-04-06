@@ -7,6 +7,10 @@ struct MenuBarView: View {
     let onLoad: (() -> Void)?
     @Environment(\.openWindow) private var openWindow
 
+    // Refreshed each time the menu appears
+    @State private var notebookList: [Notebook] = []
+    @State private var activeNotebookId: UUID?
+
     var body: some View {
         Group {
             // R3 / Phase 6: Menu items based on state
@@ -30,7 +34,6 @@ struct MenuBarView: View {
                     Text("Transcribing...")
                 }
             } else if appState.recordingState == .finalizing {
-                // No progress bar during finalization — user just waits
                 Text("Finalizing...")
                     .foregroundColor(.secondary)
             } else if !appState.modelReady {
@@ -43,19 +46,19 @@ struct MenuBarView: View {
 
             // Notebook selector submenu
             Menu {
-                Button("None (clipboard only)") {
+                Button(activeNotebookId == nil ? "✓ None (clipboard only)" : "None (clipboard only)") {
                     notebookManager.setActiveNotebookId(nil)
+                    refreshNotebooks()
                 }
                 Divider()
-                let notebooks = notebookManager.notebooks()
-                let activeId = notebookManager.activeNotebookId()
-                ForEach(notebooks) { notebook in
+                ForEach(notebookList) { notebook in
                     Button {
                         notebookManager.setActiveNotebookId(notebook.id)
+                        refreshNotebooks()
                     } label: {
                         HStack {
                             Text(notebook.name)
-                            if activeId == notebook.id {
+                            if activeNotebookId == notebook.id {
                                 Spacer()
                                 Image(systemName: "checkmark")
                             }
@@ -68,32 +71,32 @@ struct MenuBarView: View {
 
             Divider()
             Button("History...") {
+                NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    openWindow(id: "history")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        NSApp.windows.first(where: { $0.title == "History" })?
-                            .orderFrontRegardless()
-                    }
-                }
+                openWindow(id: "history")
             }
             Button("Preferences...") {
+                NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    openWindow(id: "preferences")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        NSApp.windows.first(where: { $0.title == "Susurrus Preferences" })?
-                            .orderFrontRegardless()
-                    }
-                }
+                openWindow(id: "preferences")
             }
             Divider()
+            Button("Show Debug Log") {
+                let path = NSHomeDirectory() + "/susurrus_debug.log"
+                NSWorkspace.shared.open(URL(fileURLWithPath: path))
+            }
             Button("Quit Susurrus") {
                 NSApplication.shared.terminate(nil)
             }
         }
         .onAppear {
             onLoad?()
+            refreshNotebooks()
         }
+    }
+
+    private func refreshNotebooks() {
+        notebookList = notebookManager.notebooks()
+        activeNotebookId = notebookManager.activeNotebookId()
     }
 }

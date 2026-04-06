@@ -8,6 +8,12 @@ INSTALL_DIR := /Applications
 build:
 	swift build
 
+# Run debug binary directly — stdout/stderr visible in terminal, no install needed
+dev: build
+	-killall $(APP_NAME) 2>/dev/null || true
+	@echo "Running from .build/debug/$(APP_NAME) — Ctrl+C to quit"
+	.build/debug/$(APP_NAME)
+
 release:
 	swift build -c release
 
