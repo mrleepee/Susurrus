@@ -9,6 +9,7 @@ struct PreferencesView: View {
     @AppStorage("selectedModel") private var selectedModel = "base"
     @AppStorage("llmEnabled") private var llmEnabled = false
     @AppStorage("autoPasteEnabled") private var autoPasteEnabled = true
+    @AppStorage("pauseMediaOnRecord") private var pauseMediaOnRecord = true
     @State private var axTrusted = false
     @AppStorage("llmModel") private var llmModel: String = "MiniMax-M2.5"
     @AppStorage("llmEndpoint") private var llmEndpoint: String = "https://api.minimax.io/anthropic/v1/messages"
@@ -137,6 +138,13 @@ struct PreferencesView: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
+            }
+
+            Toggle("Pause Media While Recording", isOn: $pauseMediaOnRecord)
+            if pauseMediaOnRecord {
+                Text("Spotify, Apple Music, and other media apps will pause when recording starts and resume when it stops.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
         }

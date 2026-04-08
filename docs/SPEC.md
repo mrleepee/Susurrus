@@ -44,6 +44,7 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 | R30 | Overlay does not steal focus from the active application | Must | 8 |
 | R31 | LLM automatically assigns each transcription to the most relevant notebook based on content | Should | 9 |
 | R32 | Notebook entries store original ASR text and edited text for Whisper training pairs | Must | 9 |
+| R33 | Pause all playing media (Spotify, Apple Music, VLC) when recording starts; resume when recording stops | Must | 10 |
 
 ## Constraints
 
@@ -648,6 +649,57 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 | 9.5 | Entries sorted newest first | Add entries at different times, verify sort order |
 | 9.6 | LLM failure doesn't block clipboard | Disable network, transcribe with LLM on, verify text still on clipboard |
 | 9.7 | Training pairs extractable | Get all entries where originalText != nil, verify (originalText → text) pairs |
+
+---
+
+## Phase 10 — Media Pause on Recording
+
+> Automatically pause playing media apps when recording starts and resume when recording stops.
+> Traces to: R33
+
+### Behaviours
+
+**Media paused when recording starts (R33)**
+- Given Spotify or Apple Music is playing
+- When the user activates recording (hotkey press)
+- Then Susurrus pauses all detected playing media apps
+- And recording proceeds normally with a clean audio input
+
+**Media resumed when recording stops**
+- Given media was paused at the start of recording
+- When recording stops and transcription completes
+- Then Susurrus resumes all apps that were paused
+- And playback continues from where it left off
+
+**No media playing — no action**
+- Given no media apps are playing
+- When recording starts
+- Then no pause commands are sent
+- And recording proceeds normally
+
+**App closed during recording — resume skipped gracefully**
+- Given Spotify was paused when recording started
+- When Spotify is quit during recording
+- And recording stops
+- Then the resume AppleScript silently fails
+- And no error is shown to the user
+
+**Preference toggle controls feature**
+- Given "Pause Media While Recording" is disabled in Preferences
+- When recording starts
+- Then media apps are not paused
+
+**Supported apps**: Spotify, Apple Music (Music), VLC, QuickTime Player, iTunes. Additional apps can be added by extending the known apps list.
+
+### Verification
+
+| # | Test | Method |
+|---|---|---|
+| 10.1 | Spotify pauses on recording start | Play Spotify, press hotkey, verify Spotify pauses |
+| 10.2 | Spotify resumes after recording | After 10.1, release hotkey, verify Spotify resumes |
+| 10.3 | No media — recording works normally | With nothing playing, record and verify transcription |
+| 10.4 | Preference disabled — media not paused | Disable toggle, play Spotify, record, verify Spotify keeps playing |
+| 10.5 | App closed — no crash on resume | Pause Spotify, quit Spotify during recording, stop recording, verify no crash |
 
 ---
 

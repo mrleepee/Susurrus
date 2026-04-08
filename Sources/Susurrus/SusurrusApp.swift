@@ -44,6 +44,7 @@ struct SusurrusApp: App {
     private let correctionManager = CorrectionLearningManager(vocabularyManager: VocabularyManager())
     private let notebookManager = NotebookManager()
     private let promptComposer = PromptComposer()
+    private let mediaService = MediaService()
 
     // Recording duration timer
     @State private var durationTimer: Timer?
@@ -62,12 +63,18 @@ struct SusurrusApp: App {
     // Streaming overlay window
     @State private var overlayWindow: StreamingOverlayWindow?
 
+    /// Media apps that were paused when recording started.
+    @State private var pausedMediaApps: [String] = []
+
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
 
         if !AXIsProcessTrusted() {
             PasteboardClipboardService.promptAccessibility()
         }
+
+        // Start model loading immediately — don't wait for menu bar click
+        startModelLoadingIfNeeded()
     }
 
     var menuBarIcon: String {
@@ -136,6 +143,10 @@ struct SusurrusApp: App {
         Window("History", id: "history") {
             HistoryView()
         }
+
+        Window("Notebooks", id: "notebooks") {
+            NotebooksWindowView()
+        }
     }
 
     // MARK: - Window management
@@ -158,7 +169,7 @@ struct SusurrusApp: App {
         ) { notification in
             // Only react to our titled windows closing, not menu bar popovers
             guard let window = notification.object as? NSWindow,
-                  (window.title == "Susurrus Preferences" || window.title == "History") else {
+                  (window.title == "Susurrus Preferences" || window.title == "History" || window.title == "Notebooks") else {
                 return
             }
             Task { @MainActor in
@@ -453,6 +464,16 @@ struct SusurrusApp: App {
         traceApp("startStreamingSession: starting streaming session")
         startDurationTimer()
 
+        // Pause any playing media (Spotify, Apple Music, etc.)
+        let media = mediaService
+        Task {
+            let paused = await media.pausePlayingApps()
+            if !paused.isEmpty {
+                traceApp("startStreamingSession: paused media: \(paused.joined(separator: ", "))")
+                pausedMediaApps = paused
+            }
+        }
+
         // Lazily create the overlay window
         if overlayWindow == nil {
             overlayWindow = StreamingOverlayWindow()
@@ -587,6 +608,14 @@ struct SusurrusApp: App {
             }
 
             state.finishStreaming()
+
+            // Resume media that was paused when recording started
+            if !pausedMediaApps.isEmpty {
+                let apps = pausedMediaApps
+                pausedMediaApps = []
+                traceApp("stopStreamingSession: resuming media: \(apps.joined(separator: ", "))")
+                await mediaService.resumeApps(apps)
+            }
         }
     }
 

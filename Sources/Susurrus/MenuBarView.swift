@@ -70,6 +70,13 @@ struct MenuBarView: View {
             }
 
             Divider()
+            Button("Notebooks...") {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    openWindow(id: "notebooks")
+                }
+            }
             Button("History...") {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
