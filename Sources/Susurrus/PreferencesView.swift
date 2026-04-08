@@ -10,6 +10,7 @@ struct PreferencesView: View {
     @AppStorage("llmEnabled") private var llmEnabled = false
     @AppStorage("autoPasteEnabled") private var autoPasteEnabled = true
     @AppStorage("pauseMediaOnRecord") private var pauseMediaOnRecord = true
+    @AppStorage("outputMode") private var outputMode = "clipboard"
     @State private var axTrusted = false
     @AppStorage("llmModel") private var llmModel: String = "MiniMax-M2.5"
     @AppStorage("llmEndpoint") private var llmEndpoint: String = "https://api.minimax.io/anthropic/v1/messages"
@@ -104,6 +105,16 @@ struct PreferencesView: View {
                 Text("Toggle").tag("toggle")
             }
 
+            Picker("Output", selection: $outputMode) {
+                Text("Clipboard (paste at cursor)").tag("clipboard")
+                Text("Notebook (edit before pasting)").tag("notebook")
+            }
+            if outputMode == "notebook" {
+                Text("Transcriptions go to the active notebook. Edit there, then copy to paste elsewhere.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Toggle("Append to Clipboard", isOn: $appendToClipboard)
             if appendToClipboard {
                 Text("Transcriptions will be added after existing clipboard content.")
@@ -172,9 +183,6 @@ struct PreferencesView: View {
                                         Text(entry.term)
                                             .font(.body)
                                         Spacer()
-                                        Text(category.displayName)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
                                         Button {
                                             withAnimation { removeEntry(id: entry.id) }
                                         } label: {
@@ -199,19 +207,21 @@ struct PreferencesView: View {
             }
 
             Section {
-                HStack {
-                    TextField("Term", text: $newTerm)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { addEntry(vocabManager) }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        TextField("Enter term...", text: $newTerm)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { addEntry(vocabManager) }
+                        Button("Add") { addEntry(vocabManager) }
+                            .disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
                     Picker("Category", selection: $newCategory) {
                         ForEach(VocabularyCategory.allCases, id: \.self) { cat in
                             Label(cat.displayName, systemImage: cat.systemImage)
                                 .tag(cat)
                         }
                     }
-                    .frame(width: 140)
-                    Button("Add") { addEntry(vocabManager) }
-                        .disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .pickerStyle(.segmented)
                 }
             } header: {
                 Text("Add Term")

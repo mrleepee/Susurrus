@@ -558,29 +558,45 @@ struct SusurrusApp: App {
                     }
 
                     traceApp("stopStreamingSession: writing to clipboard")
-                    if appendMode {
-                        clip.appendText(finalText)
-                    } else {
-                        clip.writeText(finalText)
-                    }
+                    let outputMode = UserDefaults.standard.string(forKey: "outputMode") ?? "clipboard"
 
-                    let autoPaste = prefs.autoPasteEnabled()
-                    traceApp("stopStreamingSession: autoPaste=\(autoPaste)")
-                    if autoPaste {
-                        try? await Task.sleep(for: .milliseconds(150))
-                        let pasted = clip.simulatePaste()
-                        if !pasted {
-                            notifications.showNotification(
-                                title: "Susurrus",
-                                body: "Auto-paste requires Accessibility access. Enable in System Settings > Privacy & Security > Accessibility."
-                            )
+                    if outputMode == "notebook" {
+                        // Notebook mode: append to notebook, open notebooks window for editing
+                        traceApp("stopStreamingSession: notebook mode — appending to notebook")
+                        nbManager.appendToActiveNotebook(text: finalText)
+                        history.add(finalText, rawText: text)
+                        traceApp("stopStreamingSession: opening notebooks window")
+                        NSApp.setActivationPolicy(.regular)
+                        NSApp.activate(ignoringOtherApps: true)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            openWindow(id: "notebooks")
                         }
-                    }
+                    } else {
+                        // Clipboard mode: write to clipboard, auto-paste, also append to notebook
+                        if appendMode {
+                            clip.appendText(finalText)
+                        } else {
+                            clip.writeText(finalText)
+                        }
 
-                    traceApp("stopStreamingSession: saving to history")
-                    history.add(finalText, rawText: text)
-                    traceApp("stopStreamingSession: appending to notebook")
-                    nbManager.appendToActiveNotebook(text: finalText)
+                        let autoPaste = prefs.autoPasteEnabled()
+                        traceApp("stopStreamingSession: autoPaste=\(autoPaste)")
+                        if autoPaste {
+                            try? await Task.sleep(for: .milliseconds(150))
+                            let pasted = clip.simulatePaste()
+                            if !pasted {
+                                notifications.showNotification(
+                                    title: "Susurrus",
+                                    body: "Auto-paste requires Accessibility access. Enable in System Settings > Privacy & Security > Accessibility."
+                                )
+                            }
+                        }
+
+                        traceApp("stopStreamingSession: saving to history")
+                        history.add(finalText, rawText: text)
+                        traceApp("stopStreamingSession: appending to notebook")
+                        nbManager.appendToActiveNotebook(text: finalText)
+                    }
                     traceApp("stopStreamingSession: done")
                 } else {
                     notifications.showNotification(

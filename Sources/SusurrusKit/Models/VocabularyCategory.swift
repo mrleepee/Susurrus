@@ -4,6 +4,7 @@ import Foundation
 /// for how the LLM should treat the term during cleanup.
 public enum VocabularyCategory: String, Codable, CaseIterable, Sendable {
     case person
+    case company
     case place
     case project
     case product
@@ -15,6 +16,7 @@ public enum VocabularyCategory: String, Codable, CaseIterable, Sendable {
     public var displayName: String {
         switch self {
         case .person: return "Person"
+        case .company: return "Company"
         case .place: return "Place"
         case .project: return "Project"
         case .product: return "Product"
@@ -28,6 +30,7 @@ public enum VocabularyCategory: String, Codable, CaseIterable, Sendable {
     public var systemImage: String {
         switch self {
         case .person: return "person"
+        case .company: return "building.2"
         case .place: return "mappin.and.ellipse"
         case .project: return "folder"
         case .product: return "shippingbox"
@@ -41,6 +44,7 @@ public enum VocabularyCategory: String, Codable, CaseIterable, Sendable {
     public var llmInstruction: String {
         switch self {
         case .person: return "is a person's name — always capitalize"
+        case .company: return "is a company name — always capitalize as shown"
         case .place: return "is a place name — always capitalize"
         case .project: return "is a project codename — treat as proper noun"
         case .product: return "is a product name — always capitalize, never translate"
