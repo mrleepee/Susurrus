@@ -11,6 +11,7 @@ struct NotebooksWindowView: View {
     @State private var editingEntryText: String = ""
     @State private var renamingNotebookId: UUID?
     @State private var renameText: String = ""
+    @State private var escapeMonitor: Any?
 
     var body: some View {
         HSplitView {
@@ -54,10 +55,49 @@ struct NotebooksWindowView: View {
                 .frame(minWidth: 300, idealWidth: 400)
         }
         .frame(minWidth: 550, idealWidth: 700, minHeight: 350, idealHeight: 450)
-        .onAppear { loadNotebooks() }
+        .onAppear {
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.keyCode == 53 { // Escape
+                    NSApp.keyWindow?.close()
+                    return nil
+                }
+                return event
+            }
+            let activeId = manager.activeNotebookId()
+            loadNotebooks()
+            // Always select the active notebook on appear
+            if let activeId {
+                selectedNotebookId = activeId
+            }
+        }
         .onChange(of: selectedNotebookId) { _, _ in
             loadEntries()
             editingEntryId = nil
+        }
+        // Poll for changes so a re-opened or already-open window refreshes
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            let activeId = manager.activeNotebookId()
+            let currentList = manager.notebooks()
+            if currentList != notebookList {
+                notebookList = currentList
+            }
+            // Auto-select active notebook if nothing selected
+            if selectedNotebookId == nil, let activeId {
+                selectedNotebookId = activeId
+            }
+            // Refresh entries for the selected notebook
+            if let id = selectedNotebookId {
+                let fresh = NotebookEntry.sortedDescending(manager.notebookEntries(id: id))
+                if fresh != currentEntries {
+                    currentEntries = fresh
+                }
+            }
+        }
+        .onDisappear {
+            if let monitor = escapeMonitor {
+                NSEvent.removeMonitor(monitor)
+                escapeMonitor = nil
+            }
         }
     }
 
@@ -215,7 +255,23 @@ struct NotebooksWindowView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .help("Edit entry")
                 }
+
+                // Copy button — copies text and closes editing mode
+                Button {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(entry.text, forType: .string)
+                    if editingEntryId == entry.id {
+                        editingEntryId = nil
+                    }
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Copy to clipboard")
 
                 Button {
                     manager.deleteEntry(notebookId: notebookId, entryId: entry.id)
@@ -249,6 +305,10 @@ struct NotebooksWindowView: View {
                 Text(entry.text)
                     .font(.system(size: 13))
                     .textSelection(.enabled)
+                    .onTapGesture(count: 2) {
+                        editingEntryId = entry.id
+                        editingEntryText = entry.text
+                    }
                 if let diff = entry.diffDescription {
                     Text(diff)
                         .font(.system(size: 11, design: .monospaced))

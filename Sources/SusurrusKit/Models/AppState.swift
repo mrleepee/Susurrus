@@ -20,8 +20,8 @@ private func trace(_ message: String) {
 @MainActor
 public final class AppState {
 
-    /// Maximum recording duration in seconds.
-    public static let maxRecordingDuration: Double = 60.0
+    /// Maximum recording duration in seconds (0 = no limit).
+    public static let maxRecordingDuration: Double = 0
 
     /// Current recording/transcription state.
     public private(set) var recordingState: RecordingState = .idle

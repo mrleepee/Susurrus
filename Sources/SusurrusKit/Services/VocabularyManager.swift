@@ -66,6 +66,65 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
         }.joined(separator: ". ") + "."
     }
 
+    // MARK: - CSV Import/Export
+
+    /// Export all entries as CSV string: "Word,Category\n..."
+    public func exportCSV() -> String {
+        var lines = ["Word,Category"]
+        for entry in entries() {
+            // Wrap in quotes if term contains a comma
+            let term = entry.term.contains(",") ? "\"\(entry.term)\"" : entry.term
+            lines.append("\(term),\(entry.category.displayName)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Import entries from CSV string. Expects header row "Word,Category".
+    /// Returns the number of entries imported.
+    @discardableResult
+    public func importCSV(_ csv: String) -> Int {
+        var lines = csv.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        // Skip header if present
+        if let first = lines.first, first.lowercased().hasPrefix("word") {
+            lines.removeFirst()
+        }
+
+        var imported = 0
+        for line in lines {
+            // Handle quoted values
+            var columns: [String] = []
+            var current = ""
+            var inQuotes = false
+            for char in line {
+                if char == "\"" {
+                    inQuotes.toggle()
+                } else if char == "," && !inQuotes {
+                    columns.append(current.trimmingCharacters(in: .whitespaces))
+                    current = ""
+                } else {
+                    current.append(char)
+                }
+            }
+            columns.append(current.trimmingCharacters(in: .whitespaces))
+
+            guard columns.count >= 2 else { continue }
+            let term = columns[0]
+            let categoryString = columns[1]
+
+            guard !term.isEmpty else { continue }
+
+            // Match category by displayName or rawValue (case-insensitive)
+            let category = VocabularyCategory.allCases.first { cat in
+                cat.displayName.caseInsensitiveCompare(categoryString) == .orderedSame ||
+                cat.rawValue.caseInsensitiveCompare(categoryString) == .orderedSame
+            } ?? .custom
+
+            addEntry(VocabularyEntry(term: term, category: category))
+            imported += 1
+        }
+        return imported
+    }
+
     // MARK: - Migration
 
     /// Migrate flat vocabulary words to categorized entries if needed.
@@ -77,8 +136,8 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
         // Check for legacy flat words
         let flatWords = defaults.stringArray(forKey: flatKey) ?? []
         guard !flatWords.isEmpty else {
-            // No legacy data — initialize with empty entries
-            setEntries([])
+            // No legacy data — initialize with defaults
+            seedDefaultEntries()
             return
         }
 
@@ -86,5 +145,45 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
         let migrated = flatWords.map { VocabularyEntry(term: $0, category: .custom) }
         setEntries(migrated)
         defaults.removeObject(forKey: flatKey)
+    }
+
+    /// Seed default vocabulary entries on first launch.
+    private func seedDefaultEntries() {
+        let csv = """
+        Word,Category
+        Balvinder,Person
+        Carina,Person
+        Datavid,Company
+        MiroClaw,Product
+        Silvia,Person
+        superwhisper,Product
+        Susurrus,Product
+        Harnadh,Person
+        Elaine,Person
+        SAAS,Acronym
+        Trust Signals,Project
+        RNs,Acronym
+        242 C3,Project
+        react-dev,Technical
+        CAS,Acronym
+        Lead's,Project
+        Subha,Person
+        Jayendra,Person
+        BioFinder,Product
+        QAS,Acronym
+        prescribers,Project
+        Evoca,Product
+        SPARQL,Technical
+        Lech,Person
+        SciFinder,Product
+        MatFinder,Product
+        APIs,Technical
+        MarkLogic,Technical
+        Harandh,Person
+        CoRB,Technical
+        Schengen,Place
+        Gaurav,Person
+        """
+        importCSV(csv)
     }
 }

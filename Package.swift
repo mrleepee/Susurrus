@@ -26,7 +26,10 @@ let package = Package(
         ),
         .testTarget(
             name: "SusurrusTests",
-            dependencies: ["SusurrusKit"]
+            dependencies: [
+                "SusurrusKit",
+                .product(name: "WhisperKit", package: "WhisperKit"),
+            ]
         ),
     ]
 )

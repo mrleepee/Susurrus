@@ -149,29 +149,20 @@ public actor StreamingTranscriptionService {
             return ""
         }
 
+        // Stop audio capture. NOTE: AudioStreamTranscriber.stopStreamTranscription()
+        // sets isRecording=false and stops recording immediately. The realtimeLoop
+        // exits on its next iteration WITHOUT processing any buffered audio that
+        // arrived since the last transcribe cycle. Therefore we cannot rely on
+        // subsequent callbacks to deliver the final text — we must harvest
+        // whatever state the callback has already captured.
         await transcriber.stopStreamTranscription()
 
-        // Flush: allow pending audio chunks to finish processing before reading final state.
-        // Without this, words spoken right before the hotkey release can be lost.
-        if !finalTextEmitted {
-            try? await Task.sleep(for: .milliseconds(200))
-        }
+        // Yield briefly so any in-flight stateChangeCallback dispatched via
+        // enqueueStateChange (which wraps handleStateChange in Task {}) can
+        // execute on this actor before we read lastTranscriberState.
+        try? await Task.sleep(for: .milliseconds(50))
 
-        // Read the final state that was captured via callback — no sleep needed.
-        // If the final transcript was already delivered through the callback
-        // (isFinal = true), use that text directly.
-        if finalTextEmitted, let state = lastTranscriberState {
-            let text = Self.extractFinalText(from: state)
-            let cleaned = Self.stripNoiseTokens(from: text)
-            streamTranscriber = nil
-            interimCallback = nil
-            guard !cleaned.isEmpty else {
-                throw TranscriptionError.noSpeechDetected
-            }
-            return cleaned
-        }
-
-        // Fallback: use the last observed state
+        // Read the final state captured via callback.
         let state = lastTranscriberState
         streamTranscriber = nil
         interimCallback = nil
@@ -259,10 +250,13 @@ public actor StreamingTranscriptionService {
 
     /// Extracts final text from a completed AudioStreamTranscriber.State.
     private static func extractFinalText(from state: AudioStreamTranscriber.State) -> String {
-        let confirmed = state.confirmedSegments.map(\.text).joined(separator: " ")
-        let unconfirmed = state.unconfirmedSegments.map(\.text).joined(separator: " ")
-        let all = [confirmed, unconfirmed].filter { !$0.isEmpty }.joined(separator: " ")
-        return all.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Whisper segments already have leading spaces baked into their text,
+        // so join with empty separator.
+        let confirmed = state.confirmedSegments.map(\.text).joined(separator: "")
+        let unconfirmed = state.unconfirmedSegments.map(\.text).joined(separator: "")
+
+        let parts = [confirmed, unconfirmed].filter { !$0.isEmpty }
+        return parts.joined(separator: "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Strips Whisper special tokens and hallucinated noise from transcribed text.
@@ -273,8 +267,10 @@ public actor StreamingTranscriptionService {
             with: "",
             options: .regularExpression
         )
+        // Strip Whisper ellipsis token that appears as literal "..." when audio is cut off mid-speech
+        result = result.replacingOccurrences(of: "\\.{2,}", with: "", options: .regularExpression)
         let noiseTokens = [
-            "[BLANK_AUDIO]", "[NO_SPEECH]", "(blank_audio)",
+            "Waiting for speech", "[BLANK_AUDIO]", "[NO_SPEECH]", "(blank_audio)",
             "Thank you.", "Thanks for watching!", "Subscribe!",
             "Bye.", "Bye!", "Thank you for watching.",
             "The end.", "See you next time.", "Okay."

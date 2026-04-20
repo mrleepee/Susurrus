@@ -1,5 +1,6 @@
 import SwiftUI
 import SusurrusKit
+import UniformTypeIdentifiers
 
 private let keychain = KeychainService()
 
@@ -29,6 +30,7 @@ struct PreferencesView: View {
     @State private var escapeMonitor: Any?
     /// True while a model reload is in flight — greys out the model picker.
     @State private var modelReloading = false
+    @State private var importReplaceExisting = false
 
     private let modelOptions: [(id: String, label: String, detail: String)] = [
         ("base", "Base", "Fastest • ~140MB"),
@@ -226,6 +228,21 @@ struct PreferencesView: View {
             } header: {
                 Text("Add Term")
             }
+
+            Section {
+                HStack {
+                    Button("Import CSV...") {
+                        importCSV(vocabManager)
+                    }
+                    Button("Export CSV...") {
+                        exportCSV(vocabManager)
+                    }
+                    Spacer()
+                    Toggle("Replace on import", isOn: $importReplaceExisting)
+                        .toggleStyle(.checkbox)
+                        .help("When checked, importing replaces all entries. Otherwise entries are merged.")
+                }
+            }
         }
         .formStyle(.grouped)
         .onAppear {
@@ -246,6 +263,33 @@ struct PreferencesView: View {
         let manager = VocabularyManager()
         manager.removeEntry(id: id)
         entries = manager.entries()
+    }
+
+    private func importCSV(_ manager: VocabularyManager) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = "Select a CSV file with Word,Category columns"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let csv = try? String(contentsOf: url, encoding: .utf8) else { return }
+        if importReplaceExisting {
+            manager.setEntries([])
+        }
+        let count = manager.importCSV(csv)
+        withAnimation { entries = manager.entries() }
+    }
+
+    private func exportCSV(_ manager: VocabularyManager) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = "vocabulary.csv"
+        panel.message = "Export vocabulary as CSV"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let csv = manager.exportCSV()
+        try? csv.write(to: url, atomically: true, encoding: .utf8)
     }
 
     // MARK: - Model

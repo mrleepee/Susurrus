@@ -639,6 +639,8 @@ struct SusurrusApp: App {
 
     private func startDurationTimer() {
         durationTimer?.invalidate()
+        durationTimer = nil
+        guard AppState.maxRecordingDuration > 0 else { return }
         let state = appState
         let notifications = notificationService
         durationTimer = Timer.scheduledTimer(
