@@ -249,18 +249,25 @@ public actor StreamingTranscriptionService {
     // MARK: - Helpers
 
     /// Extracts final text from a completed AudioStreamTranscriber.State.
-    private static func extractFinalText(from state: AudioStreamTranscriber.State) -> String {
-        // Whisper segments already have leading spaces baked into their text,
-        // so join with empty separator.
-        let confirmed = state.confirmedSegments.map(\.text).joined(separator: "")
-        let unconfirmed = state.unconfirmedSegments.map(\.text).joined(separator: "")
+    static func extractFinalText(from state: AudioStreamTranscriber.State) -> String {
+        extractTextFromSegments(confirmed: state.confirmedSegments, unconfirmed: state.unconfirmedSegments)
+    }
 
-        let parts = [confirmed, unconfirmed].filter { !$0.isEmpty }
+    /// Extracts and trims text from confirmed and unconfirmed segment arrays.
+    /// Separated for testability without requiring WhisperKit State construction.
+    static func extractTextFromSegments(
+        confirmed: [TranscriptionSegment],
+        unconfirmed: [TranscriptionSegment]
+    ) -> String {
+        let confirmedText = confirmed.map(\.text).joined(separator: "")
+        let unconfirmedText = unconfirmed.map(\.text).joined(separator: "")
+
+        let parts = [confirmedText, unconfirmedText].filter { !$0.isEmpty }
         return parts.joined(separator: "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Strips Whisper special tokens and hallucinated noise from transcribed text.
-    private static func stripNoiseTokens(from text: String) -> String {
+    static func stripNoiseTokens(from text: String) -> String {
         // Strip Whisper special tokens: <|startoftranscript|>, <|en|>, <|transcribe|>, <|0.00|>, etc.
         var result = text.replacingOccurrences(
             of: "<\\|[^|]+\\|>",
