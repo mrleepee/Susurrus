@@ -7,15 +7,23 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     private let defaults: UserDefaults
     private let flatKey = "vocabularyWords"
     private let entriesKey = "vocabularyEntries"
+    private let skipSeed: Bool
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.skipSeed = false
         migrateIfNeeded()
     }
 
-    /// Factory for testing with an isolated UserDefaults suite.
+    private init(defaults: UserDefaults, skipSeed: Bool) {
+        self.defaults = defaults
+        self.skipSeed = skipSeed
+        migrateIfNeeded()
+    }
+
+    /// Factory for testing with an isolated UserDefaults suite (no seed data).
     public static func createForTesting() -> VocabularyManager {
-        VocabularyManager(defaults: UserDefaults(suiteName: "com.susurrus.vocab.test.\(UUID().uuidString)")!)
+        VocabularyManager(defaults: UserDefaults(suiteName: "com.susurrus.vocab.test.\(UUID().uuidString)")!, skipSeed: true)
     }
 
     // MARK: - Legacy flat-word API
@@ -136,8 +144,12 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
         // Check for legacy flat words
         let flatWords = defaults.stringArray(forKey: flatKey) ?? []
         guard !flatWords.isEmpty else {
-            // No legacy data — initialize with defaults
-            seedDefaultEntries()
+            // No legacy data — initialize with defaults (skip in test mode)
+            if !skipSeed {
+                seedDefaultEntries()
+            } else {
+                setEntries([])
+            }
             return
         }
 
