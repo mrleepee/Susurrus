@@ -149,8 +149,9 @@ struct CorrectionPairTests {
     @Test("Equatable")
     func equatable() {
         let id = UUID()
-        let a = CorrectionPair(id: id, rawText: "x", editedText: "y")
-        let b = CorrectionPair(id: id, rawText: "x", editedText: "y")
+        let date = Date(timeIntervalSince1970: 1700000000)
+        let a = CorrectionPair(id: id, rawText: "x", editedText: "y", date: date)
+        let b = CorrectionPair(id: id, rawText: "x", editedText: "y", date: date)
         #expect(a == b)
     }
 }
