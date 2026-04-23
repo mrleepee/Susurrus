@@ -93,9 +93,29 @@ public actor StreamingTranscriptionService {
     /// Begin streaming transcription.
     /// The callback fires with interim transcripts as text is confirmed.
     ///
-    /// - Parameter callback: Called on each state change with confirmed/unconfirmed text.
+    /// - Parameters:
+    ///   - deviceID: Core Audio input device ID to record from, or `nil` for system default.
+    ///   - callback: Called on each state change with confirmed/unconfirmed text.
     /// - Throws: `TranscriptionError.modelNotReady` if the model is not loaded.
-    public func startStreamTranscription(callback: @escaping InterimCallback) async throws {
+    public func startStreamTranscription(
+        deviceID: UInt32? = nil,
+        callback: @escaping InterimCallback
+    ) async throws {
+        try await startStreamTranscription(
+            deviceID: deviceID,
+            audioProcessorOverride: nil,
+            callback: callback
+        )
+    }
+
+    /// Internal entry point that accepts an injected audio processor for testing.
+    /// Pass `nil` override to use a real `AudioProcessor` routed to `deviceID`
+    /// (or the shared `whisperKit.audioProcessor` when `deviceID` is also `nil`).
+    internal func startStreamTranscription(
+        deviceID: UInt32?,
+        audioProcessorOverride: (any AudioProcessing)?,
+        callback: @escaping InterimCallback
+    ) async throws {
         guard modelReady, let whisperKit else {
             throw TranscriptionError.modelNotReady
         }
@@ -120,14 +140,30 @@ public actor StreamingTranscriptionService {
             options.promptTokens = tokenizer.encode(text: vocabularyPrompt)
         }
 
-        // AudioStreamTranscriber requires components extracted from WhisperKit
+        // Resolve which processor to use:
+        //   1. Test override, if provided.
+        //   2. A DeviceSelectingAudioProcessor that forces a specific input device.
+        //   3. WhisperKit's shared default processor (system default input).
+        let processor: any AudioProcessing
+        if let audioProcessorOverride {
+            processor = audioProcessorOverride
+        } else if let deviceID {
+            processor = DeviceSelectingAudioProcessor(preferredDeviceID: deviceID)
+        } else {
+            processor = whisperKit.audioProcessor
+        }
+
+        // Purge residual audio so session N+1 cannot see samples from session N
+        // (applies to the shared processor; fresh processors are empty anyway).
+        processor.purgeAudioSamples(keepingLast: 0)
+
         let transcriber = AudioStreamTranscriber(
             audioEncoder: whisperKit.audioEncoder,
             featureExtractor: whisperKit.featureExtractor,
             segmentSeeker: whisperKit.segmentSeeker,
             textDecoder: whisperKit.textDecoder,
             tokenizer: tokenizer,
-            audioProcessor: whisperKit.audioProcessor,
+            audioProcessor: processor,
             decodingOptions: options,
             requiredSegmentsForConfirmation: 1,
             silenceThreshold: 0.1,
