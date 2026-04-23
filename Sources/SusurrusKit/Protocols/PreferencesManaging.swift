@@ -35,4 +35,12 @@ public protocol PreferencesManaging: Sendable {
 
     /// Set auto-paste at cursor enabled.
     func setAutoPasteEnabled(_ enabled: Bool)
+
+    /// Name of the preferred input audio device, or `nil` to use the system default.
+    /// Stored as name (not ID) because Core Audio `AudioDeviceID`s are not stable
+    /// across device reconnections.
+    func selectedInputDeviceName() -> String?
+
+    /// Set the preferred input audio device name. Pass `nil` to revert to system default.
+    func setSelectedInputDeviceName(_ name: String?)
 }

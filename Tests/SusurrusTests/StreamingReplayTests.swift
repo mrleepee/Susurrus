@@ -152,6 +152,7 @@ struct StreamingSessionTests {
         // (it awaits the internal realtimeLoop which only exits on stop/cancel).
         let sessionTask = Task {
             try await service.startStreamTranscription(
+                deviceID: nil,
                 audioProcessorOverride: sharedFake,
                 callback: { _ in }
             )
@@ -180,6 +181,7 @@ struct StreamingSessionTests {
         let fake = FakeAudioProcessor(samples: audio, chunkMs: 100)
 
         try await service.startStreamTranscription(
+            deviceID: nil,
             audioProcessorOverride: fake,
             callback: { _ in }
         )
@@ -208,6 +210,7 @@ struct StreamingSessionTests {
 
         let callbackCount = ActorCounter()
         try await service.startStreamTranscription(
+            deviceID: nil,
             audioProcessorOverride: fake,
             callback: { _ in Task { await callbackCount.increment() } }
         )
@@ -236,6 +239,7 @@ struct StreamingSessionTests {
         let fake = FakeAudioProcessor(samples: audio, chunkMs: 100)
 
         try await service.startStreamTranscription(
+            deviceID: nil,
             audioProcessorOverride: fake,
             callback: { _ in }
         )

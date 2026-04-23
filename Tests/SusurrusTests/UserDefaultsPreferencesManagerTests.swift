@@ -178,4 +178,50 @@ struct UserDefaultsPreferencesManagerTests {
         let manager = UserDefaultsPreferencesManager(defaults: defaults)
         #expect(manager.recordingMode() == .pushToTalk)
     }
+
+    // MARK: - selectedInputDeviceName
+
+    @Test("selectedInputDeviceName defaults to nil (system default)")
+    func selectedInputDeviceNameDefault() {
+        let manager = makeManager()
+        #expect(manager.selectedInputDeviceName() == nil)
+    }
+
+    @Test("setSelectedInputDeviceName persists a device name")
+    func setSelectedInputDeviceName() {
+        let manager = makeManager()
+        manager.setSelectedInputDeviceName("AirPods Pro")
+        #expect(manager.selectedInputDeviceName() == "AirPods Pro")
+    }
+
+    @Test("setSelectedInputDeviceName(nil) clears the stored value")
+    func clearSelectedInputDeviceName() {
+        let manager = makeManager()
+        manager.setSelectedInputDeviceName("AirPods Pro")
+        #expect(manager.selectedInputDeviceName() == "AirPods Pro")
+
+        manager.setSelectedInputDeviceName(nil)
+        #expect(manager.selectedInputDeviceName() == nil)
+    }
+
+    @Test("setSelectedInputDeviceName(\"\") is treated as nil")
+    func emptyDeviceNameTreatedAsNil() {
+        let manager = makeManager()
+        manager.setSelectedInputDeviceName("")
+        #expect(manager.selectedInputDeviceName() == nil,
+            "Empty string must not be returned as a valid device name")
+    }
+
+    @Test("selectedInputDeviceName persists across manager instances")
+    func deviceNameCrossInstancePersistence() {
+        let suite = "com.susurrus.test.prefs.device.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+
+        let writer = UserDefaultsPreferencesManager(defaults: defaults)
+        writer.setSelectedInputDeviceName("Studio Display Microphone")
+
+        let reader = UserDefaultsPreferencesManager(defaults: defaults)
+        #expect(reader.selectedInputDeviceName() == "Studio Display Microphone")
+    }
 }

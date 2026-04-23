@@ -38,6 +38,11 @@ final class FakeAudioProcessor: AudioProcessing, @unchecked Sendable {
     /// Number of times purgeAudioSamples(keepingLast:) was called.
     private(set) var purgeCallCount: Int = 0
 
+    /// The most recent `inputDeviceID` passed to `startRecordingLive` or
+    /// `resumeRecordingLive`. Reads as `nil` before recording, or when the last
+    /// caller requested the system default. Use to verify device routing.
+    private(set) var lastRecordingDeviceID: DeviceID?
+
     // MARK: - Init
 
     /// - Parameters:
@@ -83,6 +88,7 @@ final class FakeAudioProcessor: AudioProcessing, @unchecked Sendable {
             // If the service correctly called purgeAudioSamples(keepingLast:0)
             // before reaching here, this will be 0.
             samplesAtRecordingStart = _audioSamples.count
+            lastRecordingDeviceID = inputDeviceID
             liveCallback = callback
             writeHead = 0
         }
@@ -104,6 +110,7 @@ final class FakeAudioProcessor: AudioProcessing, @unchecked Sendable {
     }
 
     func resumeRecordingLive(inputDeviceID: DeviceID?, callback: (([Float]) -> Void)?) throws {
+        stateLock.withLock { lastRecordingDeviceID = inputDeviceID }
         try startRecordingLive(inputDeviceID: inputDeviceID, callback: callback)
     }
 
