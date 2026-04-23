@@ -96,6 +96,15 @@ public actor StreamingTranscriptionService {
     /// - Parameter callback: Called on each state change with confirmed/unconfirmed text.
     /// - Throws: `TranscriptionError.modelNotReady` if the model is not loaded.
     public func startStreamTranscription(callback: @escaping InterimCallback) async throws {
+        try await startStreamTranscription(audioProcessorOverride: nil, callback: callback)
+    }
+
+    /// Internal entry point that accepts an injected audio processor for testing.
+    /// Pass `nil` to use the real WhisperKit microphone processor.
+    internal func startStreamTranscription(
+        audioProcessorOverride: (any AudioProcessing)?,
+        callback: @escaping InterimCallback
+    ) async throws {
         guard modelReady, let whisperKit else {
             throw TranscriptionError.modelNotReady
         }
@@ -120,14 +129,18 @@ public actor StreamingTranscriptionService {
             options.promptTokens = tokenizer.encode(text: vocabularyPrompt)
         }
 
-        // AudioStreamTranscriber requires components extracted from WhisperKit
+        // Purge residual audio from the shared processor so session N+1 cannot
+        // see samples that were captured in session N.
+        let processor = audioProcessorOverride ?? whisperKit.audioProcessor
+        processor.purgeAudioSamples(keepingLast: 0)
+
         let transcriber = AudioStreamTranscriber(
             audioEncoder: whisperKit.audioEncoder,
             featureExtractor: whisperKit.featureExtractor,
             segmentSeeker: whisperKit.segmentSeeker,
             textDecoder: whisperKit.textDecoder,
             tokenizer: tokenizer,
-            audioProcessor: whisperKit.audioProcessor,
+            audioProcessor: processor,
             decodingOptions: options,
             requiredSegmentsForConfirmation: 1,
             silenceThreshold: 0.1,
