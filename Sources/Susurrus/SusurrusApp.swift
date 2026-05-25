@@ -45,6 +45,7 @@ struct SusurrusApp: App {
     private let notebookManager = NotebookManager()
     private let promptComposer = PromptComposer()
     private let mediaService = MediaService()
+    private let audioDeviceService = AudioDeviceService()
 
     // Recording duration timer
     @State private var durationTimer: Timer?
@@ -485,6 +486,27 @@ struct SusurrusApp: App {
             await streamingService.setVocabularyPrompt(vocab)
         }
 
+        // Resolve preferred device name to a current Core Audio device ID.
+        // If the user has no preference, or the saved device is disconnected,
+        // `resolvedDeviceID` is nil and streaming uses the system default.
+        let preferredName = preferences.selectedInputDeviceName()
+        let resolution = audioDeviceService.resolve(preferredName: preferredName)
+        let resolvedDeviceID: UInt32?
+        switch resolution {
+        case .specific(let id, let name):
+            traceApp("startStreamingSession: routing to device '\(name)' (id \(id))")
+            resolvedDeviceID = id
+        case .systemDefault:
+            resolvedDeviceID = nil
+        case .unavailable(let requestedName):
+            traceApp("startStreamingSession: preferred device '\(requestedName)' unavailable — falling back to system default")
+            notificationService.showNotification(
+                title: "Susurrus",
+                body: "Preferred microphone '\(requestedName)' is not connected. Using system default."
+            )
+            resolvedDeviceID = nil
+        }
+
         // Capture reference types only for the streaming Task
         let state = appState
         let streaming = streamingService
@@ -495,7 +517,7 @@ struct SusurrusApp: App {
         Task {
             do {
                 traceApp("startStreamingSession: calling startStreamTranscription")
-                try await streaming.startStreamTranscription { transcript in
+                try await streaming.startStreamTranscription(deviceID: resolvedDeviceID) { transcript in
                     Task { @MainActor in
                         state.interimText = transcript
                         overlay?.show(confirmed: transcript.confirmed, unconfirmed: transcript.unconfirmed)

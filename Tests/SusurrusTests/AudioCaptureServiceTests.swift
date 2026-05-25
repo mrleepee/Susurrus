@@ -7,17 +7,20 @@ actor MockAudioCapture: AudioCapturing {
     var mockBuffer: [Float] = []
     var startCallCount = 0
     var stopCallCount = 0
+    /// Last `deviceID` value passed to `startCapture(deviceID:)`.
+    var lastStartDeviceID: UInt32?
 
     func isCurrentlyCapturing() async -> Bool {
         capturing
     }
 
-    func startCapture() async throws {
+    func startCapture(deviceID: UInt32?) async throws {
         if capturing {
             throw AudioCaptureError.alreadyCapturing
         }
         capturing = true
         startCallCount += 1
+        lastStartDeviceID = deviceID
     }
 
     func stopCapture() async throws -> [Float] {
@@ -109,5 +112,26 @@ struct AudioCaptureTests {
         #expect(AudioCaptureError.notCapturing == AudioCaptureError.notCapturing)
         #expect(AudioCaptureError.alreadyCapturing != AudioCaptureError.notCapturing)
         #expect(AudioCaptureError.engineFailure("x") == AudioCaptureError.engineFailure("x"))
+    }
+
+    @Test("startCapture(deviceID:) records the requested device")
+    func recordsRequestedDeviceID() async throws {
+        let capture = MockAudioCapture()
+        try await capture.startCapture(deviceID: 42)
+        #expect(await capture.lastStartDeviceID == 42)
+        _ = try await capture.stopCapture()
+
+        try await capture.startCapture(deviceID: nil)
+        #expect(await capture.lastStartDeviceID == nil)
+        _ = try await capture.stopCapture()
+    }
+
+    @Test("no-arg startCapture() convenience routes to deviceID: nil")
+    func noArgStartsWithNilDevice() async throws {
+        let capture = MockAudioCapture()
+        try await capture.startCapture()
+        #expect(await capture.lastStartDeviceID == nil,
+            "Default overload must pass nil so system default is used")
+        _ = try await capture.stopCapture()
     }
 }

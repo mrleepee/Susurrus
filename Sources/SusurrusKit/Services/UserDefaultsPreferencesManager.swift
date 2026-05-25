@@ -14,6 +14,7 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
         static let llmApiKey = "llmApiKey"
         static let llmModel = "llmModel"
         static let llmEndpoint = "llmEndpoint"
+        static let selectedInputDeviceName = "selectedInputDeviceName"
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -110,5 +111,23 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
 
     public func setLLMEndpointURL(_ url: String) {
         defaults.set(url, forKey: Keys.llmEndpoint)
+    }
+
+    // MARK: - Audio input device
+
+    public func selectedInputDeviceName() -> String? {
+        guard let stored = defaults.string(forKey: Keys.selectedInputDeviceName),
+              !stored.isEmpty else {
+            return nil
+        }
+        return stored
+    }
+
+    public func setSelectedInputDeviceName(_ name: String?) {
+        if let name, !name.isEmpty {
+            defaults.set(name, forKey: Keys.selectedInputDeviceName)
+        } else {
+            defaults.removeObject(forKey: Keys.selectedInputDeviceName)
+        }
     }
 }
