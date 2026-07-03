@@ -40,7 +40,7 @@ struct EndToEndTests {
         }
     }
 
-    @Test("Transcribe real audio from microphone")
+    @Test("Transcribe real audio from microphone", .enabled(if: liveAudioTestsEnabled))
     func transcribeRealAudio() async throws {
         let service = WhisperKitTranscriptionService()
         try await service.setupModel(modelName: "base") { _ in }
