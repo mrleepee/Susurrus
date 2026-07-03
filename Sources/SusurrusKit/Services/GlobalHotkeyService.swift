@@ -9,6 +9,15 @@ public enum HotkeyError: Error, Sendable, Equatable {
     case registrationFailed(String)
 }
 
+extension HotkeyError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .registrationFailed(let reason):
+            return "Hotkey registration failed: \(reason)"
+        }
+    }
+}
+
 /// Concrete global hotkey manager using Carbon RegisterEventHotKey.
 ///
 /// Uses the Carbon hotkey API which registers system-level hotkeys that work

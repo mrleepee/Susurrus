@@ -89,7 +89,7 @@ struct StreamingTranscriptionStateTests {
         #expect(result == "Hello")
     }
 
-    @Test("Strips hallucinated noise phrases")
+    @Test("Strips hallucinated noise phrases when they are the whole transcript")
     func stripsNoisePhrases() {
         let phrases = [
             "Thank you.",
@@ -108,6 +108,32 @@ struct StreamingTranscriptionStateTests {
         }
     }
 
+    @Test("Strips combinations made only of noise phrases")
+    func stripsPureNoiseCombination() {
+        let result = StreamingTranscriptionService.stripNoiseTokens(from: "Thank you. Thank you. Bye.")
+        #expect(result == "")
+    }
+
+    @Test("Preserves noise-listed phrases inside real speech")
+    func preservesNoisePhrasesInRealSpeech() {
+        let input = "Okay. Let's begin the meeting. Thank you."
+        let result = StreamingTranscriptionService.stripNoiseTokens(from: input)
+        #expect(result == input)
+    }
+
+    @Test("Strips bracketed and parenthesised sound annotations")
+    func stripsSoundAnnotations() {
+        let input = "[ Silence ] hello (keyboard clicking) world [typing]"
+        let result = StreamingTranscriptionService.stripNoiseTokens(from: input)
+        #expect(result == "hello world")
+    }
+
+    @Test("Mid-text ellipsis does not fuse adjacent words")
+    func midTextEllipsisDoesNotFuseWords() {
+        let result = StreamingTranscriptionService.stripNoiseTokens(from: "Hello...world")
+        #expect(result == "Hello world")
+    }
+
     @Test("Strips blank audio tokens")
     func stripsBlankAudioTokens() {
         let tokens = ["[BLANK_AUDIO]", "[NO_SPEECH]", "(blank_audio)", "Waiting for speech"]
@@ -124,18 +150,18 @@ struct StreamingTranscriptionStateTests {
         #expect(result == input)
     }
 
-    @Test("Strips noise from mixed text")
+    @Test("Keeps noise-listed phrases in mixed text, strips special tokens")
     func stripsNoiseFromMixed() {
         let input = "<|en|>Hello Thank you. world"
         let result = StreamingTranscriptionService.stripNoiseTokens(from: input)
-        #expect(result == "Hello  world")
+        #expect(result == "Hello Thank you. world")
     }
 
-    @Test("Strips all special tokens together")
+    @Test("Strips special tokens and ellipsis but keeps real trailing words")
     func stripsAllNoiseCombined() {
         let input = "<|startoftranscript|><|en|>Hello... Thank you."
         let result = StreamingTranscriptionService.stripNoiseTokens(from: input)
-        #expect(result == "Hello")
+        #expect(result == "Hello Thank you.")
     }
 
     @Test("Handles empty string")
@@ -169,7 +195,7 @@ struct StreamingTranscriptionStateTests {
             confirmed: confirmed, unconfirmed: []
         )
         let cleaned = StreamingTranscriptionService.stripNoiseTokens(from: extracted)
-        #expect(cleaned == "Hello")
+        #expect(cleaned == "Hello Thank you.")
     }
 
     // MARK: - Actor edge cases

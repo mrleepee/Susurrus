@@ -15,6 +15,12 @@ public final class AudioCaptureService: AudioCapturing, @unchecked Sendable {
     private nonisolated(unsafe) var tapFormat: AVAudioFormat?
     private nonisolated(unsafe) var conversionBuffer: AVAudioPCMBuffer?
 
+    /// The device ID the current `engine` was configured for (if any).
+    /// Kept so we can tear down and rebuild when the caller requests a
+    /// different device — a device change can alter the hardware sample
+    /// rate, invalidating the cached converter.
+    private nonisolated(unsafe) var currentDeviceID: UInt32?
+
     /// Lock protects the capture buffer, write index, and capturing flag
     /// which are accessed from both the audio tap callback and public methods.
     private nonisolated(unsafe) var unfairLock = os_unfair_lock_s()
@@ -40,7 +46,7 @@ public final class AudioCaptureService: AudioCapturing, @unchecked Sendable {
         return capturingFlag
     }
 
-    public func startCapture() async throws {
+    public func startCapture(deviceID: UInt32?) async throws {
         lock()
         guard !capturingFlag else {
             unlock()
@@ -53,9 +59,14 @@ public final class AudioCaptureService: AudioCapturing, @unchecked Sendable {
         // If setupEngine() or engine.start() throws, we must reset the flag
         // so later recording attempts don't fail with .alreadyCapturing.
         do {
-            // Lazily set up engine, converter, and tap (once only)
+            // Rebuild the engine when the requested device changes — the
+            // cached converter is tied to the previous device's hardware format.
+            if engine != nil, currentDeviceID != deviceID {
+                teardownEngine()
+            }
+
             if engine == nil {
-                try setupEngine()
+                try setupEngine(deviceID: deviceID)
             }
 
             guard let engine else {
@@ -89,11 +100,27 @@ public final class AudioCaptureService: AudioCapturing, @unchecked Sendable {
         return result
     }
 
-    // MARK: - Engine Setup (once)
+    // MARK: - Engine Setup (once per device)
 
-    private func setupEngine() throws {
+    private func teardownEngine() {
+        engine?.stop()
+        engine?.inputNode.removeTap(onBus: 0)
+        engine = nil
+        converter = nil
+        tapFormat = nil
+        conversionBuffer = nil
+        currentDeviceID = nil
+    }
+
+    private func setupEngine(deviceID: UInt32?) throws {
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
+
+        // Assign the specific input device before querying its format, so the
+        // converter is built for the device the tap will actually read from.
+        if let deviceID {
+            try assignInputDevice(inputNode: inputNode, deviceID: deviceID)
+        }
 
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
         guard let targetFormat = AVAudioFormat(
@@ -130,7 +157,34 @@ public final class AudioCaptureService: AudioCapturing, @unchecked Sendable {
         }
 
         self.engine = engine
+        self.currentDeviceID = deviceID
     }
+
+    #if os(macOS)
+    /// Route the input node to a specific Core Audio device.
+    /// Mirrors WhisperKit's `assignAudioInput` (AudioProcessor.swift:929).
+    private func assignInputDevice(inputNode: AVAudioInputNode, deviceID: UInt32) throws {
+        guard let audioUnit = inputNode.audioUnit else {
+            throw AudioCaptureError.engineFailure("Input node has no audio unit")
+        }
+        var id = deviceID
+        let err = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            UInt32(MemoryLayout<UInt32>.size)
+        )
+        if err != noErr {
+            throw AudioCaptureError.engineFailure("AudioUnitSetProperty failed: OSStatus \(err)")
+        }
+    }
+    #else
+    private func assignInputDevice(inputNode: AVAudioInputNode, deviceID: UInt32) throws {
+        // No-op on non-macOS platforms — device routing is handled by AVAudioSession.
+    }
+    #endif
 
     // MARK: - Synchronous Buffer Processing
 

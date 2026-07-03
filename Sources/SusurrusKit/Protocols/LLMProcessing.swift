@@ -13,3 +13,16 @@ public enum LLMError: Error, Sendable, Equatable {
     case invalidResponse
     case emptyResult
 }
+
+extension LLMError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .requestFailed(let reason):
+            return reason
+        case .invalidResponse:
+            return "The LLM returned an unexpected response."
+        case .emptyResult:
+            return "The LLM returned an empty result."
+        }
+    }
+}
