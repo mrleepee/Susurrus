@@ -115,9 +115,39 @@ public actor StreamingTranscriptionService {
             }
         )
 
+        let loadStart = Date()
         let kit = try await WhisperKit(modelFolder: modelFolder.path, computeOptions: computeOptions)
+        traceStream("setupModel: '\(modelName)' loaded in \(msSince(loadStart))ms")
+
+        // Prewarm: the FIRST inference on a freshly-loaded CoreML model pays a
+        // one-time ANE compilation/specialisation cost (often 10-30s), and an
+        // idle model can have its ANE context evicted. Run one silent decode now
+        // so that cost lands here — during "loading" — instead of on the user's
+        // first real recording. Only flip modelReady once the ANE path is hot.
+        let warmStart = Date()
+        let warmSamples = [Float](repeating: 0, count: Self.sampleRate)
+        _ = try? await kit.transcribe(
+            audioArray: warmSamples,
+            decodeOptions: DecodingOptions(task: .transcribe, language: "en")
+        )
+        traceStream("setupModel: '\(modelName)' prewarmed in \(msSince(warmStart))ms")
+
         self.whisperKit = kit
         modelReady = true
+    }
+
+    /// Run a silent inference to keep the model's ANE context resident. Call
+    /// periodically while idle so the first recording after a lull doesn't pay
+    /// the cold-start cost. No-op if the model isn't loaded.
+    public func keepWarm() async {
+        guard modelReady, let whisperKit else { return }
+        let warmStart = Date()
+        let warmSamples = [Float](repeating: 0, count: Self.sampleRate)
+        _ = try? await whisperKit.transcribe(
+            audioArray: warmSamples,
+            decodeOptions: DecodingOptions(task: .transcribe, language: "en")
+        )
+        traceStream("keepWarm: reran silent decode in \(msSince(warmStart))ms")
     }
 
     /// Unload the model and stop any active stream.

@@ -66,6 +66,11 @@ struct SusurrusApp: App {
     /// Media apps that were paused when recording started.
     @State private var pausedMediaApps: [String] = []
 
+    /// Periodically reruns a silent inference so the model's ANE context stays
+    /// resident and the first recording after an idle spell doesn't pay the
+    /// cold-start cost.
+    @State private var keepWarmTimer: Timer?
+
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
 
@@ -218,6 +223,7 @@ struct SusurrusApp: App {
             )
             state.modelReady = true
             traceApp("preloadModel: model loaded successfully")
+            startKeepWarmTimer()
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
@@ -248,6 +254,7 @@ struct SusurrusApp: App {
                 }
             )
             state.modelReady = true
+            startKeepWarmTimer()
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
@@ -639,6 +646,23 @@ struct SusurrusApp: App {
                 pausedMediaApps = []
                 traceApp("stopStreamingSession: resuming media: \(apps.joined(separator: ", "))")
                 await mediaService.resumeApps(apps)
+            }
+        }
+    }
+
+    // MARK: - Keep-warm
+
+    /// Reruns a silent inference every 60s while idle so the model's ANE
+    /// context stays resident. Skips while recording/finalizing so it never
+    /// competes with a live decode.
+    private func startKeepWarmTimer() {
+        keepWarmTimer?.invalidate()
+        let state = appState
+        let streaming = streamingService
+        keepWarmTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Task { @MainActor in
+                guard state.recordingState == .idle else { return }
+                await streaming.keepWarm()
             }
         }
     }
