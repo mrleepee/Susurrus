@@ -29,7 +29,6 @@ struct SusurrusApp: App {
     @Environment(\.openWindow) private var openWindow
 
     // Services
-    private let transcriptionService = WhisperKitTranscriptionService()
     private let streamingService = StreamingTranscriptionService()
     private let clipboard = PasteboardClipboardService()
     private let notificationService = UserNotificationService()
@@ -202,19 +201,12 @@ struct SusurrusApp: App {
         traceApp("preloadModel: loading model '\(model)'")
         UserDefaults.standard.set(model, forKey: "modelDownloadingName")
         let state = appState
-        let transcription = transcriptionService
         let streaming = streamingService
         do {
-            try await transcription.setupModel(
-                modelName: model,
-                onDownloadProgress: { progress in
-                    Task { @MainActor in
-                        state.modelLoadProgress = progress
-                        UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
-                    }
-                }
-            )
-            // Also preload the streaming service with the same model
+            // Only the streaming service needs the model. Loading it into the
+            // batch WhisperKitTranscriptionService too doubled memory and ANE
+            // pressure (two full CoreML model instances) for a service the app
+            // flow never calls.
             try await streaming.setupModel(
                 modelName: model,
                 onDownloadProgress: { progress in
@@ -238,25 +230,14 @@ struct SusurrusApp: App {
 
     private func reloadModel(_ modelName: String) async {
         let state = appState
-        let transcription = transcriptionService
         let streaming = streamingService
         state.modelReady = false
         modelLoading = true
         state.modelLoadProgress = 0
         UserDefaults.standard.set(modelName, forKey: "modelDownloadingName")
         UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
-        await transcription.unloadModel()
         await streaming.unloadModel()
         do {
-            try await transcription.setupModel(
-                modelName: modelName,
-                onDownloadProgress: { progress in
-                    Task { @MainActor in
-                        state.modelLoadProgress = progress
-                        UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
-                    }
-                }
-            )
             try await streaming.setupModel(
                 modelName: modelName,
                 onDownloadProgress: { progress in
@@ -556,9 +537,10 @@ struct SusurrusApp: App {
 
         Task {
             do {
+                let stopStart = Date()
                 traceApp("stopStreamingSession: calling stopStreamTranscription")
                 let text = try await streaming.stopStreamTranscription()
-                traceApp("stopStreamingSession: got text (\(text.count) chars): \(text.prefix(100))")
+                traceApp("stopStreamingSession: got text in \(Int(Date().timeIntervalSince(stopStart) * 1000))ms (\(text.count) chars): \(text.prefix(100))")
 
                 if !text.isEmpty {
                     var finalText = text

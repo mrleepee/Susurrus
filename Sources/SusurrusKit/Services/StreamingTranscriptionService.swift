@@ -2,6 +2,23 @@ import CoreML
 import Foundation
 @preconcurrency import WhisperKit
 
+/// Writes to ~/susurrus_debug.log — same sink as traceApp() in the app layer.
+private func traceStream(_ message: String) {
+    let path = NSHomeDirectory() + "/susurrus_debug.log"
+    let line = "\(Date()) [stream] \(message)\n"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        handle.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: Data(line.utf8))
+    }
+}
+
+private func msSince(_ start: Date) -> Int {
+    Int(Date().timeIntervalSince(start) * 1000)
+}
+
 /// Streaming transcription service using WhisperKit's AudioStreamTranscriber.
 /// Manages a live audio pipeline and delivers interim transcripts via callback.
 public actor StreamingTranscriptionService {
@@ -20,10 +37,14 @@ public actor StreamingTranscriptionService {
     /// Minimum session length worth re-transcribing on stop (0.5s).
     private static let minFinalFlushSamples = 8_000
 
-    /// If less than this much audio (1s) arrived after the last decoded segment,
-    /// the streaming text already covers the recording — skip the final decode
-    /// entirely so finalization is instant.
-    private static let tailSkipThresholdSamples = sampleRate
+    /// Un-decoded tails shorter than this (0.3s) can't contain a word —
+    /// skip the final decode so finalization is instant.
+    private static let minTailSamples = 4_800
+
+    /// Peak amplitude below which the un-decoded tail is considered silence
+    /// (user paused before releasing the hotkey — the common case) and the
+    /// final decode is skipped.
+    private static let tailSilencePeak: Float = 0.015
 
     // MARK: - State
 
@@ -53,6 +74,11 @@ public actor StreamingTranscriptionService {
     /// Decoding options for the current session, reused by the final flush
     /// so vocabulary biasing applies to the last pass too.
     private var activeDecodingOptions: DecodingOptions?
+
+    /// The task running the transcriber's realtime loop. Stored so
+    /// stopStreamTranscription() can await the loop draining its in-flight
+    /// decode pass instead of racing it for the ANE.
+    private var sessionTask: Task<Void, Error>?
 
     // MARK: - Init
 
@@ -103,6 +129,7 @@ public actor StreamingTranscriptionService {
         finalTextEmitted = false
         activeProcessor = nil
         activeDecodingOptions = nil
+        sessionTask = nil
     }
 
     // MARK: - Vocabulary
@@ -202,7 +229,12 @@ public actor StreamingTranscriptionService {
         )
 
         self.streamTranscriber = transcriber
-        try await transcriber.startStreamTranscription()
+        // Run the realtime loop in a stored task so stop can await loop exit;
+        // awaiting .value here preserves the original blocking/throwing
+        // behaviour for the caller (returns/throws when the session ends).
+        let task = Task { try await transcriber.startStreamTranscription() }
+        self.sessionTask = task
+        try await task.value
     }
 
     /// Stop streaming transcription and return the final transcript.
@@ -220,25 +252,33 @@ public actor StreamingTranscriptionService {
             return ""
         }
 
-        // Stop audio capture; the realtime loop exits on its next iteration.
+        let stopStart = Date()
+
+        // Stop audio capture; the realtime loop exits after its in-flight pass.
         await transcriber.stopStreamTranscription()
 
-        // Yield briefly so any in-flight stateChangeCallback dispatched via
-        // enqueueStateChange (which wraps handleStateChange in Task {}) can
-        // execute on this actor before we read lastTranscriberState.
-        try? await Task.sleep(for: .milliseconds(50))
+        // Wait for the realtime loop to drain rather than racing it — a
+        // concurrent final decode contends with the in-flight pass for the
+        // ANE and roughly doubles finalization time. When the loop exits, its
+        // last pass results are already in lastTranscriberState.
+        try? await sessionTask?.value
+        traceStream("stop: loop drained in \(msSince(stopStart))ms")
 
         let state = lastTranscriberState
         let processor = activeProcessor
         streamTranscriber = nil
         interimCallback = nil
         activeProcessor = nil
+        sessionTask = nil
 
         // Final flush over the session buffer.
+        let flushStart = Date()
         if let finalText = await finalFlushText(processor: processor, state: state) {
+            traceStream("stop: flush done in \(msSince(flushStart))ms, total \(msSince(stopStart))ms")
             processor?.purgeAudioSamples(keepingLast: 0)
             return finalText
         }
+        traceStream("stop: flush produced nothing after \(msSince(flushStart))ms — falling back to streaming state")
 
         // Fallback: harvest whatever the streaming callbacks captured.
         processor?.purgeAudioSamples(keepingLast: 0)
@@ -258,13 +298,15 @@ public actor StreamingTranscriptionService {
     }
 
     /// Recovers words the realtime loop never decoded, while keeping
-    /// finalization fast:
+    /// finalization fast. Called AFTER the loop has drained, so the streaming
+    /// state already reflects the final completed decode pass:
     ///
-    /// 1. If streaming already decoded (nearly) the whole buffer, return its
-    ///    confirmed+unconfirmed text with NO extra decode — instant.
-    /// 2. Otherwise decode ONLY the audio after the last confirmed segment and
-    ///    append it to the confirmed text. Decode cost is proportional to the
-    ///    un-decoded tail, not the whole recording.
+    /// 1. The only audio the streaming text can be missing is what arrived
+    ///    after the final pass began — under one pass duration, typically <1s.
+    /// 2. If that tail is too short to hold a word, or is silence (user paused
+    ///    before releasing the hotkey — the common case), return the streaming
+    ///    text with NO extra decode: instant.
+    /// 3. Otherwise decode ONLY that tail (one Whisper window) and append it.
     ///
     /// - Returns: The cleaned final text, or `nil` if the flush could not
     ///   produce usable text (caller falls back to streaming state).
@@ -283,9 +325,8 @@ public actor StreamingTranscriptionService {
         // How far (in samples) the realtime loop actually decoded — the end of
         // the last segment it produced, confirmed or not. Segment timestamps
         // are relative to the session buffer (we purge the processor at start).
-        let lastConfirmedEnd = confirmedSegments.last.map { Double($0.end) } ?? 0
         let decodedUpToSeconds = max(
-            lastConfirmedEnd,
+            confirmedSegments.last.map { Double($0.end) } ?? 0,
             unconfirmedSegments.last.map { Double($0.end) } ?? 0
         )
         let decodedUpToIndex = min(
@@ -293,35 +334,39 @@ public actor StreamingTranscriptionService {
             max(0, Int(decodedUpToSeconds * Double(Self.sampleRate)))
         )
 
-        // Fast path: nothing meaningful left un-decoded — streaming text is
-        // complete, skip the final decode.
-        if samples.count - decodedUpToIndex < Self.tailSkipThresholdSamples, let state {
-            let text = Self.extractFinalText(from: state)
-            let cleaned = Self.stripNoiseTokens(from: text)
-            if !cleaned.isEmpty { return cleaned }
+        let tail = samples[decodedUpToIndex...]
+        let tailSeconds = Double(tail.count) / Double(Self.sampleRate)
+        let streamingText = state.map(Self.extractFinalText(from:)) ?? ""
+        traceStream("flush: buffer=\(String(format: "%.1f", Double(samples.count) / Double(Self.sampleRate)))s undecoded=\(String(format: "%.2f", tailSeconds))s confirmed=\(confirmedSegments.count) unconfirmed=\(unconfirmedSegments.count)")
+
+        // Fast path: the tail can't contain a word (too short) or is silence
+        // (peak below speech level) — streaming text is complete, no decode.
+        let tailPeak = tail.reduce(Float(0)) { max($0, abs($1)) }
+        if tail.count < Self.minTailSamples || tailPeak < Self.tailSilencePeak {
+            let cleaned = Self.stripNoiseTokens(from: streamingText)
+            if !cleaned.isEmpty {
+                traceStream("flush: fast path — tail \(String(format: "%.2f", tailSeconds))s peak \(String(format: "%.3f", tailPeak)), no decode")
+                return cleaned
+            }
         }
 
-        // Tail flush: decode from the last CONFIRMED segment (unconfirmed text
-        // is a lower-quality hypothesis — re-decoding that region is worth it).
-        let tailStartIndex = min(
-            samples.count,
-            max(0, Int(lastConfirmedEnd * Double(Self.sampleRate)))
-        )
+        // Tail flush: decode only the audio the realtime loop never saw and
+        // append it to the streaming text. Cost: one Whisper window.
         do {
-            let confirmedText = confirmedSegments.map(\.text).joined(separator: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            traceStream("flush: tail decode of \(String(format: "%.2f", tailSeconds))s (peak \(String(format: "%.3f", tailPeak)))")
             let tailText = try await transcribeBuffer(
-                Array(samples[tailStartIndex...]),
+                Array(tail),
                 with: whisperKit,
                 options: activeDecodingOptions
             )
-            let text = [confirmedText, tailText]
+            let text = [streamingText, tailText]
                 .filter { !$0.isEmpty }
                 .joined(separator: " ")
 
             let cleaned = Self.stripNoiseTokens(from: text)
             return cleaned.isEmpty ? nil : cleaned
         } catch {
+            traceStream("flush: tail decode failed: \(error)")
             return nil
         }
     }
@@ -345,6 +390,7 @@ public actor StreamingTranscriptionService {
     /// Stop streaming without returning a result (e.g., on cancel).
     public func cancelStreamTranscription() async {
         await streamTranscriber?.stopStreamTranscription()
+        try? await sessionTask?.value
         activeProcessor?.purgeAudioSamples(keepingLast: 0)
         streamTranscriber = nil
         interimCallback = nil
@@ -352,6 +398,7 @@ public actor StreamingTranscriptionService {
         finalTextEmitted = false
         activeProcessor = nil
         activeDecodingOptions = nil
+        sessionTask = nil
     }
 
     // MARK: - State change handler
