@@ -20,9 +20,10 @@ public actor StreamingTranscriptionService {
     /// Minimum session length worth re-transcribing on stop (0.5s).
     private static let minFinalFlushSamples = 8_000
 
-    /// Sessions longer than this are not fully re-transcribed on stop; only the
-    /// audio after the last confirmed segment is, to bound finalization latency.
-    private static let maxFullFlushSamples = 120 * sampleRate
+    /// If less than this much audio (1s) arrived after the last decoded segment,
+    /// the streaming text already covers the recording — skip the final decode
+    /// entirely so finalization is instant.
+    private static let tailSkipThresholdSamples = sampleRate
 
     // MARK: - State
 
@@ -256,10 +257,14 @@ public actor StreamingTranscriptionService {
         return cleaned
     }
 
-    /// Re-transcribes the session audio to recover words the realtime loop never
-    /// decoded. Short sessions are re-transcribed in full (best accuracy); long
-    /// sessions only decode the tail after the last confirmed segment so
-    /// finalization latency stays bounded.
+    /// Recovers words the realtime loop never decoded, while keeping
+    /// finalization fast:
+    ///
+    /// 1. If streaming already decoded (nearly) the whole buffer, return its
+    ///    confirmed+unconfirmed text with NO extra decode — instant.
+    /// 2. Otherwise decode ONLY the audio after the last confirmed segment and
+    ///    append it to the confirmed text. Decode cost is proportional to the
+    ///    un-decoded tail, not the whole recording.
     ///
     /// - Returns: The cleaned final text, or `nil` if the flush could not
     ///   produce usable text (caller falls back to streaming state).
@@ -272,32 +277,47 @@ public actor StreamingTranscriptionService {
         let samples = Array(processor.audioSamples)
         guard samples.count >= Self.minFinalFlushSamples else { return nil }
 
-        let options = activeDecodingOptions
+        let confirmedSegments = state?.confirmedSegments ?? []
+        let unconfirmedSegments = state?.unconfirmedSegments ?? []
 
+        // How far (in samples) the realtime loop actually decoded — the end of
+        // the last segment it produced, confirmed or not. Segment timestamps
+        // are relative to the session buffer (we purge the processor at start).
+        let lastConfirmedEnd = confirmedSegments.last.map { Double($0.end) } ?? 0
+        let decodedUpToSeconds = max(
+            lastConfirmedEnd,
+            unconfirmedSegments.last.map { Double($0.end) } ?? 0
+        )
+        let decodedUpToIndex = min(
+            samples.count,
+            max(0, Int(decodedUpToSeconds * Double(Self.sampleRate)))
+        )
+
+        // Fast path: nothing meaningful left un-decoded — streaming text is
+        // complete, skip the final decode.
+        if samples.count - decodedUpToIndex < Self.tailSkipThresholdSamples, let state {
+            let text = Self.extractFinalText(from: state)
+            let cleaned = Self.stripNoiseTokens(from: text)
+            if !cleaned.isEmpty { return cleaned }
+        }
+
+        // Tail flush: decode from the last CONFIRMED segment (unconfirmed text
+        // is a lower-quality hypothesis — re-decoding that region is worth it).
+        let tailStartIndex = min(
+            samples.count,
+            max(0, Int(lastConfirmedEnd * Double(Self.sampleRate)))
+        )
         do {
-            let text: String
-            if samples.count <= Self.maxFullFlushSamples {
-                text = try await transcribeBuffer(samples, with: whisperKit, options: options)
-            } else {
-                // Long session: keep the confirmed streaming text and decode only
-                // the audio after the last confirmed segment.
-                let confirmedSegments = state?.confirmedSegments ?? []
-                let confirmedText = confirmedSegments.map(\.text).joined(separator: "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let tailStartSeconds = confirmedSegments.last.map { Double($0.end) } ?? 0
-                let tailStartIndex = min(
-                    samples.count,
-                    max(0, Int(tailStartSeconds * Double(Self.sampleRate)))
-                )
-                let tailText = try await transcribeBuffer(
-                    Array(samples[tailStartIndex...]),
-                    with: whisperKit,
-                    options: options
-                )
-                text = [confirmedText, tailText]
-                    .filter { !$0.isEmpty }
-                    .joined(separator: " ")
-            }
+            let confirmedText = confirmedSegments.map(\.text).joined(separator: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let tailText = try await transcribeBuffer(
+                Array(samples[tailStartIndex...]),
+                with: whisperKit,
+                options: activeDecodingOptions
+            )
+            let text = [confirmedText, tailText]
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
 
             let cleaned = Self.stripNoiseTokens(from: text)
             return cleaned.isEmpty ? nil : cleaned

@@ -321,8 +321,8 @@ struct SusurrusApp: App {
                                     traceApp("Hotkey: mic permission not granted, cancelling")
                                     state.cancel()
                                     notifications.showNotification(
-                                        title: "Susurrus",
-                                        body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
+                                        title: "Microphone access needed",
+                                        body: "Enable Susurrus in System Settings > Privacy & Security > Microphone."
                                     )
                                     return
                                 }
@@ -442,8 +442,8 @@ struct SusurrusApp: App {
                     traceApp("startStreamingSession: permission denied after request")
                     state.cancel()
                     notifications.showNotification(
-                        title: "Susurrus",
-                        body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
+                        title: "Microphone access needed",
+                        body: "Enable Susurrus in System Settings > Privacy & Security > Microphone."
                     )
                 }
             }
@@ -452,8 +452,8 @@ struct SusurrusApp: App {
             traceApp("startStreamingSession: mic permission denied, cancelling")
             appState.cancel()
             notificationService.showNotification(
-                title: "Susurrus",
-                body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
+                title: "Microphone access needed",
+                body: "Enable Susurrus in System Settings > Privacy & Security > Microphone."
             )
             return
         @unknown default:
@@ -501,8 +501,8 @@ struct SusurrusApp: App {
         case .unavailable(let requestedName):
             traceApp("startStreamingSession: preferred device '\(requestedName)' unavailable — falling back to system default")
             notificationService.showNotification(
-                title: "Susurrus",
-                body: "Preferred microphone '\(requestedName)' is not connected. Using system default."
+                title: "Preferred microphone not connected",
+                body: "'\(requestedName)' is unavailable. Using the system default input."
             )
             resolvedDeviceID = nil
         }
@@ -528,8 +528,8 @@ struct SusurrusApp: App {
                 Task { @MainActor in
                     state.cancel()
                     notifications.showNotification(
-                        title: "Susurrus Error",
-                        body: "Streaming failed: \(error.localizedDescription)"
+                        title: "Recording failed",
+                        body: error.localizedDescription
                     )
                 }
             }
@@ -577,7 +577,7 @@ struct SusurrusApp: App {
                         } catch {
                             traceApp("stopStreamingSession: LLM cleanup failed: \(error.localizedDescription)")
                             notifications.showNotification(
-                                title: "Susurrus — LLM cleanup failed",
+                                title: "LLM cleanup failed",
                                 body: "\(error.localizedDescription) Using the raw transcription instead."
                             )
                         }
@@ -612,8 +612,8 @@ struct SusurrusApp: App {
                             let pasted = clip.simulatePaste()
                             if !pasted {
                                 notifications.showNotification(
-                                    title: "Susurrus",
-                                    body: "Auto-paste requires Accessibility access. Enable in System Settings > Privacy & Security > Accessibility."
+                                    title: "Auto-paste blocked — text is on the clipboard",
+                                    body: "Grant Accessibility access: System Settings > Privacy & Security > Accessibility. If Susurrus is already listed, remove it (−) and re-add it — the grant resets when the app's signature changes."
                                 )
                             }
                         }
@@ -626,20 +626,20 @@ struct SusurrusApp: App {
                     traceApp("stopStreamingSession: done")
                 } else {
                     notifications.showNotification(
-                        title: "Susurrus",
-                        body: "No speech detected"
+                        title: "No speech detected",
+                        body: "Nothing was transcribed. Check the input device in Preferences."
                     )
                 }
             } catch TranscriptionError.noSpeechDetected {
                 traceApp("stopStreamingSession: no speech detected")
                 notifications.showNotification(
-                    title: "Susurrus",
-                    body: "No speech detected"
+                    title: "No speech detected",
+                    body: "Nothing was transcribed. Check the input device in Preferences."
                 )
             } catch {
                 traceApp("stopStreamingSession: transcription failed: \(error.localizedDescription)")
                 notifications.showNotification(
-                    title: "Susurrus Error",
+                    title: "Transcription failed",
                     body: error.localizedDescription
                 )
             }
@@ -676,8 +676,8 @@ struct SusurrusApp: App {
             Task { @MainActor in
                 if state.enforceDurationCap() {
                     notifications.showNotification(
-                        title: "Susurrus",
-                        body: "Recording capped at 60 seconds"
+                        title: "Recording stopped",
+                        body: "Maximum recording duration reached."
                     )
                 }
             }
