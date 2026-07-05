@@ -37,14 +37,15 @@ public actor StreamingTranscriptionService {
     /// Minimum session length worth re-transcribing on stop (0.5s).
     private static let minFinalFlushSamples = 8_000
 
-    /// Un-decoded tails shorter than this (0.3s) can't contain a word —
-    /// skip the final decode so finalization is instant.
-    private static let minTailSamples = 4_800
-
-    /// Peak amplitude below which the un-decoded tail is considered silence
-    /// (user paused before releasing the hotkey — the common case) and the
+    /// Peak amplitude below which the buffer is considered silence and the
     /// final decode is skipped.
     private static let tailSilencePeak: Float = 0.015
+
+    /// Hard cap on vocabulary prompt tokens. Prompt tokens are prefilled
+    /// SEQUENTIALLY through the decoder on every decode, so an uncapped
+    /// vocabulary (hundreds of tokens) adds seconds of constant overhead
+    /// per pass regardless of model size.
+    private static let maxPromptTokens = 48
 
     // MARK: - State
 
@@ -209,16 +210,27 @@ public actor StreamingTranscriptionService {
         self.lastTranscriberState = nil
         self.finalTextEmitted = false
 
-        // Build DecodingOptions, applying vocabulary prompt if set
-        var options = DecodingOptions(
+        // Streaming (preview) options: NO vocabulary prompt. Prompt tokens are
+        // prefilled sequentially through the decoder on EVERY realtime pass —
+        // an uncapped vocabulary makes each pass take seconds and the preview
+        // fall hopelessly behind. The preview only feeds the overlay; the
+        // final whole-buffer decode below carries the vocabulary bias.
+        let options = DecodingOptions(
             task: .transcribe,
             language: nil,
             concurrentWorkerCount: 4,
             chunkingStrategy: .vad
         )
 
+        // Final-decode options: vocabulary prompt, hard-capped so prefill
+        // stays bounded (~tens of ms, not seconds).
+        var finalOptions = options
         if !vocabularyPrompt.isEmpty {
-            options.promptTokens = tokenizer.encode(text: vocabularyPrompt)
+            let tokens = tokenizer.encode(text: vocabularyPrompt)
+            finalOptions.promptTokens = Array(tokens.prefix(Self.maxPromptTokens))
+            if tokens.count > Self.maxPromptTokens {
+                traceStream("vocab prompt capped: \(tokens.count) -> \(Self.maxPromptTokens) tokens")
+            }
         }
 
         // Resolve which processor to use:
@@ -239,7 +251,7 @@ public actor StreamingTranscriptionService {
         processor.purgeAudioSamples(keepingLast: 0)
 
         self.activeProcessor = processor
-        self.activeDecodingOptions = options
+        self.activeDecodingOptions = finalOptions
 
         let transcriber = AudioStreamTranscriber(
             audioEncoder: whisperKit.audioEncoder,
@@ -287,12 +299,12 @@ public actor StreamingTranscriptionService {
         // Stop audio capture; the realtime loop exits after its in-flight pass.
         await transcriber.stopStreamTranscription()
 
-        // Wait for the realtime loop to drain rather than racing it — a
-        // concurrent final decode contends with the in-flight pass for the
-        // ANE and roughly doubles finalization time. When the loop exits, its
-        // last pass results are already in lastTranscriberState.
+        // Cancel the in-flight decode pass instead of draining it — we're
+        // about to batch-decode the whole buffer anyway, so its result is
+        // redundant and waiting for it just serializes two decodes.
+        sessionTask?.cancel()
         try? await sessionTask?.value
-        traceStream("stop: loop drained in \(msSince(stopStart))ms")
+        traceStream("stop: loop cancelled+exited in \(msSince(stopStart))ms")
 
         let state = lastTranscriberState
         let processor = activeProcessor
@@ -327,16 +339,14 @@ public actor StreamingTranscriptionService {
         return cleaned
     }
 
-    /// Recovers words the realtime loop never decoded, while keeping
-    /// finalization fast. Called AFTER the loop has drained, so the streaming
-    /// state already reflects the final completed decode pass:
+    /// Produces the final transcript with ONE whole-buffer batch decode.
     ///
-    /// 1. The only audio the streaming text can be missing is what arrived
-    ///    after the final pass began — under one pass duration, typically <1s.
-    /// 2. If that tail is too short to hold a word, or is silence (user paused
-    ///    before releasing the hotkey — the common case), return the streaming
-    ///    text with NO extra decode: instant.
-    /// 3. Otherwise decode ONLY that tail (one Whisper window) and append it.
+    /// The streaming loop's per-pass state proved unreliable for finalization
+    /// (segment end timestamps lag far behind the buffer), and Whisper's cost
+    /// for clips ≤30s is one fixed window decode regardless of length — so
+    /// decoding "only the tail" saves nothing and risks losing words. The
+    /// in-flight streaming pass is cancelled before this runs, so this is the
+    /// only decode on the ANE at stop time.
     ///
     /// - Returns: The cleaned final text, or `nil` if the flush could not
     ///   produce usable text (caller falls back to streaming state).
@@ -349,54 +359,23 @@ public actor StreamingTranscriptionService {
         let samples = Array(processor.audioSamples)
         guard samples.count >= Self.minFinalFlushSamples else { return nil }
 
-        let confirmedSegments = state?.confirmedSegments ?? []
-        let unconfirmedSegments = state?.unconfirmedSegments ?? []
+        let bufferSeconds = Double(samples.count) / Double(Self.sampleRate)
+        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+        traceStream("flush: whole-buffer decode of \(String(format: "%.1f", bufferSeconds))s (peak \(String(format: "%.3f", peak)))")
 
-        // How far (in samples) the realtime loop actually decoded — the end of
-        // the last segment it produced, confirmed or not. Segment timestamps
-        // are relative to the session buffer (we purge the processor at start).
-        let decodedUpToSeconds = max(
-            confirmedSegments.last.map { Double($0.end) } ?? 0,
-            unconfirmedSegments.last.map { Double($0.end) } ?? 0
-        )
-        let decodedUpToIndex = min(
-            samples.count,
-            max(0, Int(decodedUpToSeconds * Double(Self.sampleRate)))
-        )
+        // Whole-buffer silence — nothing to transcribe.
+        guard peak >= Self.tailSilencePeak else { return nil }
 
-        let tail = samples[decodedUpToIndex...]
-        let tailSeconds = Double(tail.count) / Double(Self.sampleRate)
-        let streamingText = state.map(Self.extractFinalText(from:)) ?? ""
-        traceStream("flush: buffer=\(String(format: "%.1f", Double(samples.count) / Double(Self.sampleRate)))s undecoded=\(String(format: "%.2f", tailSeconds))s confirmed=\(confirmedSegments.count) unconfirmed=\(unconfirmedSegments.count)")
-
-        // Fast path: the tail can't contain a word (too short) or is silence
-        // (peak below speech level) — streaming text is complete, no decode.
-        let tailPeak = tail.reduce(Float(0)) { max($0, abs($1)) }
-        if tail.count < Self.minTailSamples || tailPeak < Self.tailSilencePeak {
-            let cleaned = Self.stripNoiseTokens(from: streamingText)
-            if !cleaned.isEmpty {
-                traceStream("flush: fast path — tail \(String(format: "%.2f", tailSeconds))s peak \(String(format: "%.3f", tailPeak)), no decode")
-                return cleaned
-            }
-        }
-
-        // Tail flush: decode only the audio the realtime loop never saw and
-        // append it to the streaming text. Cost: one Whisper window.
         do {
-            traceStream("flush: tail decode of \(String(format: "%.2f", tailSeconds))s (peak \(String(format: "%.3f", tailPeak)))")
-            let tailText = try await transcribeBuffer(
-                Array(tail),
+            let text = try await transcribeBuffer(
+                samples,
                 with: whisperKit,
                 options: activeDecodingOptions
             )
-            let text = [streamingText, tailText]
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-
             let cleaned = Self.stripNoiseTokens(from: text)
             return cleaned.isEmpty ? nil : cleaned
         } catch {
-            traceStream("flush: tail decode failed: \(error)")
+            traceStream("flush: decode failed: \(error)")
             return nil
         }
     }
@@ -408,10 +387,12 @@ public actor StreamingTranscriptionService {
         options: DecodingOptions?
     ) async throws -> String {
         guard !samples.isEmpty else { return "" }
+        let decodeStart = Date()
         let results = try await whisperKit.transcribe(
             audioArray: samples,
             decodeOptions: options
         )
+        traceStream("decode: \(String(format: "%.1f", Double(samples.count) / Double(Self.sampleRate)))s audio in \(msSince(decodeStart))ms (promptTokens=\(options?.promptTokens?.count ?? 0))")
         return results.map(\.text)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
