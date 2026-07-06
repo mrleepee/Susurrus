@@ -29,7 +29,6 @@ struct SusurrusApp: App {
     @Environment(\.openWindow) private var openWindow
 
     // Services
-    private let transcriptionService = WhisperKitTranscriptionService()
     private let streamingService = StreamingTranscriptionService()
     private let clipboard = PasteboardClipboardService()
     private let notificationService = UserNotificationService()
@@ -66,6 +65,11 @@ struct SusurrusApp: App {
 
     /// Media apps that were paused when recording started.
     @State private var pausedMediaApps: [String] = []
+
+    /// Periodically reruns a silent inference so the model's ANE context stays
+    /// resident and the first recording after an idle spell doesn't pay the
+    /// cold-start cost.
+    @State private var keepWarmTimer: Timer?
 
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -202,19 +206,12 @@ struct SusurrusApp: App {
         traceApp("preloadModel: loading model '\(model)'")
         UserDefaults.standard.set(model, forKey: "modelDownloadingName")
         let state = appState
-        let transcription = transcriptionService
         let streaming = streamingService
         do {
-            try await transcription.setupModel(
-                modelName: model,
-                onDownloadProgress: { progress in
-                    Task { @MainActor in
-                        state.modelLoadProgress = progress
-                        UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
-                    }
-                }
-            )
-            // Also preload the streaming service with the same model
+            // Only the streaming service needs the model. Loading it into the
+            // batch WhisperKitTranscriptionService too doubled memory and ANE
+            // pressure (two full CoreML model instances) for a service the app
+            // flow never calls.
             try await streaming.setupModel(
                 modelName: model,
                 onDownloadProgress: { progress in
@@ -226,6 +223,7 @@ struct SusurrusApp: App {
             )
             state.modelReady = true
             traceApp("preloadModel: model loaded successfully")
+            startKeepWarmTimer()
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
@@ -238,25 +236,14 @@ struct SusurrusApp: App {
 
     private func reloadModel(_ modelName: String) async {
         let state = appState
-        let transcription = transcriptionService
         let streaming = streamingService
         state.modelReady = false
         modelLoading = true
         state.modelLoadProgress = 0
         UserDefaults.standard.set(modelName, forKey: "modelDownloadingName")
         UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
-        await transcription.unloadModel()
         await streaming.unloadModel()
         do {
-            try await transcription.setupModel(
-                modelName: modelName,
-                onDownloadProgress: { progress in
-                    Task { @MainActor in
-                        state.modelLoadProgress = progress
-                        UserDefaults.standard.set(progress, forKey: "modelDownloadProgress")
-                    }
-                }
-            )
             try await streaming.setupModel(
                 modelName: modelName,
                 onDownloadProgress: { progress in
@@ -267,6 +254,7 @@ struct SusurrusApp: App {
                 }
             )
             state.modelReady = true
+            startKeepWarmTimer()
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
@@ -321,8 +309,8 @@ struct SusurrusApp: App {
                                     traceApp("Hotkey: mic permission not granted, cancelling")
                                     state.cancel()
                                     notifications.showNotification(
-                                        title: "Susurrus",
-                                        body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
+                                        title: "Microphone access needed",
+                                        body: "Enable Susurrus in System Settings > Privacy & Security > Microphone."
                                     )
                                     return
                                 }
@@ -442,8 +430,8 @@ struct SusurrusApp: App {
                     traceApp("startStreamingSession: permission denied after request")
                     state.cancel()
                     notifications.showNotification(
-                        title: "Susurrus",
-                        body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
+                        title: "Microphone access needed",
+                        body: "Enable Susurrus in System Settings > Privacy & Security > Microphone."
                     )
                 }
             }
@@ -452,8 +440,8 @@ struct SusurrusApp: App {
             traceApp("startStreamingSession: mic permission denied, cancelling")
             appState.cancel()
             notificationService.showNotification(
-                title: "Susurrus",
-                body: "Microphone access required. Enable in System Settings > Privacy > Microphone."
+                title: "Microphone access needed",
+                body: "Enable Susurrus in System Settings > Privacy & Security > Microphone."
             )
             return
         @unknown default:
@@ -501,8 +489,8 @@ struct SusurrusApp: App {
         case .unavailable(let requestedName):
             traceApp("startStreamingSession: preferred device '\(requestedName)' unavailable — falling back to system default")
             notificationService.showNotification(
-                title: "Susurrus",
-                body: "Preferred microphone '\(requestedName)' is not connected. Using system default."
+                title: "Preferred microphone not connected",
+                body: "'\(requestedName)' is unavailable. Using the system default input."
             )
             resolvedDeviceID = nil
         }
@@ -528,8 +516,8 @@ struct SusurrusApp: App {
                 Task { @MainActor in
                     state.cancel()
                     notifications.showNotification(
-                        title: "Susurrus Error",
-                        body: "Streaming failed: \(error.localizedDescription)"
+                        title: "Recording failed",
+                        body: error.localizedDescription
                     )
                 }
             }
@@ -556,9 +544,10 @@ struct SusurrusApp: App {
 
         Task {
             do {
+                let stopStart = Date()
                 traceApp("stopStreamingSession: calling stopStreamTranscription")
                 let text = try await streaming.stopStreamTranscription()
-                traceApp("stopStreamingSession: got text (\(text.count) chars): \(text.prefix(100))")
+                traceApp("stopStreamingSession: got text in \(Int(Date().timeIntervalSince(stopStart) * 1000))ms (\(text.count) chars): \(text.prefix(100))")
 
                 if !text.isEmpty {
                     var finalText = text
@@ -576,6 +565,10 @@ struct SusurrusApp: App {
                             traceApp("stopStreamingSession: LLM done, finalText=\(finalText.prefix(50))")
                         } catch {
                             traceApp("stopStreamingSession: LLM cleanup failed: \(error.localizedDescription)")
+                            notifications.showNotification(
+                                title: "LLM cleanup failed",
+                                body: "\(error.localizedDescription) Using the raw transcription instead."
+                            )
                         }
                     }
 
@@ -608,8 +601,8 @@ struct SusurrusApp: App {
                             let pasted = clip.simulatePaste()
                             if !pasted {
                                 notifications.showNotification(
-                                    title: "Susurrus",
-                                    body: "Auto-paste requires Accessibility access. Enable in System Settings > Privacy & Security > Accessibility."
+                                    title: "Auto-paste blocked — text is on the clipboard",
+                                    body: "Grant Accessibility access: System Settings > Privacy & Security > Accessibility. If Susurrus is already listed, remove it (−) and re-add it — the grant resets when the app's signature changes."
                                 )
                             }
                         }
@@ -622,20 +615,20 @@ struct SusurrusApp: App {
                     traceApp("stopStreamingSession: done")
                 } else {
                     notifications.showNotification(
-                        title: "Susurrus",
-                        body: "No speech detected"
+                        title: "No speech detected",
+                        body: "Nothing was transcribed. Check the input device in Preferences."
                     )
                 }
             } catch TranscriptionError.noSpeechDetected {
                 traceApp("stopStreamingSession: no speech detected")
                 notifications.showNotification(
-                    title: "Susurrus",
-                    body: "No speech detected"
+                    title: "No speech detected",
+                    body: "Nothing was transcribed. Check the input device in Preferences."
                 )
             } catch {
                 traceApp("stopStreamingSession: transcription failed: \(error.localizedDescription)")
                 notifications.showNotification(
-                    title: "Susurrus Error",
+                    title: "Transcription failed",
                     body: error.localizedDescription
                 )
             }
@@ -657,6 +650,25 @@ struct SusurrusApp: App {
         }
     }
 
+    // MARK: - Keep-warm
+
+    /// Reruns a small inference every 60s while idle so the model's ANE
+    /// context stays resident. Skips while recording/finalizing so it never
+    /// competes with a live decode. Guarded so model reloads don't stack a
+    /// second timer (the streaming service instance is shared, so one timer
+    /// serves every model).
+    private func startKeepWarmTimer() {
+        guard keepWarmTimer == nil else { return }
+        let state = appState
+        let streaming = streamingService
+        keepWarmTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Task { @MainActor in
+                guard state.recordingState == .idle else { return }
+                await streaming.keepWarm()
+            }
+        }
+    }
+
     // MARK: - Duration cap
 
     private func startDurationTimer() {
@@ -672,8 +684,8 @@ struct SusurrusApp: App {
             Task { @MainActor in
                 if state.enforceDurationCap() {
                     notifications.showNotification(
-                        title: "Susurrus",
-                        body: "Recording capped at 60 seconds"
+                        title: "Recording stopped",
+                        body: "Maximum recording duration reached."
                     )
                 }
             }

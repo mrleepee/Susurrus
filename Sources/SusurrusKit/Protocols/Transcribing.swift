@@ -30,3 +30,20 @@ public enum TranscriptionError: Error, Sendable, Equatable {
     case noSpeechDetected
     case audioCaptureFailed
 }
+
+extension TranscriptionError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .modelNotReady:
+            return "The transcription model is still loading. Try again in a moment."
+        case .emptyAudio:
+            return "No audio was captured."
+        case .transcriptionFailed(let reason):
+            return "Transcription failed: \(reason)"
+        case .noSpeechDetected:
+            return "No speech detected."
+        case .audioCaptureFailed:
+            return "Audio capture failed. Check the microphone connection and permissions."
+        }
+    }
+}

@@ -30,6 +30,11 @@ public final class PasteboardClipboardService: ClipboardManaging, @unchecked Sen
         pasteboard.string(forType: .string)
     }
 
+    /// Tracks whether we've already shown the system Accessibility prompt this
+    /// launch. Prompting on every failed paste spams the user with the
+    /// "open System Settings" dialog after each recording.
+    private nonisolated(unsafe) static var hasPromptedAccessibility = false
+
     /// Simulate Cmd+V keystroke to paste clipboard contents at cursor.
     /// Requires macOS Accessibility permissions (System Settings > Privacy & Security > Accessibility).
     /// Returns true if the event was posted, false if accessibility permissions are missing.
@@ -38,9 +43,12 @@ public final class PasteboardClipboardService: ClipboardManaging, @unchecked Sen
         let trusted = AXIsProcessTrusted()
         Self.logger.info("simulatePaste: AXIsProcessTrusted = \(trusted)")
         guard trusted else {
-            // Prompt the user to grant access
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
+            // Prompt the user to grant access — once per launch, not per paste.
+            if !Self.hasPromptedAccessibility {
+                Self.hasPromptedAccessibility = true
+                let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+                AXIsProcessTrustedWithOptions(options)
+            }
             return false
         }
 

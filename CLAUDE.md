@@ -25,6 +25,8 @@ swift test           # Run tests (currently blocked — test files use Swift Tes
 
 The `make dev` target runs the debug binary directly from `.build/debug/` with stdout visible — much faster than building an .app bundle and essential for catching runtime errors.
 
+**TCC permissions caveat:** the bare debug binary is ad-hoc signed, so its code hash changes on every rebuild and macOS silently revokes Accessibility/Microphone/Automation grants each time. To test anything permission-dependent (auto-paste, mic capture, media pause), use `make install` + `make launch` — the bundle is signed with a stable identity (see `SIGN_IDENTITY` in the Makefile) so grants persist across rebuilds.
+
 ## Architecture
 
 - **App entry**: `Sources/Susurrus/SusurrusApp.swift` — SwiftUI `MenuBarExtra` with `@NSApplicationDelegateAdaptor` for eager setup

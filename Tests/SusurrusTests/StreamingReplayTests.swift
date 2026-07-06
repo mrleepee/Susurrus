@@ -109,7 +109,7 @@ extension Tag {
     @Tag static var requiresModel: Self
 }
 
-@Suite("Streaming session — integration", .tags(.requiresModel))
+@Suite("Streaming session — integration", .tags(.requiresModel), .enabled(if: liveAudioTestsEnabled))
 struct StreamingSessionTests {
 
     // MARK: - Buffer isolation between sessions
