@@ -11,7 +11,7 @@ A notebook is a named collection that your dictations get saved into. You
 pick an "active" notebook, and everything you dictate lands there. That's
 the whole idea.
 
-### What notebooks are good at
+### Strengths
 
 - **They tell Susurrus what you're working on.** Dictate into a "MarkLogic
   migration" notebook and the names from your recent entries get fed to
@@ -22,23 +22,34 @@ the whole idea.
   remember what you said, and every fix teaches Susurrus a rule.
 - **They cost nothing when ignored.** No active notebook = no overhead.
 
-### What notebooks are bad at
+### Weaknesses
 
 - **They need a habit.** All the value depends on you remembering to pick
   an active notebook. If you never do, notebooks do nothing.
-- **Unfixed mistakes spread.** If Whisper writes a name wrong and you
-  don't correct it, the wrong spelling sits in the notebook and gets fed
-  back as a "hint".
-- **The LLM context dump is weak.** Sending your last 10 entries to the
-  LLM as prose was the notebook's original job. It's the least useful
-  part, and it only works when the LLM is switched on.
+- **Unfixed mistakes spread.** If the speech model writes a name wrong and
+  you don't correct it, the wrong spelling sits in the notebook and gets
+  fed back as a "hint" next time.
+- **The original feature is the weakest one.** Notebooks were built to send
+  your last 10 entries to the cleanup AI as background reading. That only
+  works when the cleanup AI is switched on, and it's the least effective
+  thing notebooks do today.
 
-### The verdict
+### The verdict, and what happens next
 
 Keep them — but stop *depending* on them. As of today, if you have no
 active notebook, Susurrus gets the same context boost from your recent
 dictation history automatically. Notebooks are now a bonus for people who
 like organising, not a requirement for accuracy.
+
+The plan:
+
+1. **Watch for a week or two.** Does notebook mode actually get used in
+   real dictation?
+2. **If yes** — invest: make switching the active notebook faster (menu
+   bar picker) and keep improving what gets learned from entry edits.
+3. **If no** — demote: keep notebooks as a plain filing feature, and cut
+   the "send entries to the cleanup AI" part first. The automatic
+   history-based hints already cover the accuracy job.
 
 ---
 
@@ -68,12 +79,13 @@ editing text. Too much work. Instead:
 Every fix you make today saves ten fixes later. Making fixes cheap is
 the highest-leverage accuracy work left.
 
-### 3. Local LLM polish, on by default
+### 3. Cleanup AI on by default, fully private
 
-The cleanup LLM is optional today because it needs setup (an API key or
-LM Studio running). Long term: ship or auto-detect a small local model so
-polish is free, private, and always on — with the existing guardrail so
-it can never rewrite what you actually said. Nothing leaves the Mac.
+An AI pass that fixes punctuation and phrasing is optional today because
+it needs setup (an API key, or LM Studio running). Long term: ship or
+auto-detect a small model that runs on the Mac itself, so polish is free,
+private, and always on — with the existing safety check so it can never
+rewrite what you actually said. Nothing leaves the Mac.
 
 ### 4. Dictate longer than 60 seconds
 
@@ -95,5 +107,7 @@ the product.
 
 - **Voice commands** ("new line", "send it") — different product. Revisit
   after the top 5.
-- **Speaker diarization** — Susurrus is for one voice: yours.
-- **Cloud transcription** — never. On-device is the point.
+- **Telling speakers apart** (meeting-style transcription) — Susurrus is
+  for one voice: yours.
+- **Cloud transcription** — never. Everything stays on your Mac; that's
+  the point.
