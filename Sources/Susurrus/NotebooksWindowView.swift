@@ -101,7 +101,11 @@ struct NotebooksWindowView: View {
         }
     }
 
-    private var manager: NotebookManager { NotebookManager() }
+    private var manager: NotebookManager {
+        let m = NotebookManager()
+        m.correctionLearning = CorrectionLearningManager(vocabularyManager: VocabularyManager())
+        return m
+    }
 
     // MARK: - Notebook Row
 

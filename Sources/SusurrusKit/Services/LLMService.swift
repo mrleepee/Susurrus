@@ -1,7 +1,20 @@
 import Foundation
 
-/// LLM post-processing service using Anthropic-compatible API.
-/// Reads configuration from (in priority order):
+/// Which LLM backend handles post-processing.
+public enum LLMProvider: String, Codable, CaseIterable, Sendable {
+    /// Try the local endpoint first, fall back to cloud when configured.
+    case auto
+    /// Local OpenAI-compatible server only (LM Studio, Ollama).
+    case local
+    /// Anthropic-compatible cloud endpoint only.
+    case cloud
+}
+
+/// LLM post-processing service.
+///
+/// Local path: OpenAI-compatible chat completions (LM Studio, Ollama) —
+/// private, free, fast on Apple Silicon. Cloud path: Anthropic-compatible
+/// API. Configuration priority for the cloud path:
 /// 1. macOS Keychain (API key — never stored in UserDefaults or .env)
 /// 2. UserDefaults (model, endpoint)
 /// 3. Bundled .env file (model, endpoint only — NOT the API key)
@@ -26,7 +39,12 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
         let apiKey: String
         let model: String
         let endpoint: String
+        let provider: LLMProvider
+        let localEndpoint: String
+        let localModel: String
     }
+
+    public static let defaultLocalEndpoint = "http://localhost:1234/v1/chat/completions"
 
     /// Loads .env file from the bundle's Resources directory.
     /// Used only for non-sensitive config (model, endpoint).
@@ -75,7 +93,22 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
         let model = defaults.string(forKey: "llmModel") ?? env["LLM_MODEL"] ?? "MiniMax-M2.5"
         let endpoint = defaults.string(forKey: "llmEndpoint") ?? env["LLM_ENDPOINT"] ?? "https://api.minimax.io/anthropic/v1/messages"
 
-        return Config(apiKey: apiKey, model: model, endpoint: endpoint)
+        // Defaults to cloud (legacy behaviour): trying an unconfigured local
+        // endpoint first would add a multi-second hang on every dictation
+        // for anyone who hasn't set up LM Studio/Ollama. Auto/Local are
+        // explicit opt-ins from Preferences.
+        let provider = LLMProvider(rawValue: defaults.string(forKey: "llmProvider") ?? "") ?? .cloud
+        let localEndpoint = defaults.string(forKey: "llmLocalEndpoint") ?? Self.defaultLocalEndpoint
+        let localModel = defaults.string(forKey: "llmLocalModel") ?? ""
+
+        return Config(
+            apiKey: apiKey,
+            model: model,
+            endpoint: endpoint,
+            provider: provider,
+            localEndpoint: localEndpoint,
+            localModel: localModel
+        )
     }
 
     // MARK: - Process
@@ -83,16 +116,84 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
     public func process(text: String, systemPrompt: String) async throws -> String {
         let config = resolveConfig()
 
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LLMError.emptyResult
+        }
+
+        switch config.provider {
+        case .local:
+            return try await processLocal(text: text, systemPrompt: systemPrompt, config: config)
+        case .cloud:
+            return try await processCloud(text: text, systemPrompt: systemPrompt, config: config)
+        case .auto:
+            do {
+                return try await processLocal(text: text, systemPrompt: systemPrompt, config: config)
+            } catch {
+                guard !config.apiKey.isEmpty else { throw error }
+                return try await processCloud(text: text, systemPrompt: systemPrompt, config: config)
+            }
+        }
+    }
+
+    /// OpenAI-compatible chat completions against a local server
+    /// (LM Studio :1234, Ollama :11434/v1). Short timeout — a local server
+    /// that isn't up should fail fast, not hang the paste.
+    private func processLocal(text: String, systemPrompt: String, config: Config) async throws -> String {
+        guard let endpointURL = URL(string: config.localEndpoint) else {
+            throw LLMError.requestFailed("Invalid local endpoint URL: \(config.localEndpoint)")
+        }
+
+        var request = URLRequest(url: endpointURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+
+        var body: [String: Any] = [
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": text]
+            ],
+            "temperature": 0,
+            "max_tokens": max(text.count * 2, 512)
+        ]
+        // LM Studio serves whichever model is loaded when the name is
+        // omitted; only pin one when the user configured it.
+        if !config.localModel.isEmpty {
+            body["model"] = config.localModel
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMError.invalidResponse
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? "unknown"
+            throw LLMError.requestFailed("Local LLM HTTP \(httpResponse.statusCode): \(body)")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let content = message["content"] as? String
+        else {
+            throw LLMError.invalidResponse
+        }
+
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw LLMError.emptyResult }
+        return trimmed
+    }
+
+    /// Anthropic-compatible cloud endpoint.
+    private func processCloud(text: String, systemPrompt: String, config: Config) async throws -> String {
         guard !config.apiKey.isEmpty else {
             throw LLMError.requestFailed("API key not configured. Set it in Preferences > LLM.")
         }
 
         guard let endpointURL = URL(string: config.endpoint) else {
             throw LLMError.requestFailed("Invalid endpoint URL: \(config.endpoint)")
-        }
-
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw LLMError.emptyResult
         }
 
         var request = URLRequest(url: endpointURL)
@@ -105,6 +206,7 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
         let body: [String: Any] = [
             "model": config.model,
             "max_tokens": max(text.count * 2, 512),
+            "temperature": 0,
             "system": systemPrompt,
             "messages": [
                 ["role": "user", "content": text]

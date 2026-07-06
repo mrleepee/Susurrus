@@ -16,6 +16,11 @@ struct PreferencesView: View {
     @AppStorage("llmModel") private var llmModel: String = "MiniMax-M2.5"
     @AppStorage("llmEndpoint") private var llmEndpoint: String = "https://api.minimax.io/anthropic/v1/messages"
     @AppStorage("llmSystemPrompt") private var llmSystemPrompt = UserDefaultsPreferencesManager.defaultLLMPrompt
+    @AppStorage("llmProvider") private var llmProvider = LLMProvider.cloud.rawValue
+    @AppStorage("llmLocalEndpoint") private var llmLocalEndpoint = LLMService.defaultLocalEndpoint
+    @AppStorage("llmLocalModel") private var llmLocalModel = ""
+    @State private var localTestResult: String?
+    @State private var localTestRunning = false
     @State private var entries: [VocabularyEntry] = []
     @State private var newTerm: String = ""
     @State private var newCategory: VocabularyCategory = .custom
@@ -406,41 +411,49 @@ struct PreferencesView: View {
         Form {
             Section {
                 Toggle("Enable LLM post-processing", isOn: $llmEnabled)
+            } footer: {
+                Text("Optional polish. Vocabulary corrections and learned fixes are always applied, with or without the LLM.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
 
             Section {
-                HStack {
-                    if showApiKey {
-                        TextField("API Key", text: $apiKeyText)
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: apiKeyText) { _, newValue in
-                                // Save to Keychain on every keystroke
-                                keychain.set(newValue, for: "llmApiKey")
-                            }
-                    } else {
-                        SecureField("API Key", text: $apiKeyText)
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: apiKeyText) { _, newValue in
-                                keychain.set(newValue, for: "llmApiKey")
-                            }
-                    }
-                    Button(action: { showApiKey.toggle() }) {
-                        Image(systemName: showApiKey ? "eye.slash" : "eye")
-                    }
-                    .buttonStyle(.plain)
+                Picker("Provider", selection: $llmProvider) {
+                    Text("Auto (local, then cloud)").tag(LLMProvider.auto.rawValue)
+                    Text("Local only").tag(LLMProvider.local.rawValue)
+                    Text("Cloud only").tag(LLMProvider.cloud.rawValue)
                 }
+                .pickerStyle(.menu)
+            }
 
-                TextField("Model", text: $llmModel)
-                    .textFieldStyle(.roundedBorder)
+            if llmProvider != LLMProvider.cloud.rawValue {
+                Section {
+                    TextField("Local endpoint", text: $llmLocalEndpoint)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Local model (blank = whatever is loaded)", text: $llmLocalModel)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button(localTestRunning ? "Testing…" : "Test connection") {
+                            testLocalConnection()
+                        }
+                        .disabled(localTestRunning)
+                        if let result = localTestResult {
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(result.hasPrefix("OK") ? .green : .red)
+                        }
+                    }
+                } header: {
+                    Text("Local Server")
+                } footer: {
+                    Text("OpenAI-compatible server, e.g. LM Studio (http://localhost:1234/v1/chat/completions) or Ollama (http://localhost:11434/v1/chat/completions).")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
 
-                TextField("Endpoint", text: $llmEndpoint)
-                    .textFieldStyle(.roundedBorder)
-            } header: {
-                Text("Provider Configuration")
-            } footer: {
-                Text("Anthropic-compatible endpoint. Defaults to MiniMax.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            if llmProvider != LLMProvider.local.rawValue {
+                cloudProviderSection
             }
 
             Section {
@@ -455,6 +468,82 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var cloudProviderSection: some View {
+        Section {
+            HStack {
+                if showApiKey {
+                    TextField("API Key", text: $apiKeyText)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: apiKeyText) { _, newValue in
+                            // Save to Keychain on every keystroke
+                            keychain.set(newValue, for: "llmApiKey")
+                        }
+                } else {
+                    SecureField("API Key", text: $apiKeyText)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: apiKeyText) { _, newValue in
+                            keychain.set(newValue, for: "llmApiKey")
+                        }
+                }
+                Button(action: { showApiKey.toggle() }) {
+                    Image(systemName: showApiKey ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.plain)
+            }
+
+            TextField("Model", text: $llmModel)
+                .textFieldStyle(.roundedBorder)
+
+            TextField("Endpoint", text: $llmEndpoint)
+                .textFieldStyle(.roundedBorder)
+        } header: {
+            Text("Cloud Provider")
+        } footer: {
+            Text("Anthropic-compatible endpoint. Defaults to MiniMax.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    /// Sends a tiny completion to the configured local endpoint.
+    private func testLocalConnection() {
+        localTestRunning = true
+        localTestResult = nil
+        let endpoint = llmLocalEndpoint
+        let model = llmLocalModel
+        Task { @MainActor in
+            defer { localTestRunning = false }
+            guard let url = URL(string: endpoint) else {
+                localTestResult = "Invalid URL"
+                return
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 10
+            var body: [String: Any] = [
+                "messages": [["role": "user", "content": "Reply with the single word: ok"]],
+                "temperature": 0,
+                "max_tokens": 8
+            ]
+            if !model.isEmpty { body["model"] = model }
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                let start = Date()
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let ms = Int(Date().timeIntervalSince(start) * 1000)
+                if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                    localTestResult = "OK (\(ms)ms)"
+                } else {
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    localTestResult = "HTTP \(code)"
+                }
+            } catch {
+                localTestResult = "Unreachable: \(error.localizedDescription)"
+            }
+        }
     }
 
     // MARK: - Cache Check
@@ -510,6 +599,7 @@ struct PreferencesView: View {
 
     private var notebooksTab: some View {
         let manager = NotebookManager()
+        manager.correctionLearning = CorrectionLearningManager(vocabularyManager: VocabularyManager())
         return HSplitView {
             // Left pane: notebook list
             VStack(alignment: .leading, spacing: 0) {

@@ -1,0 +1,148 @@
+import Foundation
+import Testing
+@testable import SusurrusKit
+
+@Suite("Correction rule learning Tests")
+struct CorrectionRuleLearningTests {
+
+    private func makeManagers() -> (CorrectionLearningManager, VocabularyManager) {
+        let vocab = VocabularyManager.createForTesting()
+        let mgr = CorrectionLearningManager(
+            vocabularyManager: vocab,
+            defaults: UserDefaults(suiteName: "com.susurrus.rulelearn.test.\(UUID().uuidString)")!
+        )
+        return (mgr, vocab)
+    }
+
+    @Test("Substitution edit creates a rule, active after two sightings")
+    func ruleFromEdit() {
+        let (mgr, _) = makeManagers()
+        mgr.recordCorrection(
+            raw: "reprocess it with core bee tonight",
+            edited: "reprocess it with corb tonight"
+        )
+        let first = mgr.rules().first { $0.match == "core bee" }
+        #expect(first != nil)
+        #expect(first?.replacement == "corb")
+        #expect(first?.enabled == false)
+
+        mgr.recordCorrection(
+            raw: "run core bee again",
+            edited: "run corb again"
+        )
+        let second = mgr.rules().first { $0.match == "core bee" }
+        #expect(second?.hitCount == 2)
+        #expect(second?.enabled == true)
+    }
+
+    @Test("Rule activates immediately when replacement is a proper noun")
+    func properNounRuleActivatesImmediately() {
+        let (mgr, _) = makeManagers()
+        mgr.recordCorrection(
+            raw: "we use mark logic here",
+            edited: "we use MarkLogic here"
+        )
+        let rule = mgr.activeRules().first { $0.match == "mark logic" }
+        #expect(rule != nil)
+        #expect(rule?.replacement == "MarkLogic")
+    }
+
+    @Test("Proper-noun replacement is promoted to vocabulary")
+    func vocabPromotion() {
+        let (mgr, vocab) = makeManagers()
+        mgr.recordCorrection(
+            raw: "ask jayendra about it",
+            edited: "ask Jayendra about it"
+        )
+        #expect(vocab.entries().contains { $0.term == "Jayendra" })
+    }
+
+    @Test("ALLCAPS promotion guesses acronym category")
+    func acronymPromotion() {
+        let (mgr, vocab) = makeManagers()
+        mgr.recordCorrection(
+            raw: "the sparkle endpoint is slow",
+            edited: "the SPARQL endpoint is slow"
+        )
+        let entry = vocab.entries().first { $0.term == "SPARQL" }
+        #expect(entry?.category == .acronym)
+    }
+
+    @Test("Reversal edit disables the rule")
+    func reversalDisables() {
+        let (mgr, _) = makeManagers()
+        mgr.addRule(CorrectionRule(match: "core bee", replacement: "CoRB", enabled: true))
+        // User edits CoRB back to core bee — the rule was wrong for them.
+        mgr.recordCorrection(
+            raw: "run CoRB again",
+            edited: "run core bee again"
+        )
+        #expect(mgr.activeRules().filter { $0.match == "core bee" }.isEmpty)
+    }
+
+    @Test("Pure insertions and deletions do not create rules")
+    func insertionsIgnored() {
+        let (mgr, _) = makeManagers()
+        mgr.recordCorrection(
+            raw: "ship it friday",
+            edited: "ship it on friday please"
+        )
+        #expect(mgr.rules().isEmpty)
+    }
+
+    @Test("Long rewrites do not create sprawling rules")
+    func longRewritesIgnored() {
+        let (mgr, _) = makeManagers()
+        mgr.recordCorrection(
+            raw: "one two three four five six seven",
+            edited: "alpha beta gamma delta epsilon zeta eta"
+        )
+        #expect(mgr.rules().isEmpty)
+    }
+
+    @Test("mismatchRegions aligns substitution in context")
+    func alignment() {
+        let regions = CorrectionLearningManager.mismatchRegions(
+            ["use", "core", "bee", "tonight"],
+            ["use", "corb", "tonight"]
+        )
+        #expect(regions.count == 1)
+        #expect(regions[0].0 == 1..<3)
+        #expect(regions[0].1 == 1..<2)
+    }
+}
+
+@Suite("NotebookManager learning Tests")
+struct NotebookLearningTests {
+
+    @Test("Entry edits are recorded as corrections")
+    func entryEditRecords() {
+        let nb = NotebookManager.createForTesting()
+        let corrections = CorrectionLearningManager.createForTesting()
+        nb.correctionLearning = corrections
+
+        let notebook = nb.createNotebook(name: "Test")
+        nb.setActiveNotebookId(notebook.id)
+        nb.appendToActiveNotebook(text: "we use mark logic here")
+        let entry = nb.notebookEntries(id: notebook.id)[0]
+
+        nb.updateEntry(notebookId: notebook.id, entryId: entry.id, newText: "we use MarkLogic here")
+        #expect(corrections.allCorrections().count == 1)
+        #expect(corrections.allCorrections()[0].editedText == "we use MarkLogic here")
+    }
+
+    @Test("Bias terms extracted from recent entries")
+    func biasTerms() {
+        let nb = NotebookManager.createForTesting()
+        let notebook = nb.createNotebook(name: "Migration")
+        nb.setActiveNotebookId(notebook.id)
+        nb.appendToActiveNotebook(text: "Talked to Jayendra about the MarkLogic upgrade and the QAS pipeline.")
+
+        let terms = nb.activeNotebookBiasTerms()
+        #expect(terms.contains("Jayendra"))
+        #expect(terms.contains("MarkLogic"))
+        #expect(terms.contains("QAS"))
+        #expect(!terms.contains("about"))
+        #expect(!terms.contains("Talked"))
+    }
+}

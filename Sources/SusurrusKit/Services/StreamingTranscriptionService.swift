@@ -72,7 +72,15 @@ public actor StreamingTranscriptionService {
     private var modelReady = false
 
     /// Vocabulary prompt applied to each decode session.
+    /// Legacy fallback — superseded by `vocabularySelector` when set.
     private var vocabularyPrompt: String = ""
+
+    /// Returns bias terms ranked most-relevant-first for a given preview
+    /// text. Called at stop time so the final decode's prompt-token budget
+    /// is spent on terms the session plausibly contains, instead of the
+    /// first N vocabulary entries in list order.
+    public typealias VocabularySelector = @Sendable (_ previewText: String) -> [String]
+    private var vocabularySelector: VocabularySelector?
 
     /// Callback invoked on each interim transcript update.
     private var interimCallback: InterimCallback?
@@ -187,8 +195,14 @@ public actor StreamingTranscriptionService {
     // MARK: - Vocabulary
 
     /// Set the vocabulary prompt for biasing transcription.
+    /// Legacy path — ignored while a vocabulary selector is set.
     public func setVocabularyPrompt(_ prompt: String) {
         vocabularyPrompt = prompt
+    }
+
+    /// Set the relevance-ranked term selector for the final decode.
+    public func setVocabularySelector(_ selector: @escaping VocabularySelector) {
+        vocabularySelector = selector
     }
 
     /// Set the transcription language (ISO 639-1 code, e.g. "en").
@@ -249,9 +263,11 @@ public actor StreamingTranscriptionService {
         )
 
         // Final-decode options: vocabulary prompt, hard-capped so prefill
-        // stays bounded (~tens of ms, not seconds).
+        // stays bounded (~tens of ms, not seconds). When a selector is set,
+        // this is recomputed at stop time from the preview text; the legacy
+        // flat prompt here is the fallback.
         var finalOptions = options
-        if !vocabularyPrompt.isEmpty {
+        if vocabularySelector == nil, !vocabularyPrompt.isEmpty {
             let tokens = tokenizer.encode(text: vocabularyPrompt)
             finalOptions.promptTokens = Array(tokens.prefix(Self.maxPromptTokens))
             if tokens.count > Self.maxPromptTokens {
@@ -339,6 +355,10 @@ public actor StreamingTranscriptionService {
         activeProcessor = nil
         sessionTask = nil
 
+        // Spend the prompt-token budget on relevance-ranked terms before
+        // the final decode.
+        composeStopTimePromptTokens(state: state)
+
         // Final flush over the session buffer.
         let flushStart = Date()
         if let finalText = await finalFlushText(processor: processor, state: state) {
@@ -363,6 +383,35 @@ public actor StreamingTranscriptionService {
         }
 
         return cleaned
+    }
+
+    /// Recomputes the final decode's prompt tokens from the streaming
+    /// preview text via the vocabulary selector. Terms are packed in rank
+    /// order until the budget is exhausted (a term that doesn't fit is
+    /// skipped, not truncated mid-token).
+    private func composeStopTimePromptTokens(state: AudioStreamTranscriber.State?) {
+        guard let selector = vocabularySelector,
+              let tokenizer = whisperKit?.tokenizer,
+              activeDecodingOptions != nil else { return }
+
+        let preview = state.map { Self.extractFinalText(from: $0) } ?? ""
+        let terms = selector(preview)
+        guard !terms.isEmpty else {
+            activeDecodingOptions?.promptTokens = nil
+            return
+        }
+
+        var chosen: [String] = []
+        var tokens: [Int] = []
+        for term in terms {
+            let candidate = (chosen + [term]).joined(separator: ", ")
+            let encoded = tokenizer.encode(text: candidate)
+            if encoded.count > Self.maxPromptTokens { continue }
+            chosen.append(term)
+            tokens = encoded
+        }
+        activeDecodingOptions?.promptTokens = tokens.isEmpty ? nil : tokens
+        traceStream("stop: prompt \(tokens.count)/\(Self.maxPromptTokens) tokens, \(chosen.count)/\(terms.count) terms: \(chosen.joined(separator: ", "))")
     }
 
     /// Produces the final transcript with ONE whole-buffer batch decode.

@@ -8,6 +8,10 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
 
     private static let activeNotebookKey = "activeNotebookId"
 
+    /// Optional correction learning — entry edits are recorded the same way
+    /// history edits are, feeding rules and vocabulary promotion.
+    public var correctionLearning: (any CorrectionLearning)?
+
     /// Context truncation limit in characters for LLM prompt injection.
     public static let contextCharLimit = 2000
 
@@ -129,6 +133,39 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
         return fullContext
     }
 
+    /// Proper-noun-ish terms (CamelCase, ALLCAPS, uncommon Capitalized words)
+    /// from the active notebook's recent entries, newest first. Used as
+    /// candidate bias terms for the final ASR decode — dictating into a
+    /// project notebook biases the decoder toward that project's names.
+    public func activeNotebookBiasTerms(limit: Int = 20) -> [String] {
+        guard let activeId = activeNotebookId() else { return [] }
+        let notebook = queue.sync { () -> Notebook? in
+            loadIndex().first(where: { $0.id == activeId })
+        }
+        guard let notebook else { return [] }
+
+        var terms: [String] = []
+        var seen: Set<String> = []
+        for entry in notebook.entries.suffix(10).reversed() {
+            // Split into sentences first: sentence-initial capitalization
+            // is convention, not evidence of a proper noun.
+            for sentence in entry.text.split(whereSeparator: { ".!?\n".contains($0) }) {
+                let words = sentence.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                for (index, word) in words.enumerated() {
+                    let term = String(word)
+                    guard term.count >= 3, terms.count < limit else { continue }
+                    let lowered = term.lowercased()
+                    guard !seen.contains(lowered) else { continue }
+                    guard ProperNoun.looksLikeProperNoun(term, isSentenceInitial: index == 0) else { continue }
+                    seen.insert(lowered)
+                    terms.append(term)
+                }
+            }
+            if terms.count >= limit { break }
+        }
+        return terms
+    }
+
     // MARK: - Entry management
 
     public func notebookEntries(id: UUID) -> [NotebookEntry] {
@@ -149,11 +186,13 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
     }
 
     public func updateEntry(notebookId: UUID, entryId: UUID, newText: String) {
+        var previousText: String?
         queue.sync(flags: .barrier) {
             var index = loadIndex()
             guard let ni = index.firstIndex(where: { $0.id == notebookId }) else { return }
             guard let ei = index[ni].entries.firstIndex(where: { $0.id == entryId }) else { return }
             let existing = index[ni].entries[ei]
+            previousText = existing.text
             let originalText = existing.originalText ?? existing.text
             index[ni].entries[ei] = NotebookEntry(
                 id: entryId,
@@ -165,6 +204,10 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
             index[ni].updatedAt = Date()
             saveIndex(index)
             saveNotebook(index[ni])
+        }
+
+        if let previousText, previousText != newText {
+            correctionLearning?.recordCorrection(raw: previousText, edited: newText)
         }
     }
 

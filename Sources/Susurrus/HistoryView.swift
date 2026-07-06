@@ -8,7 +8,7 @@ struct HistoryView: View {
     @State private var editText: String = ""
     @State private var escapeMonitor: Any?
     private let historyManager = TranscriptionHistoryManager()
-    private let correctionManager = CorrectionLearningManager()
+    private let correctionManager = CorrectionLearningManager(vocabularyManager: VocabularyManager())
 
     var body: some View {
         VStack(spacing: 0) {

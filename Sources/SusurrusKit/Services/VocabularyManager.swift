@@ -66,12 +66,75 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     }
 
     public func llmContextString() -> String {
+        Self.contextString(for: entries())
+    }
+
+    /// Vocabulary guidance filtered to terms plausibly present in the given
+    /// transcript (exact-normalized or phonetic n-gram hit). Dumping the
+    /// whole vocabulary invites the LLM to inject terms that weren't spoken.
+    public func llmContextString(relevantTo text: String) -> String {
         let all = entries()
         guard !all.isEmpty else { return "" }
 
-        return all.map { entry in
+        let words = text
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" })
+            .map(String.init)
+        var norms: Set<String> = []
+        var fuzzyCandidates: [String] = []
+        for n in 1...3 {
+            guard words.count >= n else { break }
+            for start in 0...(words.count - n) {
+                let norm = TranscriptCorrector.normalize(words[start..<(start + n)].joined())
+                guard norm.count >= 2, norms.insert(norm).inserted else { continue }
+                if norm.count >= TranscriptCorrector.minFuzzyLength {
+                    fuzzyCandidates.append(norm)
+                }
+            }
+        }
+
+        let relevant = all.filter { entry in
+            let norm = TranscriptCorrector.normalize(entry.term)
+            guard norm.count >= 2 else { return false }
+            if norms.contains(norm) { return true }
+            guard norm.count >= TranscriptCorrector.minFuzzyLength else { return false }
+            return fuzzyCandidates.contains { TranscriptCorrector.isFuzzyMatch($0, norm) }
+        }
+        return Self.contextString(for: relevant)
+    }
+
+    private static func contextString(for entries: [VocabularyEntry]) -> String {
+        guard !entries.isEmpty else { return "" }
+        return entries.map { entry in
             "\"\(entry.term)\" \(entry.category.llmInstruction)"
         }.joined(separator: ". ") + "."
+    }
+
+    /// Bump usage stats for every entry whose term appears (normalized)
+    /// in the given final text. Usage feeds the prompt-token ranking.
+    public func recordUsage(in text: String) {
+        var all = entries()
+        guard !all.isEmpty else { return }
+
+        let words = text
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" })
+            .map(String.init)
+        var norms: Set<String> = []
+        for n in 1...3 {
+            guard words.count >= n else { break }
+            for start in 0...(words.count - n) {
+                norms.insert(TranscriptCorrector.normalize(words[start..<(start + n)].joined()))
+            }
+        }
+
+        var changed = false
+        for i in all.indices where norms.contains(TranscriptCorrector.normalize(all[i].term)) {
+            all[i].useCount = (all[i].useCount ?? 0) + 1
+            all[i].lastUsedAt = Date()
+            changed = true
+        }
+        if changed {
+            setEntries(all)
+        }
     }
 
     // MARK: - CSV Import/Export
