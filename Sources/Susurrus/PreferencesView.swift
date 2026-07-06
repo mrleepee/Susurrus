@@ -52,6 +52,8 @@ struct PreferencesView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             vocabularyTab
                 .tabItem { Label("Vocabulary", systemImage: "text.book.closed") }
+            correctionsTab
+                .tabItem { Label("Corrections", systemImage: "arrow.triangle.2.circlepath") }
             modelTab
                 .tabItem { Label("Model", systemImage: "waveform") }
             llmTab
@@ -190,6 +192,18 @@ struct PreferencesView: View {
                                         Text(entry.term)
                                             .font(.body)
                                         Spacer()
+                                        if let count = entry.useCount, count > 0 {
+                                            // Usage feeds the prompt-token
+                                            // ranking — surfacing it makes
+                                            // the learning loop visible.
+                                            Text("\(count)×")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                                                .help("Appeared in \(count) dictation\(count == 1 ? "" : "s") — boosts this term's bias ranking")
+                                        }
                                         Button {
                                             withAnimation { removeEntry(id: entry.id) }
                                         } label: {
@@ -295,6 +309,139 @@ struct PreferencesView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let csv = manager.exportCSV()
         try? csv.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    // MARK: - Corrections
+
+    @State private var correctionRules: [CorrectionRule] = []
+    @State private var newRuleMatch: String = ""
+    @State private var newRuleReplacement: String = ""
+    @State private var correctionPairCount: Int = 0
+
+    private var correctionsTab: some View {
+        let manager = CorrectionLearningManager.shared
+        return Form {
+            Section {
+                HStack {
+                    TextField("Misheard as (e.g. core bee)", text: $newRuleMatch)
+                        .textFieldStyle(.roundedBorder)
+                    Image(systemName: "arrow.right")
+                        .foregroundStyle(.secondary)
+                    TextField("Replace with (e.g. CoRB)", text: $newRuleReplacement)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { addRule(manager) }
+                    Button("Add") { addRule(manager) }
+                        .disabled(
+                            newRuleMatch.trimmingCharacters(in: .whitespaces).isEmpty ||
+                            newRuleReplacement.trimmingCharacters(in: .whitespaces).isEmpty
+                        )
+                }
+            } header: {
+                Text("Replacement Rules")
+            } footer: {
+                Text("Applied to every transcription. Rules are also learned automatically when you edit transcriptions in History or Notebooks.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Section {
+                if correctionRules.isEmpty {
+                    Text("No rules yet. Edit a transcription in History and Susurrus will learn from your fix.")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                } else {
+                    ForEach(correctionRules) { rule in
+                        ruleRow(rule, manager: manager)
+                    }
+                }
+            }
+
+            Section {
+                HStack {
+                    Text("\(correctionPairCount) recorded edit\(correctionPairCount == 1 ? "" : "s") feeding LLM few-shot examples")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                    Spacer()
+                    Button("Clear edit history", role: .destructive) {
+                        manager.clearCorrections()
+                        correctionPairCount = 0
+                    }
+                    .disabled(correctionPairCount == 0)
+                }
+            } header: {
+                Text("Learning Data")
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { reloadCorrections(manager) }
+    }
+
+    @ViewBuilder
+    private func ruleRow(_ rule: CorrectionRule, manager: CorrectionLearningManager) -> some View {
+        HStack(spacing: 8) {
+            Toggle("", isOn: Binding(
+                get: { rule.enabled },
+                set: { enabled in
+                    manager.setRuleEnabled(id: rule.id, enabled: enabled)
+                    reloadCorrections(manager)
+                }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .labelsHidden()
+
+            Text(rule.match)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(rule.enabled ? .primary : .tertiary)
+            Image(systemName: "arrow.right")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(rule.replacement)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(rule.enabled ? .primary : .tertiary)
+
+            Spacer()
+
+            if rule.source == .learned {
+                Text(rule.hitCount == 1 ? "learned · 1 fix" : "learned · \(rule.hitCount) fixes")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
+            } else {
+                Text("manual")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+            }
+
+            Button {
+                manager.removeRule(id: rule.id)
+                reloadCorrections(manager)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func addRule(_ manager: CorrectionLearningManager) {
+        let match = newRuleMatch.trimmingCharacters(in: .whitespaces)
+        let replacement = newRuleReplacement.trimmingCharacters(in: .whitespaces)
+        guard !match.isEmpty, !replacement.isEmpty else { return }
+        manager.addRule(CorrectionRule(match: match, replacement: replacement, source: .manual))
+        newRuleMatch = ""
+        newRuleReplacement = ""
+        withAnimation { reloadCorrections(manager) }
+    }
+
+    private func reloadCorrections(_ manager: CorrectionLearningManager) {
+        correctionRules = manager.rules()
+        correctionPairCount = manager.allCorrections().count
     }
 
     // MARK: - Model

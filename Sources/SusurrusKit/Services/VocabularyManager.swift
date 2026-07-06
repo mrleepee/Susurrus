@@ -72,11 +72,20 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
         }
     }
 
-    public func addEntry(_ entry: VocabularyEntry) {
+    /// Add an entry unless a term already exists that differs only by case
+    /// (UI, CSV import, and auto-promotion can all race to add the same
+    /// term). Returns whether the entry was added.
+    @discardableResult
+    public func addEntry(_ entry: VocabularyEntry) -> Bool {
         withLock {
             var current = entries()
+            let key = entry.term.lowercased()
+            guard !current.contains(where: { $0.term.lowercased() == key }) else {
+                return false
+            }
             current.append(entry)
             setEntries(current)
+            return true
         }
     }
 
@@ -221,8 +230,9 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
                 cat.rawValue.caseInsensitiveCompare(categoryString) == .orderedSame
             } ?? .custom
 
-            addEntry(VocabularyEntry(term: term, category: category))
-            imported += 1
+            if addEntry(VocabularyEntry(term: term, category: category)) {
+                imported += 1
+            }
         }
         return imported
         }

@@ -21,8 +21,10 @@ public protocol VocabularyManaging: Sendable {
     /// Set all vocabulary entries.
     func setEntries(_ entries: [VocabularyEntry])
 
-    /// Add a single entry.
-    func addEntry(_ entry: VocabularyEntry)
+    /// Add a single entry unless the term already exists (case-insensitive).
+    /// Returns whether the entry was added.
+    @discardableResult
+    func addEntry(_ entry: VocabularyEntry) -> Bool
 
     /// Remove an entry by ID.
     func removeEntry(id: UUID)

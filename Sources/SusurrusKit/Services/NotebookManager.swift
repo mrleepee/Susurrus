@@ -149,26 +149,10 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
         }
         guard let notebook else { return [] }
 
-        var terms: [String] = []
-        var seen: Set<String> = []
-        for entry in notebook.entries.suffix(10).reversed() {
-            // Split into sentences first: sentence-initial capitalization
-            // is convention, not evidence of a proper noun.
-            for sentence in entry.text.split(whereSeparator: { ".!?\n".contains($0) }) {
-                let words = sentence.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-                for (index, word) in words.enumerated() {
-                    let term = String(word)
-                    guard term.count >= 3, terms.count < limit else { continue }
-                    let lowered = term.lowercased()
-                    guard !seen.contains(lowered) else { continue }
-                    guard ProperNoun.looksLikeProperNoun(term, isSentenceInitial: index == 0) else { continue }
-                    seen.insert(lowered)
-                    terms.append(term)
-                }
-            }
-            if terms.count >= limit { break }
-        }
-        return terms
+        return ProperNoun.extractBiasTerms(
+            from: notebook.entries.suffix(10).reversed().map(\.text),
+            limit: limit
+        )
     }
 
     // MARK: - Entry management

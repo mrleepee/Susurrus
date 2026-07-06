@@ -32,4 +32,29 @@ enum ProperNoun {
         if letters.count >= 2, letters.allSatisfy(\.isUppercase) { return .acronym }
         return .custom
     }
+
+    /// Extract proper-noun-ish bias terms from a batch of texts (newest
+    /// first), deduplicated case-insensitively. Splits into sentences first
+    /// so sentence-initial capitalization isn't mistaken for a proper noun.
+    /// Shared by notebook and history bias-term extraction.
+    static func extractBiasTerms(from texts: [String], limit: Int) -> [String] {
+        var terms: [String] = []
+        var seen: Set<String> = []
+        outer: for text in texts {
+            for sentence in text.split(whereSeparator: { ".!?\n".contains($0) }) {
+                let words = sentence.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                for (index, word) in words.enumerated() {
+                    let term = String(word)
+                    guard term.count >= 3 else { continue }
+                    if terms.count >= limit { break outer }
+                    let lowered = term.lowercased()
+                    guard !seen.contains(lowered) else { continue }
+                    guard looksLikeProperNoun(term, isSentenceInitial: index == 0) else { continue }
+                    seen.insert(lowered)
+                    terms.append(term)
+                }
+            }
+        }
+        return terms
+    }
 }

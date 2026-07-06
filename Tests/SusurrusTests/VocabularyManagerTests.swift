@@ -264,6 +264,28 @@ struct VocabularyManagerTests {
         #expect(second.entries().count == firstCount)
     }
 
+    // MARK: - Deduplication
+
+    @Test("addEntry rejects case-insensitive duplicates")
+    func addEntryDeduplicates() {
+        let manager = makeManager()
+        #expect(manager.addEntry(VocabularyEntry(term: "MarkLogic", category: .technical)))
+        #expect(!manager.addEntry(VocabularyEntry(term: "marklogic", category: .custom)))
+        #expect(manager.entries().count == 1)
+        // Original casing and category are kept.
+        #expect(manager.entries()[0].term == "MarkLogic")
+        #expect(manager.entries()[0].category == .technical)
+    }
+
+    @Test("importCSV counts only newly added entries")
+    func importCSVSkipsDuplicates() {
+        let manager = makeManager()
+        manager.addEntry(VocabularyEntry(term: "MarkLogic", category: .technical))
+        let count = manager.importCSV("Word,Category\nMarkLogic,Technical\nCoRB,Technical")
+        #expect(count == 1)
+        #expect(manager.entries().count == 2)
+    }
+
     // MARK: - Usage stats
 
     @Test("recordUsage bumps count for terms present in text")

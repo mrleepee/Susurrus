@@ -475,15 +475,22 @@ struct SusurrusApp: App {
 
         // Sync vocabulary bias: relevance-ranked at stop time against the
         // streaming preview, so the prompt-token budget goes to terms this
-        // session plausibly contains.
+        // session plausibly contains. Context terms come from the active
+        // notebook, falling back to recent dictation history so the "what
+        // am I talking about lately" bias needs no notebook habit.
         let vocabMgr = vocabularyManager
         let nbMgr = notebookManager
+        let historyMgr = historyManager
         Task {
             await streamingService.setVocabularySelector { preview in
-                VocabularyRanker().selectTerms(
+                var contextTerms = nbMgr.activeNotebookBiasTerms()
+                if contextTerms.isEmpty {
+                    contextTerms = historyMgr.recentBiasTerms()
+                }
+                return VocabularyRanker().selectTerms(
                     previewText: preview,
                     vocabulary: vocabMgr.entries(),
-                    notebookTerms: nbMgr.activeNotebookBiasTerms()
+                    notebookTerms: contextTerms
                 )
             }
         }
@@ -515,14 +522,27 @@ struct SusurrusApp: App {
         let notifications = notificationService
         let overlay = overlayWindow
 
+        // Snapshot vocab and rules once per session so the interim callback
+        // (fires ~10Hz) doesn't re-read and re-decode UserDefaults each time.
+        let corrector = transcriptCorrector
+        let sessionVocab = vocabularyManager.entries()
+        let sessionRules = correctionManager.activeRules()
+
         // Start streaming
         Task {
             do {
                 traceApp("startStreamingSession: calling startStreamTranscription")
                 try await streaming.startStreamTranscription(deviceID: resolvedDeviceID) { transcript in
+                    // Correct the confirmed (stable) portion live so the
+                    // overlay previews the same fixes the final text gets.
+                    // The unconfirmed tail stays raw — a half-spoken word
+                    // shouldn't be fuzzy-matched.
+                    let confirmed = transcript.confirmed.isEmpty
+                        ? transcript.confirmed
+                        : corrector.correct(transcript.confirmed, vocabulary: sessionVocab, rules: sessionRules).text
                     Task { @MainActor in
                         state.interimText = transcript
-                        overlay?.show(confirmed: transcript.confirmed, unconfirmed: transcript.unconfirmed)
+                        overlay?.show(confirmed: confirmed, unconfirmed: transcript.unconfirmed)
                     }
                 }
             } catch {
@@ -595,7 +615,14 @@ struct SusurrusApp: App {
                             )
                             let llmText = try await llm.process(text: finalText, systemPrompt: prompt)
                             if TranscriptGuardrail.accepts(input: finalText, output: llmText) {
-                                finalText = llmText
+                                // Re-run the deterministic pass on the LLM
+                                // output so vocabulary casing/spelling
+                                // survives any LLM meddling.
+                                finalText = corrector.correct(
+                                    llmText,
+                                    vocabulary: vocab.entries(),
+                                    rules: corrections.activeRules()
+                                ).text
                                 traceApp("stopStreamingSession: LLM done, finalText=\(finalText.prefix(50))")
                             } else {
                                 traceApp("stopStreamingSession: LLM output rejected by guardrail (drifted from input), keeping corrected text. LLM said: \(llmText.prefix(80))")
