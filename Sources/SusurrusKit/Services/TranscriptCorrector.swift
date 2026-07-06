@@ -180,9 +180,27 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                 continue
             }
 
-            replacements.append(Replacement(range: window.range, span: window.span, text: matched.displayTerm))
+            // Preserve sentence-initial capitalization for terms with no
+            // intentional casing of their own (e.g. "prescribers"), matching
+            // the rule pass. Terms with deliberate casing (MarkLogic, SPARQL,
+            // names) are left exactly as stored.
+            var replacement = matched.displayTerm
+            if replacement == replacement.lowercased(),
+               let first = original.first, first.isUppercase {
+                replacement = replacement.prefix(1).uppercased() + replacement.dropFirst()
+            }
+
+            // Sentence-initial re-capitalization can round-trip back to the
+            // original (e.g. "Prescribers" → "prescribers" → "Prescribers");
+            // that's a no-op, so claim the span but record nothing.
+            guard replacement != original else {
+                claimed.append(window.span)
+                continue
+            }
+
+            replacements.append(Replacement(range: window.range, span: window.span, text: replacement))
             claimed.append(window.span)
-            changes.append(CorrectionChange(original: original, corrected: matched.displayTerm))
+            changes.append(CorrectionChange(original: original, corrected: replacement))
         }
 
         return Self.applying(replacements, to: text)

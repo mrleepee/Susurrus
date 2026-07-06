@@ -7,8 +7,17 @@ import Foundation
 /// a vocabulary term bypass this guard by design.
 enum CommonWords {
     static func contains(_ normalizedWord: String) -> Bool {
-        top.contains(normalizedWord)
+        top.contains(normalizedWord) || domainStoplist.contains(normalizedWord)
     }
+
+    /// Short, common-English fragments of the seed vocabulary's multi-word
+    /// terms (MarkLogic, CoRB, SPARQL, Datavid, Trust Signals). Kept separate
+    /// from `top` so the frequency list stays a real frequency list: this is
+    /// an explicit, user/domain-specific guard, not a claim about word rank.
+    /// Contributors should add their own domain fragments here, never to `top`.
+    static let domainStoplist: Set<String> = [
+        "mark", "logic", "core", "spark", "vid", "trust", "signal", "signals",
+    ]
 
     /// ~700 most frequent English words (lowercase, alphanumeric-normalized).
     static let top: Set<String> = [
@@ -63,7 +72,7 @@ enum CommonWords {
         "send", "expect", "build", "stay", "fall", "cut", "reach", "kill", "remain", "suggest",
         "raise", "pass", "sell", "require", "decide", "pull", "return", "explain", "hope", "develop",
         "carry", "break", "receive", "agree", "increase", "check", "cover", "argue", "close", "fix",
-        "wonder", "share", "thank", "worry", "wish", "accept", "listen", "finish", "improve", "discuss",
+        "wonder", "thank", "worry", "wish", "accept", "listen", "finish", "improve", "discuss",
         "eat", "drink", "sleep", "drive", "wear", "choose", "teach", "throw", "catch", "draw",
         "done", "gone", "went", "made", "said", "told", "took", "came", "knew", "got",
         "saw", "found", "gave", "thought", "looked", "used", "worked", "called", "asked", "needed",
@@ -73,19 +82,18 @@ enum CommonWords {
         "early", "young", "important", "few", "public", "bad", "same", "able", "last", "long",
         "better", "best", "sure", "free", "low", "late", "hard", "major", "real", "possible",
         "whole", "single", "true", "main", "easy", "clear", "full", "special", "certain", "personal",
-        "open", "red", "difficult", "available", "likely", "short", "recent", "strong", "human", "local",
+        "red", "difficult", "available", "likely", "short", "recent", "strong", "human", "local",
         "actually", "probably", "really", "very", "still", "too", "much", "many", "more", "here",
         "again", "never", "always", "often", "however", "almost", "later", "far", "together", "once",
         "please", "maybe", "quite", "rather", "already", "yet", "soon", "today", "tomorrow", "yesterday",
         "quickly", "simply", "finally", "currently", "basically", "definitely", "exactly", "obviously", "certainly", "totally",
         "something", "anything", "everything", "nothing", "someone", "anyone", "everyone", "nobody", "somewhere", "anywhere",
-        "okay", "yeah", "yes", "no", "hello", "hi", "thanks", "sorry", "cool", "fine",
+        "okay", "yeah", "yes", "hello", "hi", "thanks", "sorry", "cool", "fine",
         // Numbers, time, misc
         "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
         "ten", "eleven", "twelve", "twenty", "thirty", "forty", "fifty", "hundred", "thousand", "million",
         "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march",
         "april", "june", "july", "august", "september", "october", "november", "december", "spring", "summer",
-        "second", "third", "half", "quarter", "percent", "billion", "couple", "several", "both", "each",
-        "mark", "logic", "core", "spark", "data", "vid", "trust", "signal", "signals", "lead",
+        "second", "third", "half", "quarter", "percent", "billion", "several", "both", "each",
     ]
 }

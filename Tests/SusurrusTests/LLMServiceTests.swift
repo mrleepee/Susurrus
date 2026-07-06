@@ -250,4 +250,63 @@ struct LLMServiceTests {
         let result = try await service.process(text: "hello", systemPrompt: "prompt")
         #expect(result == "valid text")
     }
+
+    // MARK: - Provider routing
+
+    /// Temporarily set `llmProvider` on `.standard` (the only source
+    /// `resolveConfig` reads), restoring it after. Safe within this
+    /// `.serialized` suite.
+    private func withProvider(_ value: String, _ body: () async throws -> Void) async rethrows {
+        let original = UserDefaults.standard.string(forKey: "llmProvider")
+        UserDefaults.standard.set(value, forKey: "llmProvider")
+        defer {
+            if let original { UserDefaults.standard.set(original, forKey: "llmProvider") }
+            else { UserDefaults.standard.removeObject(forKey: "llmProvider") }
+        }
+        try await body()
+    }
+
+    @Test("Local provider parses OpenAI chat-completions response")
+    func localProviderParsesOpenAI() async throws {
+        let data = """
+        { "choices": [ { "message": { "role": "assistant", "content": "Local cleaned." } } ] }
+        """.data(using: .utf8)!
+        MockURLProtocol.mockResponse = (200, data)
+        defer { MockURLProtocol.mockResponse = nil; MockURLProtocol.lastRequest = nil; MockURLProtocol.lastRequestBody = nil }
+
+        try await withProvider("local") {
+            // No API key needed for the local path.
+            let service = LLMService(session: makeMockSession(), apiKeyOverride: "")
+            let result = try await service.process(text: "hello", systemPrompt: "prompt")
+            #expect(result == "Local cleaned.")
+        }
+    }
+
+    @Test("Auto falls back to cloud when the local response is unparseable")
+    func autoFallsBackToCloud() async throws {
+        // A single mock answers both requests. The Anthropic-shaped body is
+        // not OpenAI-parseable, so processLocal throws and auto retries the
+        // cloud path, which parses it successfully.
+        MockURLProtocol.mockResponse = (200, makeSuccessData(text: "Cloud cleaned."))
+        defer { MockURLProtocol.mockResponse = nil; MockURLProtocol.lastRequest = nil; MockURLProtocol.lastRequestBody = nil }
+
+        try await withProvider("auto") {
+            let service = LLMService(session: makeMockSession(), apiKeyOverride: "test-key")
+            let result = try await service.process(text: "hello", systemPrompt: "prompt")
+            #expect(result == "Cloud cleaned.")
+        }
+    }
+
+    @Test("Auto without an API key surfaces the local failure")
+    func autoNoKeyThrowsLocalError() async {
+        MockURLProtocol.mockResponse = (200, makeSuccessData(text: "unused"))
+        defer { MockURLProtocol.mockResponse = nil; MockURLProtocol.lastRequest = nil; MockURLProtocol.lastRequestBody = nil }
+
+        await #expect(throws: (any Error).self) {
+            try await withProvider("auto") {
+                let service = LLMService(session: makeMockSession(), apiKeyOverride: "")
+                _ = try await service.process(text: "hello", systemPrompt: "prompt")
+            }
+        }
+    }
 }

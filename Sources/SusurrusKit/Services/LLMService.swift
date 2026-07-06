@@ -8,6 +8,15 @@ public enum LLMProvider: String, Codable, CaseIterable, Sendable {
     case local
     /// Anthropic-compatible cloud endpoint only.
     case cloud
+
+    /// Label for the Preferences picker (driven by `allCases`).
+    public var displayName: String {
+        switch self {
+        case .auto: return "Auto (local, then cloud)"
+        case .local: return "Local only"
+        case .cloud: return "Cloud only"
+        }
+    }
 }
 
 /// LLM post-processing service.
@@ -122,12 +131,16 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
 
         switch config.provider {
         case .local:
-            return try await processLocal(text: text, systemPrompt: systemPrompt, config: config)
+            // User explicitly chose local and is willing to wait for it.
+            return try await processLocal(text: text, systemPrompt: systemPrompt, config: config, timeout: Self.localTimeout)
         case .cloud:
             return try await processCloud(text: text, systemPrompt: systemPrompt, config: config)
         case .auto:
             do {
-                return try await processLocal(text: text, systemPrompt: systemPrompt, config: config)
+                // Fail fast to cloud if no local server answers — don't make
+                // every dictation eat the full local timeout when LM Studio
+                // isn't running.
+                return try await processLocal(text: text, systemPrompt: systemPrompt, config: config, timeout: Self.autoProbeTimeout)
             } catch {
                 guard !config.apiKey.isEmpty else { throw error }
                 return try await processCloud(text: text, systemPrompt: systemPrompt, config: config)
@@ -135,10 +148,17 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
         }
     }
 
+    /// Full local-request timeout when the user has explicitly chosen the
+    /// local provider (seconds).
+    private static let localTimeout: TimeInterval = 10
+    /// Short local-probe timeout in `.auto` mode so an absent local server
+    /// falls through to cloud quickly (seconds).
+    private static let autoProbeTimeout: TimeInterval = 2
+
     /// OpenAI-compatible chat completions against a local server
     /// (LM Studio :1234, Ollama :11434/v1). Short timeout — a local server
     /// that isn't up should fail fast, not hang the paste.
-    private func processLocal(text: String, systemPrompt: String, config: Config) async throws -> String {
+    private func processLocal(text: String, systemPrompt: String, config: Config, timeout: TimeInterval) async throws -> String {
         guard let endpointURL = URL(string: config.localEndpoint) else {
             throw LLMError.requestFailed("Invalid local endpoint URL: \(config.localEndpoint)")
         }
@@ -146,7 +166,7 @@ public final class LLMService: LLMProcessing, @unchecked Sendable {
         var request = URLRequest(url: endpointURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10
+        request.timeoutInterval = timeout
 
         var body: [String: Any] = [
             "messages": [

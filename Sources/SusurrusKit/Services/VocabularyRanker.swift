@@ -50,14 +50,17 @@ public struct VocabularyRanker: Sendable {
             }
         }
 
-        // Tier 1: terms evidenced in the preview, best match first.
-        var evidenced: [(term: String, score: Double)] = []
+        // Tier 1: terms evidenced in the preview, best match first. Exact
+        // hits all score 0, so an explicit tiebreak (usage desc, then term
+        // alphabetic) keeps budget-packing reproducible across runs with
+        // identical input — Swift's sort is not stable.
+        var evidenced: [(term: String, score: Double, useCount: Int)] = []
         for entry in vocabulary {
             let display = entry.category == .acronym ? entry.term.uppercased() : entry.term
             let norm = TranscriptCorrector.normalize(entry.term)
             guard norm.count >= 2 else { continue }
             if previewNorms.contains(norm) {
-                evidenced.append((display, 0))
+                evidenced.append((display, 0, entry.useCount ?? 0))
                 continue
             }
             guard norm.count >= 4 else { continue }
@@ -68,10 +71,15 @@ public struct VocabularyRanker: Sendable {
                 best = Swift.min(best, ratio)
             }
             if best.isFinite {
-                evidenced.append((display, best))
+                evidenced.append((display, best, entry.useCount ?? 0))
             }
         }
-        for hit in evidenced.sorted(by: { $0.score < $1.score }) {
+        let rankedEvidence = evidenced.sorted { a, b in
+            if a.score != b.score { return a.score < b.score }
+            if a.useCount != b.useCount { return a.useCount > b.useCount }
+            return a.term < b.term
+        }
+        for hit in rankedEvidence {
             add(hit.term)
         }
 

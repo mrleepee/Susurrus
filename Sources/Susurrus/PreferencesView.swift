@@ -172,7 +172,7 @@ struct PreferencesView: View {
     // MARK: - Vocabulary
 
     private var vocabularyTab: some View {
-        let vocabManager = VocabularyManager()
+        let vocabManager = VocabularyManager.shared
         return Form {
             Section {
                 if entries.isEmpty {
@@ -265,7 +265,7 @@ struct PreferencesView: View {
     }
 
     private func removeEntry(id: UUID) {
-        let manager = VocabularyManager()
+        let manager = VocabularyManager.shared
         manager.removeEntry(id: id)
         entries = manager.entries()
     }
@@ -419,9 +419,9 @@ struct PreferencesView: View {
 
             Section {
                 Picker("Provider", selection: $llmProvider) {
-                    Text("Auto (local, then cloud)").tag(LLMProvider.auto.rawValue)
-                    Text("Local only").tag(LLMProvider.local.rawValue)
-                    Text("Cloud only").tag(LLMProvider.cloud.rawValue)
+                    ForEach(LLMProvider.allCases, id: \.rawValue) { provider in
+                        Text(provider.displayName).tag(provider.rawValue)
+                    }
                 }
                 .pickerStyle(.menu)
             }
@@ -598,8 +598,8 @@ struct PreferencesView: View {
     @State private var renameText: String = ""
 
     private var notebooksTab: some View {
-        let manager = NotebookManager()
-        manager.correctionLearning = CorrectionLearningManager(vocabularyManager: VocabularyManager())
+        let manager = NotebookManager.shared
+        manager.correctionLearning = CorrectionLearningManager.shared
         return HSplitView {
             // Left pane: notebook list
             VStack(alignment: .leading, spacing: 0) {

@@ -9,6 +9,23 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     private let entriesKey = "vocabularyEntries"
     private let skipSeed: Bool
 
+    /// Serializes load-modify-write on the entries key so the background
+    /// dictation-stop task (`recordUsage`) and main-thread edits/promotions
+    /// (`addEntry`) can't clobber each other. Recursive so `importCSV` can
+    /// call `addEntry` on the same thread without deadlocking.
+    private let lock = NSRecursiveLock()
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    /// Shared production instance backed by `UserDefaults.standard`. All app
+    /// and view call sites must use this so they share one lock — separate
+    /// instances hitting the same keys would still lose updates.
+    public static let shared = VocabularyManager()
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.skipSeed = false
@@ -49,20 +66,26 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     }
 
     public func setEntries(_ entries: [VocabularyEntry]) {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        defaults.set(data, forKey: entriesKey)
+        withLock {
+            guard let data = try? JSONEncoder().encode(entries) else { return }
+            defaults.set(data, forKey: entriesKey)
+        }
     }
 
     public func addEntry(_ entry: VocabularyEntry) {
-        var current = entries()
-        current.append(entry)
-        setEntries(current)
+        withLock {
+            var current = entries()
+            current.append(entry)
+            setEntries(current)
+        }
     }
 
     public func removeEntry(id: UUID) {
-        var current = entries()
-        current.removeAll { $0.id == id }
-        setEntries(current)
+        withLock {
+            var current = entries()
+            current.removeAll { $0.id == id }
+            setEntries(current)
+        }
     }
 
     public func llmContextString() -> String {
@@ -112,9 +135,9 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     /// Bump usage stats for every entry whose term appears (normalized)
     /// in the given final text. Usage feeds the prompt-token ranking.
     public func recordUsage(in text: String) {
-        var all = entries()
-        guard !all.isEmpty else { return }
-
+        // Compute the match set outside the lock (pure work), then apply
+        // the read-modify-write atomically so a concurrent addEntry/edit
+        // isn't lost.
         let words = text
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" })
             .map(String.init)
@@ -125,15 +148,20 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
                 norms.insert(TranscriptCorrector.normalize(words[start..<(start + n)].joined()))
             }
         }
+        guard !norms.isEmpty else { return }
 
-        var changed = false
-        for i in all.indices where norms.contains(TranscriptCorrector.normalize(all[i].term)) {
-            all[i].useCount = (all[i].useCount ?? 0) + 1
-            all[i].lastUsedAt = Date()
-            changed = true
-        }
-        if changed {
-            setEntries(all)
+        withLock {
+            var all = entries()
+            guard !all.isEmpty else { return }
+            var changed = false
+            for i in all.indices where norms.contains(TranscriptCorrector.normalize(all[i].term)) {
+                all[i].useCount = (all[i].useCount ?? 0) + 1
+                all[i].lastUsedAt = Date()
+                changed = true
+            }
+            if changed {
+                setEntries(all)
+            }
         }
     }
 
@@ -160,6 +188,9 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
             lines.removeFirst()
         }
 
+        // Whole import is one atomic section so a concurrent dictation-stop
+        // usage write can't interleave and drop rows.
+        return withLock {
         var imported = 0
         for line in lines {
             // Handle quoted values
@@ -194,6 +225,7 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
             imported += 1
         }
         return imported
+        }
     }
 
     // MARK: - Migration

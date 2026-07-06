@@ -33,15 +33,15 @@ struct SusurrusApp: App {
     private let clipboard = PasteboardClipboardService()
     private let notificationService = UserNotificationService()
     private let preferences = UserDefaultsPreferencesManager()
-    private let vocabularyManager = VocabularyManager()
+    private let vocabularyManager = VocabularyManager.shared
     private let hotkeyService = GlobalHotkeyService()
     private let llmHotkeyService = GlobalHotkeyService()
     private let hotkeyStorage = HotkeyStorage()
     private let micPermissionManager = MicPermissionManager()
     private let llmService = LLMService()
-    private let historyManager = TranscriptionHistoryManager()
-    private let correctionManager = CorrectionLearningManager(vocabularyManager: VocabularyManager())
-    private let notebookManager = NotebookManager()
+    private let historyManager = TranscriptionHistoryManager.shared
+    private let correctionManager = CorrectionLearningManager.shared
+    private let notebookManager = NotebookManager.shared
     private let promptComposer = PromptComposer()
     private let transcriptCorrector = TranscriptCorrector()
     private let mediaService = MediaService()
@@ -599,6 +599,10 @@ struct SusurrusApp: App {
                                 traceApp("stopStreamingSession: LLM done, finalText=\(finalText.prefix(50))")
                             } else {
                                 traceApp("stopStreamingSession: LLM output rejected by guardrail (drifted from input), keeping corrected text. LLM said: \(llmText.prefix(80))")
+                                notifications.showNotification(
+                                    title: "LLM cleanup skipped",
+                                    body: "The model rewrote the text instead of just cleaning it up, so the corrected transcription was used instead."
+                                )
                             }
                         } catch {
                             traceApp("stopStreamingSession: LLM cleanup failed: \(error.localizedDescription)")

@@ -7,8 +7,8 @@ struct HistoryView: View {
     @State private var editingID: UUID?
     @State private var editText: String = ""
     @State private var escapeMonitor: Any?
-    private let historyManager = TranscriptionHistoryManager()
-    private let correctionManager = CorrectionLearningManager(vocabularyManager: VocabularyManager())
+    private let historyManager = TranscriptionHistoryManager.shared
+    private let correctionManager = CorrectionLearningManager.shared
 
     var body: some View {
         VStack(spacing: 0) {

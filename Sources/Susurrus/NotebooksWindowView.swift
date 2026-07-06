@@ -102,8 +102,8 @@ struct NotebooksWindowView: View {
     }
 
     private var manager: NotebookManager {
-        let m = NotebookManager()
-        m.correctionLearning = CorrectionLearningManager(vocabularyManager: VocabularyManager())
+        let m = NotebookManager.shared
+        m.correctionLearning = CorrectionLearningManager.shared
         return m
     }
 

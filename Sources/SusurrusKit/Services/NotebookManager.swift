@@ -15,6 +15,11 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
     /// Context truncation limit in characters for LLM prompt injection.
     public static let contextCharLimit = 2000
 
+    /// Shared production instance. All app and view call sites must use this
+    /// so notebook file writes go through one barrier queue — separate
+    /// instances writing the same index.json would race.
+    public static let shared = NotebookManager()
+
     public init(defaults: UserDefaults = .standard, baseURL: URL? = nil) {
         self.defaults = defaults
 

@@ -9,6 +9,9 @@ public final class TranscriptionHistoryManager: @unchecked Sendable {
     /// Optional correction learning manager for recording edits.
     public var correctionManager: (any CorrectionLearning)?
 
+    /// Shared production instance backed by `UserDefaults.standard`.
+    public static let shared = TranscriptionHistoryManager()
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }

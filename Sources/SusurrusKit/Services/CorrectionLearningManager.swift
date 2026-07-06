@@ -12,6 +12,24 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
 
     private let vocabularyManager: VocabularyManaging?
 
+    /// Serializes load-modify-write on the shared UserDefaults keys.
+    /// Recursive so a compound op like `recordCorrection` can freely call
+    /// `addRule`/`setRuleEnabled` on the same thread without deadlocking,
+    /// while the whole sequence stays atomic against other threads (the
+    /// background dictation-stop task vs. main-thread UI edits).
+    private let lock = NSRecursiveLock()
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    /// Shared production instance backed by `UserDefaults.standard`, wired to
+    /// the shared vocabulary manager. All app and view call sites must use
+    /// this so rule/pair writes from dictation and UI edits share one lock.
+    public static let shared = CorrectionLearningManager(vocabularyManager: VocabularyManager.shared)
+
     public init(vocabularyManager: VocabularyManaging? = nil, defaults: UserDefaults = .standard) {
         self.vocabularyManager = vocabularyManager
         self.defaults = defaults
@@ -29,21 +47,23 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     public func recordCorrection(raw: String, edited: String) {
         guard raw != edited else { return }
 
-        var pairs = loadAll()
-        pairs.insert(CorrectionPair(rawText: raw, editedText: edited), at: 0)
+        withLock {
+            var pairs = loadAll()
+            pairs.insert(CorrectionPair(rawText: raw, editedText: edited), at: 0)
 
-        // Cap at max
-        if pairs.count > Self.maxPairs {
-            pairs = Array(pairs.prefix(Self.maxPairs))
+            // Cap at max
+            if pairs.count > Self.maxPairs {
+                pairs = Array(pairs.prefix(Self.maxPairs))
+            }
+
+            save(pairs)
+
+            // Learn from the edit: word-level substitutions become replacement
+            // rules; proper-noun replacements are promoted to vocabulary; edits
+            // that undo a rule's output disable that rule.
+            disableReversedRules(raw: raw, edited: edited)
+            learnFromEdit(raw: raw, edited: edited)
         }
-
-        save(pairs)
-
-        // Learn from the edit: word-level substitutions become replacement
-        // rules; proper-noun replacements are promoted to vocabulary; edits
-        // that undo a rule's output disable that rule.
-        disableReversedRules(raw: raw, edited: edited)
-        learnFromEdit(raw: raw, edited: edited)
     }
 
     public func relevantCorrections(for text: String, limit: Int) -> [CorrectionPair] {
@@ -71,7 +91,7 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     }
 
     public func clearCorrections() {
-        defaults.removeObject(forKey: Self.storageKey)
+        withLock { defaults.removeObject(forKey: Self.storageKey) }
     }
 
     public func fewShotString(for text: String, limit: Int) -> String {
@@ -100,38 +120,44 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     /// (same-replacement sightings bump hitCount; a different replacement
     /// supersedes the old one).
     public func addRule(_ rule: CorrectionRule) {
-        var all = rules()
-        if let i = all.firstIndex(where: { $0.match == rule.match }) {
-            if all[i].replacement == rule.replacement {
-                all[i].hitCount += rule.hitCount
-                all[i].enabled = all[i].enabled || rule.enabled
+        withLock {
+            var all = rules()
+            if let i = all.firstIndex(where: { $0.match == rule.match }) {
+                if all[i].replacement == rule.replacement {
+                    all[i].hitCount += rule.hitCount
+                    all[i].enabled = all[i].enabled || rule.enabled
+                } else {
+                    all[i] = rule
+                }
             } else {
-                all[i] = rule
+                all.insert(rule, at: 0)
+                if all.count > Self.maxRules {
+                    all = Array(all.prefix(Self.maxRules))
+                }
             }
-        } else {
-            all.insert(rule, at: 0)
-            if all.count > Self.maxRules {
-                all = Array(all.prefix(Self.maxRules))
-            }
+            saveRules(all)
         }
-        saveRules(all)
     }
 
     public func removeRule(id: UUID) {
-        var all = rules()
-        all.removeAll { $0.id == id }
-        saveRules(all)
+        withLock {
+            var all = rules()
+            all.removeAll { $0.id == id }
+            saveRules(all)
+        }
     }
 
     public func setRuleEnabled(id: UUID, enabled: Bool) {
-        var all = rules()
-        guard let i = all.firstIndex(where: { $0.id == id }) else { return }
-        all[i].enabled = enabled
-        saveRules(all)
+        withLock {
+            var all = rules()
+            guard let i = all.firstIndex(where: { $0.id == id }) else { return }
+            all[i].enabled = enabled
+            saveRules(all)
+        }
     }
 
     public func clearRules() {
-        defaults.removeObject(forKey: Self.rulesKey)
+        withLock { defaults.removeObject(forKey: Self.rulesKey) }
     }
 
     private func saveRules(_ rules: [CorrectionRule]) {
@@ -149,16 +175,21 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     private static let ruleActivationSightings = 2
 
     /// If the user's edit turns a rule's replacement back into its match,
-    /// the rule was wrong for them — stop applying it.
+    /// the rule was wrong for them — stop applying it. Batched into one
+    /// load-modify-write (caller already holds the lock).
     private func disableReversedRules(raw: String, edited: String) {
         let rawLower = raw.lowercased()
         let editedLower = edited.lowercased()
-        for rule in activeRules() {
-            if rawLower.contains(rule.replacement.lowercased()),
-               editedLower.contains(rule.match) {
-                setRuleEnabled(id: rule.id, enabled: false)
+        var all = rules()
+        var changed = false
+        for i in all.indices where all[i].enabled {
+            if rawLower.contains(all[i].replacement.lowercased()),
+               editedLower.contains(all[i].match) {
+                all[i].enabled = false
+                changed = true
             }
         }
+        if changed { saveRules(all) }
     }
 
     /// Word-align raw vs edited (LCS diff); each substitution segment of

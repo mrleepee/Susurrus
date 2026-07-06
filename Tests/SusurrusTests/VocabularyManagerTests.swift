@@ -263,4 +263,89 @@ struct VocabularyManagerTests {
         let second = VocabularyManager(defaults: defaults)
         #expect(second.entries().count == firstCount)
     }
+
+    // MARK: - Usage stats
+
+    @Test("recordUsage bumps count for terms present in text")
+    func recordUsageBumps() {
+        let manager = makeManager()
+        manager.addEntry(VocabularyEntry(term: "MarkLogic", category: .technical))
+        manager.addEntry(VocabularyEntry(term: "Susurrus", category: .product))
+
+        manager.recordUsage(in: "we shipped the MarkLogic connector today")
+
+        let entries = manager.entries()
+        let ml = entries.first { $0.term == "MarkLogic" }
+        let su = entries.first { $0.term == "Susurrus" }
+        #expect(ml?.useCount == 1)
+        #expect(ml?.lastUsedAt != nil)
+        #expect((su?.useCount ?? 0) == 0)
+    }
+
+    @Test("recordUsage matches split compound terms")
+    func recordUsageMatchesCompound() {
+        let manager = makeManager()
+        manager.addEntry(VocabularyEntry(term: "MarkLogic", category: .technical))
+        manager.recordUsage(in: "the mark logic cluster")
+        #expect(manager.entries().first { $0.term == "MarkLogic" }?.useCount == 1)
+    }
+
+    @Test("recordUsage accumulates across calls")
+    func recordUsageAccumulates() {
+        let manager = makeManager()
+        manager.addEntry(VocabularyEntry(term: "SPARQL", category: .acronym))
+        manager.recordUsage(in: "run the SPARQL query")
+        manager.recordUsage(in: "another SPARQL query")
+        #expect(manager.entries().first { $0.term == "SPARQL" }?.useCount == 2)
+    }
+
+    @Test("Concurrent recordUsage and addEntry don't lose updates")
+    func concurrentWritesNoLostUpdates() async {
+        let manager = makeManager()
+        manager.addEntry(VocabularyEntry(term: "MarkLogic", category: .technical))
+
+        // Hammer recordUsage (background) and addEntry (main-like) in
+        // parallel; with serialization, all added entries survive and the
+        // usage counter reflects every recordUsage call.
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<50 {
+                group.addTask { manager.recordUsage(in: "using MarkLogic now") }
+                group.addTask { manager.addEntry(VocabularyEntry(term: "Term\(i)", category: .custom)) }
+            }
+        }
+
+        let entries = manager.entries()
+        // 1 seed + 50 added terms, none lost.
+        #expect(entries.count == 51)
+        // Every recordUsage bumped the counter.
+        #expect(entries.first { $0.term == "MarkLogic" }?.useCount == 50)
+    }
+
+    // MARK: - Relevance-filtered LLM context
+
+    @Test("llmContextString(relevantTo:) includes only evidenced terms")
+    func relevantContextFiltersUnspoken() {
+        let manager = makeManager()
+        manager.addEntry(VocabularyEntry(term: "MarkLogic", category: .technical))
+        manager.addEntry(VocabularyEntry(term: "Schengen", category: .place))
+
+        let context = manager.llmContextString(relevantTo: "migrating the mark logic cluster")
+        #expect(context.contains("MarkLogic"))
+        #expect(!context.contains("Schengen"))
+    }
+
+    @Test("llmContextString(relevantTo:) includes fuzzy-evidenced terms")
+    func relevantContextIncludesFuzzy() {
+        let manager = makeManager()
+        manager.addEntry(VocabularyEntry(term: "SPARQL", category: .technical))
+        let context = manager.llmContextString(relevantTo: "run the sparkle query")
+        #expect(context.contains("SPARQL"))
+    }
+
+    @Test("llmContextString(relevantTo:) is empty when nothing matches")
+    func relevantContextEmptyWhenNoMatch() {
+        let manager = makeManager()
+        manager.addEntry(VocabularyEntry(term: "MarkLogic", category: .technical))
+        #expect(manager.llmContextString(relevantTo: "the weather is nice today").isEmpty)
+    }
 }
