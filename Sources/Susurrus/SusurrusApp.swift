@@ -652,11 +652,13 @@ struct SusurrusApp: App {
 
     // MARK: - Keep-warm
 
-    /// Reruns a silent inference every 60s while idle so the model's ANE
+    /// Reruns a small inference every 60s while idle so the model's ANE
     /// context stays resident. Skips while recording/finalizing so it never
-    /// competes with a live decode.
+    /// competes with a live decode. Guarded so model reloads don't stack a
+    /// second timer (the streaming service instance is shared, so one timer
+    /// serves every model).
     private func startKeepWarmTimer() {
-        keepWarmTimer?.invalidate()
+        guard keepWarmTimer == nil else { return }
         let state = appState
         let streaming = streamingService
         keepWarmTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in

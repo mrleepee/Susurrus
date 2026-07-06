@@ -47,6 +47,24 @@ public actor StreamingTranscriptionService {
     /// per pass regardless of model size.
     private static let maxPromptTokens = 48
 
+    /// Transcription language. Fixed (not nil) because `language: nil` makes
+    /// WhisperKit run a language-detection pass before EVERY decode — an extra
+    /// encoder+decoder round trip of pure overhead for a dictation app.
+    private var languageCode = "en"
+
+    /// One second of speech-like multi-tone audio for prewarm/keep-warm.
+    /// Pure zeros get rejected by the energy check before reaching the
+    /// encoder, which silently turns warming into a no-op.
+    private static func warmupSamples() -> [Float] {
+        let fundamentals: [Float] = [150, 300, 600, 1200]
+        return (0..<sampleRate).map { i in
+            let t = Float(i) / Float(sampleRate)
+            return fundamentals.reduce(0) { acc, f in
+                acc + 0.1 * sin(2.0 * .pi * f * t)
+            }
+        }
+    }
+
     // MARK: - State
 
     private var whisperKit: WhisperKit?
@@ -122,14 +140,14 @@ public actor StreamingTranscriptionService {
 
         // Prewarm: the FIRST inference on a freshly-loaded CoreML model pays a
         // one-time ANE compilation/specialisation cost (often 10-30s), and an
-        // idle model can have its ANE context evicted. Run one silent decode now
-        // so that cost lands here — during "loading" — instead of on the user's
-        // first real recording. Only flip modelReady once the ANE path is hot.
+        // idle model can have its ANE context evicted. Run one decode of
+        // speech-like audio now so that cost lands here — during "loading" —
+        // instead of on the user's first real recording. Only flip modelReady
+        // once the ANE path is hot.
         let warmStart = Date()
-        let warmSamples = [Float](repeating: 0, count: Self.sampleRate)
         _ = try? await kit.transcribe(
-            audioArray: warmSamples,
-            decodeOptions: DecodingOptions(task: .transcribe, language: "en")
+            audioArray: Self.warmupSamples(),
+            decodeOptions: DecodingOptions(task: .transcribe, language: languageCode)
         )
         traceStream("setupModel: '\(modelName)' prewarmed in \(msSince(warmStart))ms")
 
@@ -137,18 +155,21 @@ public actor StreamingTranscriptionService {
         modelReady = true
     }
 
-    /// Run a silent inference to keep the model's ANE context resident. Call
+    /// Run a small inference to keep the model's ANE context resident. Call
     /// periodically while idle so the first recording after a lull doesn't pay
     /// the cold-start cost. No-op if the model isn't loaded.
     public func keepWarm() async {
         guard modelReady, let whisperKit else { return }
         let warmStart = Date()
-        let warmSamples = [Float](repeating: 0, count: Self.sampleRate)
-        _ = try? await whisperKit.transcribe(
-            audioArray: warmSamples,
-            decodeOptions: DecodingOptions(task: .transcribe, language: "en")
-        )
-        traceStream("keepWarm: reran silent decode in \(msSince(warmStart))ms")
+        do {
+            let results = try await whisperKit.transcribe(
+                audioArray: Self.warmupSamples(),
+                decodeOptions: DecodingOptions(task: .transcribe, language: languageCode)
+            )
+            traceStream("keepWarm: decode in \(msSince(warmStart))ms (\(results.count) results)")
+        } catch {
+            traceStream("keepWarm: decode FAILED in \(msSince(warmStart))ms: \(error)")
+        }
     }
 
     /// Unload the model and stop any active stream.
@@ -168,6 +189,11 @@ public actor StreamingTranscriptionService {
     /// Set the vocabulary prompt for biasing transcription.
     public func setVocabularyPrompt(_ prompt: String) {
         vocabularyPrompt = prompt
+    }
+
+    /// Set the transcription language (ISO 639-1 code, e.g. "en").
+    public func setLanguage(_ code: String) {
+        languageCode = code
     }
 
     // MARK: - Streaming transcription
@@ -217,7 +243,7 @@ public actor StreamingTranscriptionService {
         // final whole-buffer decode below carries the vocabulary bias.
         let options = DecodingOptions(
             task: .transcribe,
-            language: nil,
+            language: languageCode,
             concurrentWorkerCount: 4,
             chunkingStrategy: .vad
         )
