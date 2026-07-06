@@ -455,6 +455,12 @@ public actor StreamingTranscriptionService {
         }
     }
 
+    /// Debug preference: when set, the final decode also computes per-word
+    /// probabilities (costs extra alignment time) and logs them, so we can
+    /// measure whether low confidence predicts the words users actually fix
+    /// before building any UI on it.
+    public static let confidenceLoggingKey = "confidenceLogging"
+
     /// Batch-transcribes a PCM buffer with the session's decoding options.
     private func transcribeBuffer(
         _ samples: [Float],
@@ -462,12 +468,31 @@ public actor StreamingTranscriptionService {
         options: DecodingOptions?
     ) async throws -> String {
         guard !samples.isEmpty else { return "" }
+
+        var effectiveOptions = options ?? DecodingOptions(task: .transcribe)
+        let logConfidence = UserDefaults.standard.bool(forKey: Self.confidenceLoggingKey)
+        if logConfidence {
+            effectiveOptions.wordTimestamps = true
+        }
+
         let decodeStart = Date()
         let results = try await whisperKit.transcribe(
             audioArray: samples,
-            decodeOptions: options
+            decodeOptions: effectiveOptions
         )
-        traceStream("decode: \(String(format: "%.1f", Double(samples.count) / Double(Self.sampleRate)))s audio in \(msSince(decodeStart))ms (promptTokens=\(options?.promptTokens?.count ?? 0))")
+        traceStream("decode: \(String(format: "%.1f", Double(samples.count) / Double(Self.sampleRate)))s audio in \(msSince(decodeStart))ms (promptTokens=\(effectiveOptions.promptTokens?.count ?? 0), wordTimestamps=\(logConfidence))")
+
+        if logConfidence {
+            let words = results.flatMap(\.segments).compactMap(\.words).flatMap { $0 }
+            if !words.isEmpty {
+                let line = words
+                    .map { "[\(String(format: "%.2f", $0.probability))]\($0.word.trimmingCharacters(in: .whitespaces))" }
+                    .joined(separator: " ")
+                let mean = words.map(\.probability).reduce(0, +) / Float(words.count)
+                traceStream("confidence: mean=\(String(format: "%.2f", mean)) \(line)")
+            }
+        }
+
         return results.map(\.text)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)

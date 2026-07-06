@@ -190,6 +190,26 @@ struct TranscriptionHistoryManagerTests {
         #expect(items[0].text == "persistent text")
         #expect(items[0].rawText == "raw")
     }
+
+    @Test("Concurrent add and updateText don't lose items")
+    func concurrentAddAndUpdate() async {
+        let manager = TranscriptionHistoryManager.createForTesting()
+        manager.add("seed dictation", rawText: nil)
+        let seedId = manager.items()[0].id
+
+        // Background dictation-stop adds while UI edits the seed item —
+        // with serialization every add survives and the edit lands.
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<30 {
+                group.addTask { manager.add("dictation \(i)", rawText: nil) }
+                group.addTask { manager.updateText(id: seedId, newText: "edited \(i)") }
+            }
+        }
+
+        let items = manager.items()
+        #expect(items.count == 31)
+        #expect(items.first { $0.id == seedId }?.text.hasPrefix("edited") == true)
+    }
 }
 
 // MARK: - Mock CorrectionLearning

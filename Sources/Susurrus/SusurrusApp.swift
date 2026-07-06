@@ -36,6 +36,7 @@ struct SusurrusApp: App {
     private let vocabularyManager = VocabularyManager.shared
     private let hotkeyService = GlobalHotkeyService()
     private let llmHotkeyService = GlobalHotkeyService()
+    private let fixHotkeyService = GlobalHotkeyService()
     private let hotkeyStorage = HotkeyStorage()
     private let micPermissionManager = MicPermissionManager()
     private let llmService = LLMService()
@@ -83,6 +84,27 @@ struct SusurrusApp: App {
         historyManager.correctionManager = correctionManager
         notebookManager.correctionLearning = correctionManager
 
+        // Tell the user when an edit changes future behaviour — a rule
+        // activating or a term joining the vocabulary. Quiet on first
+        // sightings; only speaks when something will actually rewrite
+        // future transcriptions.
+        let notifications = notificationService
+        correctionManager.onLearn = { outcome in
+            traceApp("learning: activated=\(outcome.activatedRules.map { "\($0.match)→\($0.replacement)" }) promoted=\(outcome.promotedTerms)")
+            if let rule = outcome.activatedRules.first {
+                notifications.showNotification(
+                    title: "Correction learned",
+                    body: "Susurrus will now write '\(rule.replacement)' when it hears '\(rule.match)'. Manage in Preferences → Corrections."
+                )
+            } else if !outcome.promotedTerms.isEmpty {
+                let terms = outcome.promotedTerms.map { "'\($0)'" }.joined(separator: ", ")
+                notifications.showNotification(
+                    title: "Vocabulary updated",
+                    body: "\(terms) added from your edit."
+                )
+            }
+        }
+
         // Start model loading immediately — don't wait for menu bar click
         startModelLoadingIfNeeded()
     }
@@ -115,6 +137,7 @@ struct SusurrusApp: App {
                 checkMicPermission()
                 setupHotkeyIfNeeded()
                 setupLLMHotkeyIfNeeded()
+                setupFixHotkeyIfNeeded()
                 observeWindowClose()
                 appState.recordingMode = preferences.recordingMode()
                 appState.onStreamingStart = { self.startStreamingSession() }
@@ -157,6 +180,11 @@ struct SusurrusApp: App {
         Window("Notebooks", id: "notebooks") {
             NotebooksWindowView()
         }
+
+        Window("Fix Last Dictation", id: "fixLast") {
+            FixLastDictationView()
+        }
+        .windowResizability(.contentSize)
     }
 
     // MARK: - Window management
@@ -375,6 +403,34 @@ struct SusurrusApp: App {
                 state.llmHotkeyConfigured = true
             } catch {
                 // LLM hotkey registration failed
+            }
+        }
+    }
+
+    /// Control+Option+Space opens the fix-last-dictation window: edit the
+    /// most recent transcription, teach the learning loop, get the fixed
+    /// text back on the clipboard.
+    private func setupFixHotkeyIfNeeded() {
+        guard !appState.fixHotkeyConfigured else { return }
+
+        // Capture reference/value locals only — never struct self.
+        let state = appState
+        let open = openWindow
+
+        Task {
+            do {
+                try await fixHotkeyService.register(combo: .fixLast) {
+                    Task { @MainActor in
+                        traceApp("Fix hotkey fired — opening fix window")
+                        NSApp.setActivationPolicy(.regular)
+                        NSApp.activate(ignoringOtherApps: true)
+                        open(id: "fixLast")
+                    }
+                }
+                state.fixHotkeyConfigured = true
+                traceApp("Fix hotkey registered (Control+Option+Space)")
+            } catch {
+                traceApp("Fix hotkey registration failed: \(error)")
             }
         }
     }

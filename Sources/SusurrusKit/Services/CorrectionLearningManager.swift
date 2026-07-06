@@ -1,5 +1,20 @@
 import Foundation
 
+/// What a recorded edit changed about future behaviour: rules that will now
+/// rewrite transcriptions, and terms newly added to the vocabulary. Used to
+/// tell the user what Susurrus just learned.
+public struct LearningOutcome: Sendable, Equatable {
+    public var activatedRules: [CorrectionRule] = []
+    public var promotedTerms: [String] = []
+
+    public var isEmpty: Bool { activatedRules.isEmpty && promotedTerms.isEmpty }
+
+    public init(activatedRules: [CorrectionRule] = [], promotedTerms: [String] = []) {
+        self.activatedRules = activatedRules
+        self.promotedTerms = promotedTerms
+    }
+}
+
 /// Manages correction pairs from user edits, persisted to UserDefaults.
 /// Provides relevance-ranked few-shot examples for the LLM cleanup prompt.
 /// Auto-extracts proper noun corrections and adds them to vocabulary.
@@ -30,6 +45,11 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     /// this so rule/pair writes from dictation and UI edits share one lock.
     public static let shared = CorrectionLearningManager(vocabularyManager: VocabularyManager.shared)
 
+    /// Invoked (outside the lock) after an edit teaches something that
+    /// changes future behaviour — a rule activating or a vocabulary
+    /// promotion. Set once at app startup to surface it to the user.
+    public var onLearn: (@Sendable (LearningOutcome) -> Void)?
+
     public init(vocabularyManager: VocabularyManaging? = nil, defaults: UserDefaults = .standard) {
         self.vocabularyManager = vocabularyManager
         self.defaults = defaults
@@ -47,6 +67,7 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     public func recordCorrection(raw: String, edited: String) {
         guard raw != edited else { return }
 
+        var outcome = LearningOutcome()
         withLock {
             var pairs = loadAll()
             pairs.insert(CorrectionPair(rawText: raw, editedText: edited), at: 0)
@@ -62,8 +83,10 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
             // rules; proper-noun replacements are promoted to vocabulary; edits
             // that undo a rule's output disable that rule.
             disableReversedRules(raw: raw, edited: edited)
-            learnFromEdit(raw: raw, edited: edited)
+            outcome = learnFromEdit(raw: raw, edited: edited)
         }
+        // Outside the lock: the callback is arbitrary app code (notifications).
+        if !outcome.isEmpty { onLearn?(outcome) }
     }
 
     public func relevantCorrections(for text: String, limit: Int) -> [CorrectionPair] {
@@ -194,11 +217,14 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
 
     /// Word-align raw vs edited (LCS diff); each substitution segment of
     /// ≤3 words per side becomes a correction rule, and proper-noun
-    /// replacements are promoted to vocabulary.
-    private func learnFromEdit(raw: String, edited: String) {
+    /// replacements are promoted to vocabulary. Returns what the edit
+    /// changed about future behaviour, for user-facing surfacing.
+    @discardableResult
+    private func learnFromEdit(raw: String, edited: String) -> LearningOutcome {
+        var outcome = LearningOutcome()
         let rawTokens = Self.tokenize(raw)
         let editedTokens = Self.tokenize(edited)
-        guard !rawTokens.isEmpty, !editedTokens.isEmpty else { return }
+        guard !rawTokens.isEmpty, !editedTokens.isEmpty else { return outcome }
 
         let existingTerms = Set(
             (vocabularyManager?.entries() ?? []).map { $0.term.lowercased() }
@@ -214,7 +240,9 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
                 let rawTok = rawTokens[i], editedTok = editedTokens[j]
                 guard rawTok.display != editedTok.display,
                       !existingTerms.contains(editedTok.display.lowercased()) else { continue }
-                vocab.addEntry(VocabularyEntry(term: editedTok.display, category: ProperNoun.guessCategory(editedTok.display)))
+                if vocab.addEntry(VocabularyEntry(term: editedTok.display, category: ProperNoun.guessCategory(editedTok.display))) {
+                    outcome.promotedTerms.append(editedTok.display)
+                }
             }
         }
 
@@ -237,10 +265,14 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
             if editedRange.count == 1, let vocab = vocabularyManager, !replacementKnown {
                 let word = editedTokens[editedRange.lowerBound].display
                 if ProperNoun.looksLikeProperNoun(word) {
-                    vocab.addEntry(VocabularyEntry(term: word, category: ProperNoun.guessCategory(word)))
+                    if vocab.addEntry(VocabularyEntry(term: word, category: ProperNoun.guessCategory(word))) {
+                        outcome.promotedTerms.append(word)
+                    }
                     replacementKnown = true
                 }
             }
+
+            let wasEnabled = rules().first(where: { $0.match == match })?.enabled ?? false
 
             let rule = CorrectionRule(
                 match: match,
@@ -253,7 +285,15 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
                stored.hitCount >= Self.ruleActivationSightings, !stored.enabled {
                 setRuleEnabled(id: stored.id, enabled: true)
             }
+            // Report rules that this edit switched from inert to active —
+            // they'll now rewrite future transcriptions.
+            if !wasEnabled,
+               let final = rules().first(where: { $0.match == rule.match }),
+               final.enabled {
+                outcome.activatedRules.append(final)
+            }
         }
+        return outcome
     }
 
     // MARK: - Word alignment

@@ -51,6 +51,10 @@ public final class AppState {
     /// Whether the LLM hotkey (Shift+Option+Space) has been configured.
     public var llmHotkeyConfigured = false
 
+    /// Whether the fix-last-dictation hotkey (Control+Option+Space) has
+    /// been configured.
+    public var fixHotkeyConfigured = false
+
     /// When true, the next transcription will include LLM post-processing
     /// regardless of the llmEnabled preference.
     public var forceLLM = false
