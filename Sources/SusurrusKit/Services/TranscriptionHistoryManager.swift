@@ -9,6 +9,9 @@ public final class TranscriptionHistoryManager: @unchecked Sendable {
     /// Optional correction learning manager for recording edits.
     public var correctionManager: (any CorrectionLearning)?
 
+    /// Shared production instance backed by `UserDefaults.standard`.
+    public static let shared = TranscriptionHistoryManager()
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
@@ -50,6 +53,16 @@ public final class TranscriptionHistoryManager: @unchecked Sendable {
     /// Get all history items (newest first).
     public func items() -> [TranscriptionHistoryItem] {
         loadAll()
+    }
+
+    /// Proper-noun-ish terms from recent dictations, newest first. Used as
+    /// ASR bias candidates when no notebook is active — "what have I been
+    /// talking about lately" needs no setup from the user.
+    public func recentBiasTerms(itemLimit: Int = 10, termLimit: Int = 20) -> [String] {
+        ProperNoun.extractBiasTerms(
+            from: loadAll().prefix(itemLimit).map(\.text),
+            limit: termLimit
+        )
     }
 
     /// Clear all history.

@@ -16,6 +16,11 @@ struct PreferencesView: View {
     @AppStorage("llmModel") private var llmModel: String = "MiniMax-M2.5"
     @AppStorage("llmEndpoint") private var llmEndpoint: String = "https://api.minimax.io/anthropic/v1/messages"
     @AppStorage("llmSystemPrompt") private var llmSystemPrompt = UserDefaultsPreferencesManager.defaultLLMPrompt
+    @AppStorage("llmProvider") private var llmProvider = LLMProvider.cloud.rawValue
+    @AppStorage("llmLocalEndpoint") private var llmLocalEndpoint = LLMService.defaultLocalEndpoint
+    @AppStorage("llmLocalModel") private var llmLocalModel = ""
+    @State private var localTestResult: String?
+    @State private var localTestRunning = false
     @State private var entries: [VocabularyEntry] = []
     @State private var newTerm: String = ""
     @State private var newCategory: VocabularyCategory = .custom
@@ -47,6 +52,8 @@ struct PreferencesView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             vocabularyTab
                 .tabItem { Label("Vocabulary", systemImage: "text.book.closed") }
+            correctionsTab
+                .tabItem { Label("Corrections", systemImage: "arrow.triangle.2.circlepath") }
             modelTab
                 .tabItem { Label("Model", systemImage: "waveform") }
             llmTab
@@ -167,7 +174,7 @@ struct PreferencesView: View {
     // MARK: - Vocabulary
 
     private var vocabularyTab: some View {
-        let vocabManager = VocabularyManager()
+        let vocabManager = VocabularyManager.shared
         return Form {
             Section {
                 if entries.isEmpty {
@@ -185,6 +192,18 @@ struct PreferencesView: View {
                                         Text(entry.term)
                                             .font(.body)
                                         Spacer()
+                                        if let count = entry.useCount, count > 0 {
+                                            // Usage feeds the prompt-token
+                                            // ranking — surfacing it makes
+                                            // the learning loop visible.
+                                            Text("\(count)×")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                                                .help("Appeared in \(count) dictation\(count == 1 ? "" : "s") — boosts this term's bias ranking")
+                                        }
                                         Button {
                                             withAnimation { removeEntry(id: entry.id) }
                                         } label: {
@@ -260,7 +279,7 @@ struct PreferencesView: View {
     }
 
     private func removeEntry(id: UUID) {
-        let manager = VocabularyManager()
+        let manager = VocabularyManager.shared
         manager.removeEntry(id: id)
         entries = manager.entries()
     }
@@ -290,6 +309,139 @@ struct PreferencesView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let csv = manager.exportCSV()
         try? csv.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    // MARK: - Corrections
+
+    @State private var correctionRules: [CorrectionRule] = []
+    @State private var newRuleMatch: String = ""
+    @State private var newRuleReplacement: String = ""
+    @State private var correctionPairCount: Int = 0
+
+    private var correctionsTab: some View {
+        let manager = CorrectionLearningManager.shared
+        return Form {
+            Section {
+                HStack {
+                    TextField("Misheard as (e.g. core bee)", text: $newRuleMatch)
+                        .textFieldStyle(.roundedBorder)
+                    Image(systemName: "arrow.right")
+                        .foregroundStyle(.secondary)
+                    TextField("Replace with (e.g. CoRB)", text: $newRuleReplacement)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { addRule(manager) }
+                    Button("Add") { addRule(manager) }
+                        .disabled(
+                            newRuleMatch.trimmingCharacters(in: .whitespaces).isEmpty ||
+                            newRuleReplacement.trimmingCharacters(in: .whitespaces).isEmpty
+                        )
+                }
+            } header: {
+                Text("Replacement Rules")
+            } footer: {
+                Text("Applied to every transcription. Rules are also learned automatically when you edit transcriptions in History or Notebooks.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Section {
+                if correctionRules.isEmpty {
+                    Text("No rules yet. Edit a transcription in History and Susurrus will learn from your fix.")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                } else {
+                    ForEach(correctionRules) { rule in
+                        ruleRow(rule, manager: manager)
+                    }
+                }
+            }
+
+            Section {
+                HStack {
+                    Text("\(correctionPairCount) recorded edit\(correctionPairCount == 1 ? "" : "s") feeding LLM few-shot examples")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                    Spacer()
+                    Button("Clear edit history", role: .destructive) {
+                        manager.clearCorrections()
+                        correctionPairCount = 0
+                    }
+                    .disabled(correctionPairCount == 0)
+                }
+            } header: {
+                Text("Learning Data")
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { reloadCorrections(manager) }
+    }
+
+    @ViewBuilder
+    private func ruleRow(_ rule: CorrectionRule, manager: CorrectionLearningManager) -> some View {
+        HStack(spacing: 8) {
+            Toggle("", isOn: Binding(
+                get: { rule.enabled },
+                set: { enabled in
+                    manager.setRuleEnabled(id: rule.id, enabled: enabled)
+                    reloadCorrections(manager)
+                }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .labelsHidden()
+
+            Text(rule.match)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(rule.enabled ? .primary : .tertiary)
+            Image(systemName: "arrow.right")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(rule.replacement)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(rule.enabled ? .primary : .tertiary)
+
+            Spacer()
+
+            if rule.source == .learned {
+                Text(rule.hitCount == 1 ? "learned · 1 fix" : "learned · \(rule.hitCount) fixes")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
+            } else {
+                Text("manual")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+            }
+
+            Button {
+                manager.removeRule(id: rule.id)
+                reloadCorrections(manager)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func addRule(_ manager: CorrectionLearningManager) {
+        let match = newRuleMatch.trimmingCharacters(in: .whitespaces)
+        let replacement = newRuleReplacement.trimmingCharacters(in: .whitespaces)
+        guard !match.isEmpty, !replacement.isEmpty else { return }
+        manager.addRule(CorrectionRule(match: match, replacement: replacement, source: .manual))
+        newRuleMatch = ""
+        newRuleReplacement = ""
+        withAnimation { reloadCorrections(manager) }
+    }
+
+    private func reloadCorrections(_ manager: CorrectionLearningManager) {
+        correctionRules = manager.rules()
+        correctionPairCount = manager.allCorrections().count
     }
 
     // MARK: - Model
@@ -406,41 +558,49 @@ struct PreferencesView: View {
         Form {
             Section {
                 Toggle("Enable LLM post-processing", isOn: $llmEnabled)
+            } footer: {
+                Text("Optional polish. Vocabulary corrections and learned fixes are always applied, with or without the LLM.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
 
             Section {
-                HStack {
-                    if showApiKey {
-                        TextField("API Key", text: $apiKeyText)
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: apiKeyText) { _, newValue in
-                                // Save to Keychain on every keystroke
-                                keychain.set(newValue, for: "llmApiKey")
-                            }
-                    } else {
-                        SecureField("API Key", text: $apiKeyText)
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: apiKeyText) { _, newValue in
-                                keychain.set(newValue, for: "llmApiKey")
-                            }
+                Picker("Provider", selection: $llmProvider) {
+                    ForEach(LLMProvider.allCases, id: \.rawValue) { provider in
+                        Text(provider.displayName).tag(provider.rawValue)
                     }
-                    Button(action: { showApiKey.toggle() }) {
-                        Image(systemName: showApiKey ? "eye.slash" : "eye")
-                    }
-                    .buttonStyle(.plain)
                 }
+                .pickerStyle(.menu)
+            }
 
-                TextField("Model", text: $llmModel)
-                    .textFieldStyle(.roundedBorder)
+            if llmProvider != LLMProvider.cloud.rawValue {
+                Section {
+                    TextField("Local endpoint", text: $llmLocalEndpoint)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Local model (blank = whatever is loaded)", text: $llmLocalModel)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button(localTestRunning ? "Testing…" : "Test connection") {
+                            testLocalConnection()
+                        }
+                        .disabled(localTestRunning)
+                        if let result = localTestResult {
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(result.hasPrefix("OK") ? .green : .red)
+                        }
+                    }
+                } header: {
+                    Text("Local Server")
+                } footer: {
+                    Text("OpenAI-compatible server, e.g. LM Studio (http://localhost:1234/v1/chat/completions) or Ollama (http://localhost:11434/v1/chat/completions).")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
 
-                TextField("Endpoint", text: $llmEndpoint)
-                    .textFieldStyle(.roundedBorder)
-            } header: {
-                Text("Provider Configuration")
-            } footer: {
-                Text("Anthropic-compatible endpoint. Defaults to MiniMax.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            if llmProvider != LLMProvider.local.rawValue {
+                cloudProviderSection
             }
 
             Section {
@@ -455,6 +615,82 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var cloudProviderSection: some View {
+        Section {
+            HStack {
+                if showApiKey {
+                    TextField("API Key", text: $apiKeyText)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: apiKeyText) { _, newValue in
+                            // Save to Keychain on every keystroke
+                            keychain.set(newValue, for: "llmApiKey")
+                        }
+                } else {
+                    SecureField("API Key", text: $apiKeyText)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: apiKeyText) { _, newValue in
+                            keychain.set(newValue, for: "llmApiKey")
+                        }
+                }
+                Button(action: { showApiKey.toggle() }) {
+                    Image(systemName: showApiKey ? "eye.slash" : "eye")
+                }
+                .buttonStyle(.plain)
+            }
+
+            TextField("Model", text: $llmModel)
+                .textFieldStyle(.roundedBorder)
+
+            TextField("Endpoint", text: $llmEndpoint)
+                .textFieldStyle(.roundedBorder)
+        } header: {
+            Text("Cloud Provider")
+        } footer: {
+            Text("Anthropic-compatible endpoint. Defaults to MiniMax.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    /// Sends a tiny completion to the configured local endpoint.
+    private func testLocalConnection() {
+        localTestRunning = true
+        localTestResult = nil
+        let endpoint = llmLocalEndpoint
+        let model = llmLocalModel
+        Task { @MainActor in
+            defer { localTestRunning = false }
+            guard let url = URL(string: endpoint) else {
+                localTestResult = "Invalid URL"
+                return
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 10
+            var body: [String: Any] = [
+                "messages": [["role": "user", "content": "Reply with the single word: ok"]],
+                "temperature": 0,
+                "max_tokens": 8
+            ]
+            if !model.isEmpty { body["model"] = model }
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                let start = Date()
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let ms = Int(Date().timeIntervalSince(start) * 1000)
+                if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                    localTestResult = "OK (\(ms)ms)"
+                } else {
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    localTestResult = "HTTP \(code)"
+                }
+            } catch {
+                localTestResult = "Unreachable: \(error.localizedDescription)"
+            }
+        }
     }
 
     // MARK: - Cache Check
@@ -509,7 +745,8 @@ struct PreferencesView: View {
     @State private var renameText: String = ""
 
     private var notebooksTab: some View {
-        let manager = NotebookManager()
+        let manager = NotebookManager.shared
+        manager.correctionLearning = CorrectionLearningManager.shared
         return HSplitView {
             // Left pane: notebook list
             VStack(alignment: .leading, spacing: 0) {

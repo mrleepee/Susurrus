@@ -8,8 +8,17 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
 
     private static let activeNotebookKey = "activeNotebookId"
 
+    /// Optional correction learning — entry edits are recorded the same way
+    /// history edits are, feeding rules and vocabulary promotion.
+    public var correctionLearning: (any CorrectionLearning)?
+
     /// Context truncation limit in characters for LLM prompt injection.
     public static let contextCharLimit = 2000
+
+    /// Shared production instance. All app and view call sites must use this
+    /// so notebook file writes go through one barrier queue — separate
+    /// instances writing the same index.json would race.
+    public static let shared = NotebookManager()
 
     public init(defaults: UserDefaults = .standard, baseURL: URL? = nil) {
         self.defaults = defaults
@@ -129,6 +138,23 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
         return fullContext
     }
 
+    /// Proper-noun-ish terms (CamelCase, ALLCAPS, uncommon Capitalized words)
+    /// from the active notebook's recent entries, newest first. Used as
+    /// candidate bias terms for the final ASR decode — dictating into a
+    /// project notebook biases the decoder toward that project's names.
+    public func activeNotebookBiasTerms(limit: Int = 20) -> [String] {
+        guard let activeId = activeNotebookId() else { return [] }
+        let notebook = queue.sync { () -> Notebook? in
+            loadIndex().first(where: { $0.id == activeId })
+        }
+        guard let notebook else { return [] }
+
+        return ProperNoun.extractBiasTerms(
+            from: notebook.entries.suffix(10).reversed().map(\.text),
+            limit: limit
+        )
+    }
+
     // MARK: - Entry management
 
     public func notebookEntries(id: UUID) -> [NotebookEntry] {
@@ -149,11 +175,13 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
     }
 
     public func updateEntry(notebookId: UUID, entryId: UUID, newText: String) {
+        var previousText: String?
         queue.sync(flags: .barrier) {
             var index = loadIndex()
             guard let ni = index.firstIndex(where: { $0.id == notebookId }) else { return }
             guard let ei = index[ni].entries.firstIndex(where: { $0.id == entryId }) else { return }
             let existing = index[ni].entries[ei]
+            previousText = existing.text
             let originalText = existing.originalText ?? existing.text
             index[ni].entries[ei] = NotebookEntry(
                 id: entryId,
@@ -165,6 +193,10 @@ public final class NotebookManager: NotebookManaging, @unchecked Sendable {
             index[ni].updatedAt = Date()
             saveIndex(index)
             saveNotebook(index[ni])
+        }
+
+        if let previousText, previousText != newText {
+            correctionLearning?.recordCorrection(raw: previousText, edited: newText)
         }
     }
 

@@ -9,6 +9,23 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     private let entriesKey = "vocabularyEntries"
     private let skipSeed: Bool
 
+    /// Serializes load-modify-write on the entries key so the background
+    /// dictation-stop task (`recordUsage`) and main-thread edits/promotions
+    /// (`addEntry`) can't clobber each other. Recursive so `importCSV` can
+    /// call `addEntry` on the same thread without deadlocking.
+    private let lock = NSRecursiveLock()
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    /// Shared production instance backed by `UserDefaults.standard`. All app
+    /// and view call sites must use this so they share one lock — separate
+    /// instances hitting the same keys would still lose updates.
+    public static let shared = VocabularyManager()
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.skipSeed = false
@@ -49,29 +66,112 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     }
 
     public func setEntries(_ entries: [VocabularyEntry]) {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        defaults.set(data, forKey: entriesKey)
+        withLock {
+            guard let data = try? JSONEncoder().encode(entries) else { return }
+            defaults.set(data, forKey: entriesKey)
+        }
     }
 
-    public func addEntry(_ entry: VocabularyEntry) {
-        var current = entries()
-        current.append(entry)
-        setEntries(current)
+    /// Add an entry unless a term already exists that differs only by case
+    /// (UI, CSV import, and auto-promotion can all race to add the same
+    /// term). Returns whether the entry was added.
+    @discardableResult
+    public func addEntry(_ entry: VocabularyEntry) -> Bool {
+        withLock {
+            var current = entries()
+            let key = entry.term.lowercased()
+            guard !current.contains(where: { $0.term.lowercased() == key }) else {
+                return false
+            }
+            current.append(entry)
+            setEntries(current)
+            return true
+        }
     }
 
     public func removeEntry(id: UUID) {
-        var current = entries()
-        current.removeAll { $0.id == id }
-        setEntries(current)
+        withLock {
+            var current = entries()
+            current.removeAll { $0.id == id }
+            setEntries(current)
+        }
     }
 
     public func llmContextString() -> String {
+        Self.contextString(for: entries())
+    }
+
+    /// Vocabulary guidance filtered to terms plausibly present in the given
+    /// transcript (exact-normalized or phonetic n-gram hit). Dumping the
+    /// whole vocabulary invites the LLM to inject terms that weren't spoken.
+    public func llmContextString(relevantTo text: String) -> String {
         let all = entries()
         guard !all.isEmpty else { return "" }
 
-        return all.map { entry in
+        let words = text
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" })
+            .map(String.init)
+        var norms: Set<String> = []
+        var fuzzyCandidates: [String] = []
+        for n in 1...3 {
+            guard words.count >= n else { break }
+            for start in 0...(words.count - n) {
+                let norm = TranscriptCorrector.normalize(words[start..<(start + n)].joined())
+                guard norm.count >= 2, norms.insert(norm).inserted else { continue }
+                if norm.count >= TranscriptCorrector.minFuzzyLength {
+                    fuzzyCandidates.append(norm)
+                }
+            }
+        }
+
+        let relevant = all.filter { entry in
+            let norm = TranscriptCorrector.normalize(entry.term)
+            guard norm.count >= 2 else { return false }
+            if norms.contains(norm) { return true }
+            guard norm.count >= TranscriptCorrector.minFuzzyLength else { return false }
+            return fuzzyCandidates.contains { TranscriptCorrector.isFuzzyMatch($0, norm) }
+        }
+        return Self.contextString(for: relevant)
+    }
+
+    private static func contextString(for entries: [VocabularyEntry]) -> String {
+        guard !entries.isEmpty else { return "" }
+        return entries.map { entry in
             "\"\(entry.term)\" \(entry.category.llmInstruction)"
         }.joined(separator: ". ") + "."
+    }
+
+    /// Bump usage stats for every entry whose term appears (normalized)
+    /// in the given final text. Usage feeds the prompt-token ranking.
+    public func recordUsage(in text: String) {
+        // Compute the match set outside the lock (pure work), then apply
+        // the read-modify-write atomically so a concurrent addEntry/edit
+        // isn't lost.
+        let words = text
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" })
+            .map(String.init)
+        var norms: Set<String> = []
+        for n in 1...3 {
+            guard words.count >= n else { break }
+            for start in 0...(words.count - n) {
+                norms.insert(TranscriptCorrector.normalize(words[start..<(start + n)].joined()))
+            }
+        }
+        guard !norms.isEmpty else { return }
+
+        withLock {
+            var all = entries()
+            guard !all.isEmpty else { return }
+            var changed = false
+            for i in all.indices where norms.contains(TranscriptCorrector.normalize(all[i].term)) {
+                all[i].useCount = (all[i].useCount ?? 0) + 1
+                all[i].lastUsedAt = Date()
+                changed = true
+            }
+            if changed {
+                setEntries(all)
+            }
+        }
     }
 
     // MARK: - CSV Import/Export
@@ -97,6 +197,9 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
             lines.removeFirst()
         }
 
+        // Whole import is one atomic section so a concurrent dictation-stop
+        // usage write can't interleave and drop rows.
+        return withLock {
         var imported = 0
         for line in lines {
             // Handle quoted values
@@ -127,10 +230,12 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
                 cat.rawValue.caseInsensitiveCompare(categoryString) == .orderedSame
             } ?? .custom
 
-            addEntry(VocabularyEntry(term: term, category: category))
-            imported += 1
+            if addEntry(VocabularyEntry(term: term, category: category)) {
+                imported += 1
+            }
         }
         return imported
+        }
     }
 
     // MARK: - Migration

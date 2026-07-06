@@ -14,6 +14,9 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
         static let llmApiKey = "llmApiKey"
         static let llmModel = "llmModel"
         static let llmEndpoint = "llmEndpoint"
+        static let llmProvider = "llmProvider"
+        static let llmLocalEndpoint = "llmLocalEndpoint"
+        static let llmLocalModel = "llmLocalModel"
         static let selectedInputDeviceName = "selectedInputDeviceName"
     }
 
@@ -111,6 +114,30 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
 
     public func setLLMEndpointURL(_ url: String) {
         defaults.set(url, forKey: Keys.llmEndpoint)
+    }
+
+    public func llmProvider() -> LLMProvider {
+        LLMProvider(rawValue: defaults.string(forKey: Keys.llmProvider) ?? "") ?? .cloud
+    }
+
+    public func setLLMProvider(_ provider: LLMProvider) {
+        defaults.set(provider.rawValue, forKey: Keys.llmProvider)
+    }
+
+    public func llmLocalEndpoint() -> String {
+        defaults.string(forKey: Keys.llmLocalEndpoint) ?? LLMService.defaultLocalEndpoint
+    }
+
+    public func setLLMLocalEndpoint(_ url: String) {
+        defaults.set(url, forKey: Keys.llmLocalEndpoint)
+    }
+
+    public func llmLocalModel() -> String {
+        defaults.string(forKey: Keys.llmLocalModel) ?? ""
+    }
+
+    public func setLLMLocalModel(_ model: String) {
+        defaults.set(model, forKey: Keys.llmLocalModel)
     }
 
     // MARK: - Audio input device

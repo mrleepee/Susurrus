@@ -33,16 +33,17 @@ struct SusurrusApp: App {
     private let clipboard = PasteboardClipboardService()
     private let notificationService = UserNotificationService()
     private let preferences = UserDefaultsPreferencesManager()
-    private let vocabularyManager = VocabularyManager()
+    private let vocabularyManager = VocabularyManager.shared
     private let hotkeyService = GlobalHotkeyService()
     private let llmHotkeyService = GlobalHotkeyService()
     private let hotkeyStorage = HotkeyStorage()
     private let micPermissionManager = MicPermissionManager()
     private let llmService = LLMService()
-    private let historyManager = TranscriptionHistoryManager()
-    private let correctionManager = CorrectionLearningManager(vocabularyManager: VocabularyManager())
-    private let notebookManager = NotebookManager()
+    private let historyManager = TranscriptionHistoryManager.shared
+    private let correctionManager = CorrectionLearningManager.shared
+    private let notebookManager = NotebookManager.shared
     private let promptComposer = PromptComposer()
+    private let transcriptCorrector = TranscriptCorrector()
     private let mediaService = MediaService()
     private let audioDeviceService = AudioDeviceService()
 
@@ -77,6 +78,10 @@ struct SusurrusApp: App {
         if !AXIsProcessTrusted() {
             PasteboardClipboardService.promptAccessibility()
         }
+
+        // Edits anywhere feed the learning loop (rules + vocab promotion).
+        historyManager.correctionManager = correctionManager
+        notebookManager.correctionLearning = correctionManager
 
         // Start model loading immediately — don't wait for menu bar click
         startModelLoadingIfNeeded()
@@ -468,10 +473,26 @@ struct SusurrusApp: App {
             overlayWindow = StreamingOverlayWindow()
         }
 
-        // Sync vocabulary bias
-        let vocab = vocabularyManager.promptString()
+        // Sync vocabulary bias: relevance-ranked at stop time against the
+        // streaming preview, so the prompt-token budget goes to terms this
+        // session plausibly contains. Context terms come from the active
+        // notebook, falling back to recent dictation history so the "what
+        // am I talking about lately" bias needs no notebook habit.
+        let vocabMgr = vocabularyManager
+        let nbMgr = notebookManager
+        let historyMgr = historyManager
         Task {
-            await streamingService.setVocabularyPrompt(vocab)
+            await streamingService.setVocabularySelector { preview in
+                var contextTerms = nbMgr.activeNotebookBiasTerms()
+                if contextTerms.isEmpty {
+                    contextTerms = historyMgr.recentBiasTerms()
+                }
+                return VocabularyRanker().selectTerms(
+                    previewText: preview,
+                    vocabulary: vocabMgr.entries(),
+                    notebookTerms: contextTerms
+                )
+            }
         }
 
         // Resolve preferred device name to a current Core Audio device ID.
@@ -501,14 +522,27 @@ struct SusurrusApp: App {
         let notifications = notificationService
         let overlay = overlayWindow
 
+        // Snapshot vocab and rules once per session so the interim callback
+        // (fires ~10Hz) doesn't re-read and re-decode UserDefaults each time.
+        let corrector = transcriptCorrector
+        let sessionVocab = vocabularyManager.entries()
+        let sessionRules = correctionManager.activeRules()
+
         // Start streaming
         Task {
             do {
                 traceApp("startStreamingSession: calling startStreamTranscription")
                 try await streaming.startStreamTranscription(deviceID: resolvedDeviceID) { transcript in
+                    // Correct the confirmed (stable) portion live so the
+                    // overlay previews the same fixes the final text gets.
+                    // The unconfirmed tail stays raw — a half-spoken word
+                    // shouldn't be fuzzy-matched.
+                    let confirmed = transcript.confirmed.isEmpty
+                        ? transcript.confirmed
+                        : corrector.correct(transcript.confirmed, vocabulary: sessionVocab, rules: sessionRules).text
                     Task { @MainActor in
                         state.interimText = transcript
-                        overlay?.show(confirmed: transcript.confirmed, unconfirmed: transcript.unconfirmed)
+                        overlay?.show(confirmed: confirmed, unconfirmed: transcript.unconfirmed)
                     }
                 }
             } catch {
@@ -541,6 +575,10 @@ struct SusurrusApp: App {
         let llm = llmService
         let history = historyManager
         let nbManager = notebookManager
+        let corrector = transcriptCorrector
+        let vocab = vocabularyManager
+        let corrections = correctionManager
+        let composer = promptComposer
 
         Task {
             do {
@@ -550,19 +588,49 @@ struct SusurrusApp: App {
                 traceApp("stopStreamingSession: got text in \(Int(Date().timeIntervalSince(stopStart) * 1000))ms (\(text.count) chars): \(text.prefix(100))")
 
                 if !text.isEmpty {
-                    var finalText = text
+                    // Layer 1: deterministic corrections — learned rules,
+                    // fuzzy vocabulary matches, casing. Always on, ~0ms.
+                    let correctStart = Date()
+                    let outcome = corrector.correct(
+                        text,
+                        vocabulary: vocab.entries(),
+                        rules: corrections.activeRules()
+                    )
+                    if !outcome.changes.isEmpty {
+                        let summary = outcome.changes
+                            .map { "\($0.original)→\($0.corrected)" }
+                            .joined(separator: ", ")
+                        traceApp("stopStreamingSession: corrector applied \(outcome.changes.count) fixes in \(Int(Date().timeIntervalSince(correctStart) * 1000))ms: \(summary)")
+                    }
+                    var finalText = outcome.text
 
                     if shouldLLM {
                         traceApp("stopStreamingSession: starting LLM processing")
                         do {
-                            let prompt = promptComposer.compose(
+                            let prompt = composer.compose(
                                 base: prefs.llmSystemPrompt(),
-                                vocabularyContext: vocabularyManager.llmContextString(),
-                                correctionExamples: correctionManager.fewShotString(for: text, limit: 5),
-                                notebookContext: notebookManager.activeNotebookContext()
+                                vocabularyContext: vocab.llmContextString(relevantTo: finalText),
+                                correctionExamples: corrections.fewShotString(for: finalText, limit: 5),
+                                notebookContext: nbManager.activeNotebookContext()
                             )
-                            finalText = try await llm.process(text: text, systemPrompt: prompt)
-                            traceApp("stopStreamingSession: LLM done, finalText=\(finalText.prefix(50))")
+                            let llmText = try await llm.process(text: finalText, systemPrompt: prompt)
+                            if TranscriptGuardrail.accepts(input: finalText, output: llmText) {
+                                // Re-run the deterministic pass on the LLM
+                                // output so vocabulary casing/spelling
+                                // survives any LLM meddling.
+                                finalText = corrector.correct(
+                                    llmText,
+                                    vocabulary: vocab.entries(),
+                                    rules: corrections.activeRules()
+                                ).text
+                                traceApp("stopStreamingSession: LLM done, finalText=\(finalText.prefix(50))")
+                            } else {
+                                traceApp("stopStreamingSession: LLM output rejected by guardrail (drifted from input), keeping corrected text. LLM said: \(llmText.prefix(80))")
+                                notifications.showNotification(
+                                    title: "LLM cleanup skipped",
+                                    body: "The model rewrote the text instead of just cleaning it up, so the corrected transcription was used instead."
+                                )
+                            }
                         } catch {
                             traceApp("stopStreamingSession: LLM cleanup failed: \(error.localizedDescription)")
                             notifications.showNotification(
@@ -571,6 +639,9 @@ struct SusurrusApp: App {
                             )
                         }
                     }
+
+                    // Usage stats drive the prompt-token ranking next session.
+                    vocab.recordUsage(in: finalText)
 
                     traceApp("stopStreamingSession: writing to clipboard")
                     let outputMode = UserDefaults.standard.string(forKey: "outputMode") ?? "clipboard"
