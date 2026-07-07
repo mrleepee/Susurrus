@@ -36,6 +36,20 @@ public final class GlobalHotkeyService: HotkeyManaging, @unchecked Sendable {
     private nonisolated(unsafe) var onKeyUpCallback: (@Sendable () -> Void)?
     private nonisolated(unsafe) var currentComboDesc: String = ""
 
+    /// Unique id for this registration. Multiple GlobalHotkeyService instances
+    /// share the application event target, so Carbon delivers every
+    /// kEventHotKeyPressed to every stacked handler. Each handler compares the
+    /// fired event's hotkey id against this value and returns eventNotHandledErr
+    /// when it isn't ours, letting the matching handler downstream take it.
+    private let hotkeyId: UInt32 = {
+        // Stable within a process and unique across instances. Atomicity isn't
+        // a concern — the app creates its three services up front on the main
+        // thread during App.init.
+        counter &+= 1
+        return counter
+    }()
+    private nonisolated(unsafe) static var counter: UInt32 = 100
+
     /// Four-character code "Susr" used as the Carbon hotkey signature.
     private static let hotKeySignature: FourCharCode =
         (FourCharCode(0x53) << 24) | (FourCharCode(0x75) << 16) |
@@ -94,10 +108,11 @@ public final class GlobalHotkeyService: HotkeyManaging, @unchecked Sendable {
             self.carbonHandlerRef = handlerRef
             print("[Hotkey] InstallEventHandler status: \(installStatus)")
 
-            // Register the system-level hotkey
+            // Register the system-level hotkey. The id is per-instance so a
+            // stacked handler can tell its own events from a sibling's.
             var hotKeyID = EventHotKeyID()
             hotKeyID.signature = Self.hotKeySignature
-            hotKeyID.id = 1
+            hotKeyID.id = hotkeyId
 
             var ref: EventHotKeyRef?
             let regStatus = RegisterEventHotKey(
@@ -144,9 +159,30 @@ public final class GlobalHotkeyService: HotkeyManaging, @unchecked Sendable {
 
     /// C function pointer callback for Carbon hotkey events.
     /// Uses userData to recover the GlobalHotkeyService instance.
+    ///
+    /// Every stacked handler on the application event target receives every
+    /// kEventHotKeyPressed event; we read the fired hotkey's id from the event
+    /// and only act on our own registration, returning eventNotHandledErr
+    /// otherwise so Carbon continues dispatching to the matching handler.
     private static let carbonEventHandlerCallback: EventHandlerUPP = { _, event, userData in
         guard let userData else { return OSStatus(eventNotHandledErr) }
         let service = Unmanaged<GlobalHotkeyService>.fromOpaque(userData).takeUnretainedValue()
+
+        // kEventParamDirectObject on a hotkey event is the EventHotKeyID whose
+        // `id` field identifies which registration fired.
+        var hotKeyID = EventHotKeyID()
+        let paramStatus = GetEventParameter(
+            event,
+            EventParamName(kEventParamDirectObject),
+            EventParamType(typeEventHotKeyID),
+            nil,
+            MemoryLayout<EventHotKeyID>.size,
+            nil,
+            &hotKeyID
+        )
+        guard paramStatus == noErr, hotKeyID.id == service.hotkeyId else {
+            return OSStatus(eventNotHandledErr)
+        }
 
         let kind = GetEventKind(event)
         switch kind {
@@ -157,7 +193,7 @@ public final class GlobalHotkeyService: HotkeyManaging, @unchecked Sendable {
             print("[Hotkey] Carbon hotkey released: \(service.currentComboDesc)")
             service.onKeyUpCallback?()
         default:
-            break
+            return OSStatus(eventNotHandledErr)
         }
 
         return noErr
