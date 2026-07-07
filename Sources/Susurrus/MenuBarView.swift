@@ -42,6 +42,18 @@ struct MenuBarView: View {
                 }
             }
 
+            Button("Fix Last Dictation... (⌃⌥Space)") {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    openWindow(id: "fixLast")
+                }
+            }
+            .disabled(
+                appState.recordingState == .recording
+                || appState.recordingState == .streaming
+            )
+
             Divider()
 
             // Notebook selector submenu

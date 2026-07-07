@@ -14,6 +14,59 @@ struct CorrectionRuleLearningTests {
         return (mgr, vocab)
     }
 
+    // MARK: - Learning outcome surfacing (onLearn)
+
+    @Test("onLearn fires when a rule activates on second sighting, not first")
+    func onLearnFiresOnActivation() {
+        let (mgr, _) = makeManagers()
+        nonisolated(unsafe) var outcomes: [LearningOutcome] = []
+        mgr.onLearn = { outcomes.append($0) }
+
+        mgr.recordCorrection(
+            raw: "reprocess it with core bee tonight",
+            edited: "reprocess it with corb tonight"
+        )
+        // First sighting: rule recorded but inert — stay quiet.
+        #expect(outcomes.isEmpty)
+
+        mgr.recordCorrection(
+            raw: "run core bee again",
+            edited: "run corb again"
+        )
+        #expect(outcomes.count == 1)
+        #expect(outcomes.first?.activatedRules.first?.match == "core bee")
+        #expect(outcomes.first?.activatedRules.first?.replacement == "corb")
+    }
+
+    @Test("onLearn reports vocabulary promotion")
+    func onLearnReportsPromotion() {
+        let (mgr, _) = makeManagers()
+        nonisolated(unsafe) var outcomes: [LearningOutcome] = []
+        mgr.onLearn = { outcomes.append($0) }
+
+        mgr.recordCorrection(
+            raw: "ask jayendra about it",
+            edited: "ask Jayendra about it"
+        )
+        #expect(outcomes.count == 1)
+        #expect(outcomes.first?.promotedTerms == ["Jayendra"])
+    }
+
+    @Test("onLearn stays quiet for edits that teach nothing new")
+    func onLearnQuietOnRepeatPromotion() {
+        let (mgr, vocab) = makeManagers()
+        vocab.addEntry(VocabularyEntry(term: "Jayendra", category: .person))
+        nonisolated(unsafe) var outcomes: [LearningOutcome] = []
+        mgr.onLearn = { outcomes.append($0) }
+
+        // Pure punctuation/wording edit with no substitution to learn.
+        mgr.recordCorrection(
+            raw: "hello there everyone",
+            edited: "hello there, everyone!"
+        )
+        #expect(outcomes.isEmpty)
+    }
+
     @Test("Substitution edit creates a rule, active after two sightings")
     func ruleFromEdit() {
         let (mgr, _) = makeManagers()

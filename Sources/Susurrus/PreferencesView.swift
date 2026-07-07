@@ -19,6 +19,7 @@ struct PreferencesView: View {
     @AppStorage("llmProvider") private var llmProvider = LLMProvider.cloud.rawValue
     @AppStorage("llmLocalEndpoint") private var llmLocalEndpoint = LLMService.defaultLocalEndpoint
     @AppStorage("llmLocalModel") private var llmLocalModel = ""
+    @AppStorage(StreamingTranscriptionService.confidenceLoggingKey) private var confidenceLogging = false
     @State private var localTestResult: String?
     @State private var localTestRunning = false
     @State private var entries: [VocabularyEntry] = []
@@ -165,6 +166,15 @@ struct PreferencesView: View {
                 Text("Spotify, Apple Music, and other media apps will pause when recording starts and resume when it stops.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Log word confidence (debug)", isOn: $confidenceLogging)
+                Text("Records how sure the speech model was about each word to the debug log. Slightly slows the final decode. Used to evaluate confidence highlighting before building it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Diagnostics")
             }
 
         }
