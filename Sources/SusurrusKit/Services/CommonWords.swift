@@ -63,6 +63,7 @@ enum CommonWords {
         "movie", "north", "love", "support", "technology", "step", "baby", "computer", "type", "attention",
         "film", "tree", "source", "subject", "rule", "card", "feeling", "thing", "food", "quality",
         "list", "email", "note", "meeting", "call", "message", "update", "task", "item", "detail",
+        "app", "apps", "application", "applications", "database", "global", "checked",
         "review", "version", "release", "feature", "user", "customer", "client", "account", "order", "budget",
         "design", "code", "file", "page", "screen", "button", "link", "text", "search", "share",
         // Common verbs

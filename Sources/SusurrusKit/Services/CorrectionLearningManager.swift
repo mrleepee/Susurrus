@@ -342,7 +342,9 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
 
     // MARK: - One-time cleanup of pre-guard learning data
 
-    private static let learningQualityMigrationKey = "learningQualityMigration1"
+    // Bump the suffix when the cleanup criteria widen (e.g. CommonWords
+    // additions) so the sweep runs once more on existing data.
+    private static let learningQualityMigrationKey = "learningQualityMigration2"
 
     /// Repairs data written before the promotion/activation guards existed:
     /// removes all-lowercase common-word vocabulary entries (sentence-case
