@@ -27,6 +27,9 @@ enum CommonWords {
         "this", "but", "his", "by", "from", "they", "we", "say", "her", "she",
         "or", "an", "will", "my", "one", "all", "would", "there", "their", "what",
         "so", "up", "out", "if", "about", "who", "get", "which", "go", "me",
+        "while", "where", "why", "before", "between", "during", "against", "under",
+        "though", "although", "since", "until", "unless", "whether", "either", "neither",
+        "nor", "via", "else", "along", "around", "above", "below", "both", "down", "off",
         "when", "make", "can", "like", "time", "no", "just", "him", "know", "take",
         "people", "into", "year", "your", "good", "some", "could", "them", "see", "other",
         "than", "then", "now", "look", "only", "come", "its", "over", "think", "also",
@@ -60,6 +63,7 @@ enum CommonWords {
         "movie", "north", "love", "support", "technology", "step", "baby", "computer", "type", "attention",
         "film", "tree", "source", "subject", "rule", "card", "feeling", "thing", "food", "quality",
         "list", "email", "note", "meeting", "call", "message", "update", "task", "item", "detail",
+        "app", "apps", "application", "applications", "database", "global", "checked",
         "review", "version", "release", "feature", "user", "customer", "client", "account", "order", "budget",
         "design", "code", "file", "page", "screen", "button", "link", "text", "search", "share",
         // Common verbs

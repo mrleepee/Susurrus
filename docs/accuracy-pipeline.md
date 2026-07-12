@@ -83,6 +83,16 @@ Every edit in History or Notebooks calls `recordCorrection(raw:edited:)`:
   immediately when the replacement is a known vocab term / proper noun.
 - **Case-only fixes** at aligned positions ("databid" → "DataBid") promote
   straight to vocabulary with a guessed category (ALLCAPS → acronym).
+- **Promotion guards** (from production data): the promoted form must pass
+  `ProperNoun.looksLikeProperNoun` (sentence-position aware — pure case
+  churn from restructuring, e.g. "Voice" → "voice", is not a term), and
+  must not fuzzy-match an existing vocabulary entry (no "Sussurus" beside
+  "Susurrus"). A rule whose match is entirely common English words mapped
+  to a *different* word ("and while" → "Anwar") never fast-path activates
+  off a known replacement — it needs the second sighting; join/casing
+  fixes of common words ("mark logic" → "MarkLogic") keep the fast path.
+  `runLearningQualityMigration()` repairs data written before these
+  guards, once.
 - **Reversals** — an edit that turns a rule's replacement back into its
   match disables that rule.
 - **Usage stats** — after each session, `VocabularyManager.recordUsage`

@@ -43,12 +43,21 @@ enum ProperNoun {
         outer: for text in texts {
             for sentence in text.split(whereSeparator: { ".!?\n".contains($0) }) {
                 let words = sentence.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                // Whisper occasionally emits whole passages IN CAPITALS.
+                // In a shouted sentence ALLCAPS is formatting, not acronym
+                // evidence — production data showed "THE", "STATUTORY",
+                // "TEST" packed into the prompt-token budget this way.
+                let capsEligible = words.filter { $0.count >= 2 }
+                let allCapsCount = capsEligible.filter { isAllCaps(String($0)) }.count
+                let sentenceIsShouted = capsEligible.count >= 3
+                    && allCapsCount * 3 > capsEligible.count * 2
                 for (index, word) in words.enumerated() {
+                    if terms.count >= limit { break outer }
                     let term = String(word)
                     guard term.count >= 3 else { continue }
-                    if terms.count >= limit { break outer }
                     let lowered = term.lowercased()
                     guard !seen.contains(lowered) else { continue }
+                    if isAllCaps(term), sentenceIsShouted || CommonWords.contains(lowered) { continue }
                     guard looksLikeProperNoun(term, isSentenceInitial: index == 0) else { continue }
                     seen.insert(lowered)
                     terms.append(term)
@@ -56,5 +65,10 @@ enum ProperNoun {
             }
         }
         return terms
+    }
+
+    private static func isAllCaps(_ word: String) -> Bool {
+        let letters = word.filter(\.isLetter)
+        return letters.count >= 2 && letters.allSatisfy(\.isUppercase)
     }
 }

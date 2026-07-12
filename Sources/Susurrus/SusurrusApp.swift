@@ -84,6 +84,14 @@ struct SusurrusApp: App {
         historyManager.correctionManager = correctionManager
         notebookManager.correctionLearning = correctionManager
 
+        // One-time repair of learning data written before the promotion
+        // and activation guards existed (lowercase common-word vocab junk,
+        // common-phrase rules activated off a single sighting).
+        let migration = correctionManager.runLearningQualityMigration()
+        if !migration.removedTerms.isEmpty || !migration.disabledRules.isEmpty {
+            traceApp("learning migration: removed vocab \(migration.removedTerms); disabled rules \(migration.disabledRules)")
+        }
+
         // Tell the user when an edit changes future behaviour — a rule
         // activating or a term joining the vocabulary. Quiet on first
         // sightings; only speaks when something will actually rewrite
