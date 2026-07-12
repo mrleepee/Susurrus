@@ -14,6 +14,112 @@ struct CorrectionRuleLearningTests {
         return (mgr, vocab)
     }
 
+    // MARK: - Promotion guards (from production data, 2026-07-12)
+
+    @Test("Sentence-case churn does not promote lowercase common words")
+    func caseChurnNotPromoted() {
+        let (mgr, vocab) = makeManagers()
+        // User restructured the sentence; "Voice" became mid-sentence "voice".
+        mgr.recordCorrection(
+            raw: "Voice dictation is the goal",
+            edited: "The goal is voice dictation"
+        )
+        #expect(!vocab.entries().contains { $0.term.lowercased() == "voice" })
+        #expect(vocab.entries().isEmpty)
+    }
+
+    @Test("Text-initial capitalization flip alone is not promoted")
+    func sentenceInitialCapitalizationNotPromoted() {
+        let (mgr, vocab) = makeManagers()
+        // Same words, only the leading word's case changed — convention,
+        // not evidence of a proper noun.
+        mgr.recordCorrection(
+            raw: "delta shipped yesterday",
+            edited: "Delta shipped yesterday"
+        )
+        #expect(!vocab.entries().contains { $0.term.lowercased() == "delta" })
+    }
+
+    @Test("CamelCase promotes even at text start")
+    func camelCasePromotesAtStart() {
+        let (mgr, vocab) = makeManagers()
+        mgr.recordCorrection(raw: "databid is great", edited: "DataBid is great")
+        #expect(vocab.entries().contains { $0.term == "DataBid" })
+    }
+
+    @Test("Fuzzy near-duplicate of existing vocab term is not promoted")
+    func fuzzyDuplicateNotPromoted() {
+        let (mgr, vocab) = makeManagers()
+        vocab.addEntry(VocabularyEntry(term: "Susurrus", category: .product))
+        // Typo variant of an existing term must not enter the vocabulary.
+        mgr.recordCorrection(
+            raw: "we call it sysaurus today",
+            edited: "we call it Sussurus today"
+        )
+        #expect(!vocab.entries().contains { $0.term == "Sussurus" })
+        #expect(vocab.entries().count == 1)
+    }
+
+    @Test("Common-phrase match does not fast-path activate off a promoted replacement")
+    func commonPhraseNoFastActivation() {
+        let (mgr, _) = makeManagers()
+        mgr.recordCorrection(
+            raw: "i spoke to and while about it",
+            edited: "i spoke to Anwar about it"
+        )
+        let rule = mgr.rules().first { $0.match == "and while" }
+        #expect(rule != nil)
+        #expect(rule?.enabled == false)
+
+        // Second sighting is real evidence — then it activates.
+        mgr.recordCorrection(
+            raw: "ping and while please",
+            edited: "ping Anwar please"
+        )
+        #expect(mgr.rules().first { $0.match == "and while" }?.enabled == true)
+    }
+
+    @Test("Join/casing fix of common words still fast-path activates")
+    func joinFixStillFastActivates() {
+        let (mgr, _) = makeManagers()
+        mgr.recordCorrection(
+            raw: "we use mark logic here",
+            edited: "we use MarkLogic here"
+        )
+        #expect(mgr.activeRules().contains { $0.match == "mark logic" })
+    }
+
+    // MARK: - Learning-quality migration
+
+    @Test("Migration removes lowercase common-word vocab and disables risky rules once")
+    func learningQualityMigration() {
+        let (mgr, vocab) = makeManagers()
+        vocab.addEntry(VocabularyEntry(term: "voice", category: .custom))
+        vocab.addEntry(VocabularyEntry(term: "project", category: .custom))
+        vocab.addEntry(VocabularyEntry(term: "MarkLogic", category: .technical))
+        vocab.addEntry(VocabularyEntry(term: "grep", category: .technical))  // uncommon, kept
+        mgr.addRule(CorrectionRule(match: "and while", replacement: "Anwar", enabled: true))
+        mgr.addRule(CorrectionRule(match: "qay", replacement: "QA", enabled: true))
+        // Risky-shaped but manual — user's deliberate choice, must survive.
+        mgr.addRule(CorrectionRule(match: "you know", replacement: "Juno", enabled: true, source: .manual))
+
+        let outcome = mgr.runLearningQualityMigration()
+
+        #expect(Set(outcome.removedTerms) == ["voice", "project"])
+        #expect(outcome.disabledRules == ["and while→Anwar"])
+        #expect(vocab.entries().map(\.term).sorted() == ["MarkLogic", "grep"])
+        #expect(mgr.rules().first { $0.match == "and while" }?.enabled == false)
+        #expect(mgr.rules().first { $0.match == "qay" }?.enabled == true)
+        // Manual rules are the user's deliberate choice — untouched.
+        #expect(mgr.rules().first { $0.match == "you know" }?.enabled == true)
+
+        // Second run is a no-op even if junk reappears.
+        vocab.addEntry(VocabularyEntry(term: "news", category: .custom))
+        let second = mgr.runLearningQualityMigration()
+        #expect(second.removedTerms.isEmpty)
+        #expect(vocab.entries().contains { $0.term == "news" })
+    }
+
     // MARK: - Learning outcome surfacing (onLearn)
 
     @Test("onLearn fires when a rule activates on second sighting, not first")

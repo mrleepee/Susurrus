@@ -234,12 +234,20 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
 
         // Case-only fixes at matched positions ("databid" → "DataBid") never
         // appear as mismatches — the keys are equal, so the LCS walk treats
-        // them as aligned. Promote these to vocabulary directly.
+        // them as aligned. Promote these to vocabulary — but only when the
+        // edited form actually looks like a proper noun. Sentence
+        // restructuring flips ordinary words between "Voice" and "voice";
+        // production data showed those flooding the vocabulary with
+        // lowercase common words that waste the prompt-token budget.
         if let vocab = vocabularyManager {
             for (i, j) in alignment.matches {
                 let rawTok = rawTokens[i], editedTok = editedTokens[j]
                 guard rawTok.display != editedTok.display,
-                      !existingTerms.contains(editedTok.display.lowercased()) else { continue }
+                      !existingTerms.contains(editedTok.display.lowercased()),
+                      // Text-initial capitalization is convention, not
+                      // signal — there, only CamelCase/ALLCAPS qualify.
+                      ProperNoun.looksLikeProperNoun(editedTok.display, isSentenceInitial: j == 0),
+                      !fuzzyMatchesExistingTerm(editedTok.display) else { continue }
                 if vocab.addEntry(VocabularyEntry(term: editedTok.display, category: ProperNoun.guessCategory(editedTok.display))) {
                     outcome.promotedTerms.append(editedTok.display)
                 }
@@ -261,10 +269,13 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
             guard match != replacement.lowercased() else { continue }
 
             // Vocabulary promotion for single-word proper-noun replacements.
+            // Skip candidates that fuzzy-match an existing term: promoting
+            // "Sussurus" beside "Susurrus" pollutes the vocab with typo
+            // variants and splits usage stats between them.
             var replacementKnown = existingTerms.contains(replacement.lowercased())
             if editedRange.count == 1, let vocab = vocabularyManager, !replacementKnown {
                 let word = editedTokens[editedRange.lowerBound].display
-                if ProperNoun.looksLikeProperNoun(word) {
+                if ProperNoun.looksLikeProperNoun(word), !fuzzyMatchesExistingTerm(word) {
                     if vocab.addEntry(VocabularyEntry(term: word, category: ProperNoun.guessCategory(word))) {
                         outcome.promotedTerms.append(word)
                     }
@@ -272,12 +283,19 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
                 }
             }
 
+            // A match made entirely of common English words ("and while")
+            // that maps to a *different* word will collide with legitimate
+            // speech — never fast-path activate it; require the second
+            // sighting. Join/casing fixes ("mark logic" → "MarkLogic",
+            // same letters) stay on the fast path.
+            let matchIsCommonPhrase = Self.isRiskyCommonPhraseMatch(match: match, replacement: replacement)
+
             let wasEnabled = rules().first(where: { $0.match == match })?.enabled ?? false
 
             let rule = CorrectionRule(
                 match: match,
                 replacement: replacement,
-                enabled: replacementKnown
+                enabled: replacementKnown && !matchIsCommonPhrase
             )
             addRule(rule)
             // Second sighting activates.
@@ -294,6 +312,78 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
             }
         }
         return outcome
+    }
+
+    /// Whether a promotion candidate is a near-duplicate (same phonetic
+    /// key, tiny edit distance) of a term already in the vocabulary.
+    private func fuzzyMatchesExistingTerm(_ candidate: String) -> Bool {
+        guard let vocab = vocabularyManager else { return false }
+        let normalized = Self.normalizeForFuzzy(candidate)
+        return vocab.entries().contains {
+            TranscriptCorrector.isFuzzyMatch(normalized, Self.normalizeForFuzzy($0.term))
+        }
+    }
+
+    private static func normalizeForFuzzy(_ word: String) -> String {
+        word.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    /// A rule whose match is entirely common English words AND whose
+    /// replacement isn't just a joined/recased form of those words (same
+    /// letters) would rewrite legitimate speech — "and while" → "Anwar"
+    /// must not activate off one sighting, but "mark logic" → "MarkLogic"
+    /// is safe.
+    static func isRiskyCommonPhraseMatch(match: String, replacement: String) -> Bool {
+        guard normalizeForFuzzy(match) != normalizeForFuzzy(replacement) else { return false }
+        return match
+            .split(separator: " ")
+            .allSatisfy { CommonWords.contains(String($0)) }
+    }
+
+    // MARK: - One-time cleanup of pre-guard learning data
+
+    private static let learningQualityMigrationKey = "learningQualityMigration1"
+
+    /// Repairs data written before the promotion/activation guards existed:
+    /// removes all-lowercase common-word vocabulary entries (sentence-case
+    /// churn, not terms) and de-activates single-sighting rules whose match
+    /// is entirely common words (e.g. "and while" → "Anwar" hijacking
+    /// ordinary speech). Runs once; returns what it changed for logging.
+    @discardableResult
+    public func runLearningQualityMigration() -> (removedTerms: [String], disabledRules: [String]) {
+        guard !defaults.bool(forKey: Self.learningQualityMigrationKey) else { return ([], []) }
+
+        var removedTerms: [String] = []
+        var disabledRules: [String] = []
+        withLock {
+            if let vocab = vocabularyManager {
+                let junk = vocab.entries().filter { entry in
+                    entry.term == entry.term.lowercased()
+                        && CommonWords.contains(Self.normalizeForFuzzy(entry.term))
+                }
+                for entry in junk {
+                    vocab.removeEntry(id: entry.id)
+                    removedTerms.append(entry.term)
+                }
+            }
+
+            var all = rules()
+            var changed = false
+            // Learned rules only — manual rules are a deliberate user choice.
+            for i in all.indices where all[i].enabled
+                && all[i].source == .learned
+                && all[i].hitCount < Self.ruleActivationSightings {
+                if Self.isRiskyCommonPhraseMatch(match: all[i].match, replacement: all[i].replacement) {
+                    all[i].enabled = false
+                    disabledRules.append("\(all[i].match)→\(all[i].replacement)")
+                    changed = true
+                }
+            }
+            if changed { saveRules(all) }
+
+            defaults.set(true, forKey: Self.learningQualityMigrationKey)
+        }
+        return (removedTerms, disabledRules)
     }
 
     // MARK: - Word alignment
