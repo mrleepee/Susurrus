@@ -87,7 +87,13 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                let first = original.first, first.isUppercase {
                 replacement = replacement.prefix(1).uppercased() + replacement.dropFirst()
             }
-            guard replacement != original else { continue }
+            // A no-op still claims its span (matching applyVocabulary) so
+            // an inner single-word rule can't re-match a fragment of a
+            // wider window that resolved to the original text.
+            guard replacement != original else {
+                claimed.append(window.span)
+                continue
+            }
 
             replacements.append(Replacement(range: window.range, span: window.span, text: replacement))
             claimed.append(window.span)
@@ -226,7 +232,9 @@ public struct TranscriptCorrector: TranscriptCorrecting {
         let text: String
     }
 
-    private static let wordRegex = try! NSRegularExpression(pattern: "[A-Za-z0-9']+")
+    // Unicode letters/digits, not just ASCII — "François" must stay one
+    // token or no multi-word window can ever span it.
+    private static let wordRegex = try! NSRegularExpression(pattern: "[\\p{L}\\p{N}']+")
 
     private static func wordTokens(in text: String) -> [WordToken] {
         let ns = text as NSString
@@ -286,7 +294,10 @@ public struct TranscriptCorrector: TranscriptCorrecting {
     /// Lowercased alphanumerics only — spacing, hyphens, apostrophes, case
     /// all collapse ("Mark Logic" and "MarkLogic" both → "marklogic").
     static func normalize(_ text: String) -> String {
-        String(text.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+        // Fold diacritics so "renee" (what Whisper writes) matches vocab
+        // "Renée" in both the exact-normalized and phonetic paths.
+        let folded = text.folding(options: .diacriticInsensitive, locale: Locale(identifier: "en_US_POSIX"))
+        return String(folded.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
     }
 
     /// Compact phonetic key over a normalized (lowercase alnum) string:

@@ -170,11 +170,16 @@ public actor StreamingTranscriptionService {
         guard modelReady, let whisperKit else { return }
         let warmStart = Date()
         do {
-            let results = try await whisperKit.transcribe(
+            _ = try await whisperKit.transcribe(
                 audioArray: Self.warmupSamples(),
                 decodeOptions: DecodingOptions(task: .transcribe, language: languageCode)
             )
-            traceStream("keepWarm: decode in \(msSince(warmStart))ms (\(results.count) results)")
+            // Routine warm decodes were 70% of the debug log. Only slow
+            // ones carry signal — they mean the ANE context was evicted.
+            let ms = msSince(warmStart)
+            if ms > 300 {
+                traceStream("keepWarm: slow decode in \(ms)ms — context was likely evicted")
+            }
         } catch {
             traceStream("keepWarm: decode FAILED in \(msSince(warmStart))ms: \(error)")
         }

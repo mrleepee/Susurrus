@@ -201,13 +201,19 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     /// the rule was wrong for them — stop applying it. Batched into one
     /// load-modify-write (caller already holds the lock).
     private func disableReversedRules(raw: String, edited: String) {
-        let rawLower = raw.lowercased()
-        let editedLower = edited.lowercased()
+        // Whole-word phrase containment via padded joins. Plain substring
+        // matching disabled any rule whose match is a substring of its own
+        // replacement ("rinda" → "Brinda") the moment an unrelated edit
+        // mentioned the replacement anywhere.
+        let rawJoined = " " + Self.tokenize(raw).map(\.key).joined(separator: " ") + " "
+        let editedJoined = " " + Self.tokenize(edited).map(\.key).joined(separator: " ") + " "
         var all = rules()
         var changed = false
         for i in all.indices where all[i].enabled {
-            if rawLower.contains(all[i].replacement.lowercased()),
-               editedLower.contains(all[i].match) {
+            let replacementKey = Self.tokenize(all[i].replacement).map(\.key).joined(separator: " ")
+            guard !replacementKey.isEmpty else { continue }
+            if rawJoined.contains(" " + replacementKey + " "),
+               editedJoined.contains(" " + all[i].match + " ") {
                 all[i].enabled = false
                 changed = true
             }

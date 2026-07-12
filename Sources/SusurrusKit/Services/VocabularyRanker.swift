@@ -63,7 +63,7 @@ public struct VocabularyRanker: Sendable {
                 evidenced.append((display, 0, entry.useCount ?? 0))
                 continue
             }
-            guard norm.count >= 4 else { continue }
+            guard norm.count >= TranscriptCorrector.minFuzzyLength else { continue }
             var best = Double.infinity
             for (candidateNorm, _) in previewKeys where TranscriptCorrector.isFuzzyMatch(candidateNorm, norm) {
                 let distance = TranscriptCorrector.damerauLevenshtein(candidateNorm, norm)

@@ -74,7 +74,10 @@ public final class AppState {
     public var onDurationCap: (() -> Void)?
 
     public init() {
-        trace("AppState.init()")
+        // No init logging: SwiftUI re-evaluates `@State` initial values on
+        // every App-struct re-init and discards the extras, so this
+        // constructor runs in bursts (19×/sec observed) — tracing it only
+        // pollutes the log.
     }
 
     // MARK: - Batch mode (Phase 7: removed after streaming is wired)

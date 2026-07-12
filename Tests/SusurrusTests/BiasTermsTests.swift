@@ -42,6 +42,41 @@ struct ProperNounBiasTermsTests {
         )
         #expect(terms == ["BioFinder", "Evoca"])
     }
+
+    @Test("Shouted sentences do not contribute ALLCAPS words as bias terms")
+    func shoutedSentencesExcluded() {
+        // Whisper artifact seen in production: whole passage in capitals.
+        let terms = ProperNoun.extractBiasTerms(
+            from: ["FAILING THE STATUTORY RESIDENCY TEST TODAY. The QAS pipeline is fine."],
+            limit: 20
+        )
+        #expect(!terms.contains("STATUTORY"))
+        #expect(!terms.contains("TEST"))
+        #expect(!terms.contains("THE"))
+        // A legit acronym in a normally-cased sentence survives.
+        #expect(terms.contains("QAS"))
+    }
+
+    @Test("ALLCAPS common word in a normal sentence is not a bias term")
+    func allCapsCommonWordExcluded() {
+        let terms = ProperNoun.extractBiasTerms(
+            from: ["We shipped THE update with SPARQL support."],
+            limit: 20
+        )
+        #expect(!terms.contains("THE"))
+        #expect(terms.contains("SPARQL"))
+    }
+
+    @Test("Acronym-dense but short technical phrasing keeps its acronyms")
+    func acronymDenseKept() {
+        // 2 of 5 eligible words are ALLCAPS — under the shouting threshold.
+        let terms = ProperNoun.extractBiasTerms(
+            from: ["The QAS and CAS pipelines are stable."],
+            limit: 20
+        )
+        #expect(terms.contains("QAS"))
+        #expect(terms.contains("CAS"))
+    }
 }
 
 @Suite("TranscriptionHistoryManager bias terms Tests")

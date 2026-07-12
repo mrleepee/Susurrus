@@ -11,6 +11,28 @@ struct TranscriptCorrectorTests {
         terms.map { VocabularyEntry(term: $0.0, category: $0.1) }
     }
 
+    // MARK: - Unicode / diacritics
+
+    @Test("ASCII transcription matches accented vocabulary term")
+    func diacriticInsensitiveMatch() {
+        let outcome = corrector.correct(
+            "talked to renee about the launch",
+            vocabulary: vocab([("Renée", .person)]),
+            rules: []
+        )
+        #expect(outcome.text == "talked to Renée about the launch")
+    }
+
+    @Test("Accented word stays one token and gets vocab casing")
+    func accentedWordSingleToken() {
+        let outcome = corrector.correct(
+            "met françois at the office",
+            vocabulary: vocab([("François", .person)]),
+            rules: []
+        )
+        #expect(outcome.text == "met François at the office")
+    }
+
     // MARK: - No-op safety
 
     @Test("Empty vocab and rules leave text untouched")

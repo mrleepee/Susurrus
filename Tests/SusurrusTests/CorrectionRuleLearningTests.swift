@@ -239,6 +239,28 @@ struct CorrectionRuleLearningTests {
         #expect(mgr.activeRules().filter { $0.match == "core bee" }.isEmpty)
     }
 
+    @Test("Unrelated edit mentioning the replacement does not disable the rule")
+    func reversalNeedsWholeWordMatch() {
+        let (mgr, _) = makeManagers()
+        // Match is a substring of the replacement — the historic substring
+        // check disabled this rule on any edit whose text contained
+        // "Brinda" ("brinda" ⊃ "rinda").
+        mgr.addRule(CorrectionRule(match: "rinda", replacement: "Brinda", enabled: true))
+        mgr.recordCorrection(
+            raw: "Brinda helped with the release",
+            edited: "Brinda helped with the release notes"
+        )
+        #expect(mgr.activeRules().contains { $0.match == "rinda" })
+
+        // A genuine reversal — whole word "rinda" in the edited text —
+        // still disables it.
+        mgr.recordCorrection(
+            raw: "ask Brinda today",
+            edited: "ask rinda today"
+        )
+        #expect(!mgr.activeRules().contains { $0.match == "rinda" })
+    }
+
     @Test("Pure insertions and deletions do not create rules")
     func insertionsIgnored() {
         let (mgr, _) = makeManagers()
