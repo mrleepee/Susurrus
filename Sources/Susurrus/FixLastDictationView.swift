@@ -90,22 +90,40 @@ struct FixLastDictationView: View {
     /// can be done safely — the record must match the item being fixed and
     /// the pasted string must still be present verbatim and unambiguously.
     /// Anything else leaves the target app untouched (the corrected text is
-    /// already on the clipboard).
+    /// already on the clipboard). The AX work runs off the main thread so an
+    /// unresponsive target app can't freeze Susurrus.
     private func replaceInTargetApp(item: TranscriptionHistoryItem, newText: String) {
-        guard let record = PasteTracker.shared.last(), record.text == item.text else { return }
+        guard let snapshot = PasteTracker.shared.snapshot(),
+              snapshot.record.text == item.text else { return }
 
-        let outcome = AXTextReplacer().replaceLastPaste(record: record, with: newText)
+        let record = snapshot.record
+        // The captured AXUIElement is used only inside the detached task and
+        // never crosses back to the main actor (it isn't Sendable).
+        let element = snapshot.element
+        Task.detached {
+            let outcome = AXTextReplacer().replaceLastPaste(
+                record: record, with: newText, preferredElement: element
+            )
+            await MainActor.run {
+                Self.report(outcome: outcome, record: record, newText: newText)
+            }
+        }
+    }
+
+    @MainActor
+    private static func report(
+        outcome: ReplaceOutcome,
+        record: PasteRecord,
+        newText: String
+    ) {
         let appName = NSRunningApplication(processIdentifier: record.processIdentifier)?
             .localizedName ?? "the app"
 
         switch outcome {
         case .replaced:
-            // A second fix of the same dictation should still work.
-            PasteTracker.shared.set(PasteRecord(
-                text: newText,
-                bundleIdentifier: record.bundleIdentifier,
-                processIdentifier: record.processIdentifier
-            ))
+            // A second fix of the same dictation should still work — swap the
+            // stored text in place, keeping the captured paste-target element.
+            PasteTracker.shared.updateText(to: newText, expecting: record)
             UserNotificationService.shared.showNotification(
                 title: "Fixed in \(appName)",
                 body: "The pasted text was updated in place. The corrected version is also on the clipboard."
@@ -118,12 +136,15 @@ struct FixLastDictationView: View {
             notifyManualPaste("\(appName) doesn't allow text replacement.")
         case .appNotRunning:
             notifyManualPaste("The app it was pasted into is no longer running.")
+        case .recordStale:
+            notifyManualPaste("Too much time has passed since the text was pasted.")
         case .accessibilityDenied:
             notifyManualPaste("Accessibility permission is needed to edit text in other apps.")
         }
     }
 
-    private func notifyManualPaste(_ reason: String) {
+    @MainActor
+    private static func notifyManualPaste(_ reason: String) {
         UserNotificationService.shared.showNotification(
             title: "Fixed — paste to update",
             body: "\(reason) The corrected text is on the clipboard."

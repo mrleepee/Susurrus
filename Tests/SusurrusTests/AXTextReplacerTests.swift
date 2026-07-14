@@ -65,4 +65,40 @@ struct PasteTrackerTests {
         tracker.set(nil)
         #expect(tracker.last() == nil)
     }
+
+    @Test("updateText swaps text but only when the record is unchanged")
+    func updateTextGuarded() {
+        let tracker = PasteTracker()
+        let original = PasteRecord(text: "helo", bundleIdentifier: "com.x", processIdentifier: 1)
+        tracker.set(original)
+
+        tracker.updateText(to: "hello", expecting: original)
+        #expect(tracker.last()?.text == "hello")
+        // pid/bundle preserved across the swap.
+        #expect(tracker.last()?.processIdentifier == 1)
+
+        // A newer dictation replaced the record — a stale update is ignored.
+        let newer = PasteRecord(text: "different", bundleIdentifier: "com.y", processIdentifier: 2)
+        tracker.set(newer)
+        tracker.updateText(to: "should not apply", expecting: original)
+        #expect(tracker.last() == newer)
+    }
+}
+
+@Suite("AXTextReplacer outcome Tests")
+struct AXTextReplacerOutcomeTests {
+
+    @Test("Stale record is refused before any AX work")
+    func staleRecordRefused() {
+        // Staleness is the first, AX-independent guard, so this is
+        // deterministic even in the untrusted test process.
+        let old = PasteRecord(
+            text: "hello",
+            bundleIdentifier: "com.example",
+            processIdentifier: 99999,
+            pastedAt: Date().addingTimeInterval(-(AXTextReplacer.maxRecordAge + 60))
+        )
+        let outcome = AXTextReplacer().replaceLastPaste(record: old, with: "goodbye")
+        #expect(outcome == .recordStale)
+    }
 }

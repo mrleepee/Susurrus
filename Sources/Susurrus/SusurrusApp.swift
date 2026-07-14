@@ -713,6 +713,12 @@ struct SusurrusApp: App {
                     traceApp("stopStreamingSession: writing to clipboard")
                     let outputMode = UserDefaults.standard.string(forKey: "outputMode") ?? "clipboard"
 
+                    // Every dictation invalidates the previous paste record,
+                    // whatever the output mode — in-place fixing only ever
+                    // targets the most recent paste, and notebook-mode
+                    // dictations must not leave a stale clipboard-mode target.
+                    PasteTracker.shared.set(nil)
+
                     if outputMode == "notebook" {
                         // Notebook mode: append to notebook, open notebooks window for editing
                         traceApp("stopStreamingSession: notebook mode — appending to notebook")
@@ -734,24 +740,30 @@ struct SusurrusApp: App {
 
                         let autoPaste = prefs.autoPasteEnabled()
                         traceApp("stopStreamingSession: autoPaste=\(autoPaste)")
-                        // Each dictation invalidates the previous paste
-                        // record — in-place fixing only ever targets the
-                        // most recent paste.
-                        PasteTracker.shared.set(nil)
                         if autoPaste {
-                            // The app we're about to paste into (we're an
-                            // accessory app, so the target stays frontmost).
-                            let target = await MainActor.run { NSWorkspace.shared.frontmostApplication }
                             try? await Task.sleep(for: .milliseconds(150))
+                            // Sample the frontmost app *after* the delay, so
+                            // the recorded target is the app the paste
+                            // actually lands in (a focus switch during the
+                            // wait would otherwise mislabel it).
+                            let target = await MainActor.run { NSWorkspace.shared.frontmostApplication }
                             let pasted = clip.simulatePaste()
                             if pasted {
                                 if let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier {
-                                    PasteTracker.shared.set(PasteRecord(
-                                        text: finalText,
-                                        bundleIdentifier: target.bundleIdentifier,
-                                        processIdentifier: target.processIdentifier
-                                    ))
-                                    traceApp("stopStreamingSession: paste target recorded: \(target.bundleIdentifier ?? "?")")
+                                    // Capture the exact field we pasted into
+                                    // so a later fix can't clobber a
+                                    // different field that happens to hold
+                                    // the same text.
+                                    let element = AXTextReplacer().focusedElement(ofPID: target.processIdentifier)
+                                    PasteTracker.shared.set(
+                                        PasteRecord(
+                                            text: finalText,
+                                            bundleIdentifier: target.bundleIdentifier,
+                                            processIdentifier: target.processIdentifier
+                                        ),
+                                        element: element
+                                    )
+                                    traceApp("stopStreamingSession: paste target recorded: \(target.bundleIdentifier ?? "?") element=\(element != nil)")
                                 }
                             } else {
                                 notifications.showNotification(

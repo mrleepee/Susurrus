@@ -38,6 +38,11 @@ final class StreamingOverlayWindow: NSPanel {
     private var lastConfirmed = ""
     private var lastUnconfirmed = ""
 
+    /// True between `beginFinalizing()` and `hide()`. While set, late
+    /// streaming updates (a throttled interim callback that lands after the
+    /// hotkey release) are ignored so they can't clear the progress row.
+    private var isFinalizing = false
+
     // MARK: - Init
 
     init() {
@@ -148,6 +153,11 @@ final class StreamingOverlayWindow: NSPanel {
     /// Shows the overlay with the given text (Behaviour 1.1).
     /// If already visible, updates text immediately.
     func show(confirmed: String, unconfirmed: String) {
+        // A throttled interim update can arrive after the hotkey release
+        // flipped us into the finalizing state — ignore it so it can't
+        // wipe the "Finalizing…" progress row.
+        guard !isFinalizing else { return }
+
         // Invalidate cached anchor on show so position refreshes each session
         cachedAnchorPoint = nil
 
@@ -174,6 +184,7 @@ final class StreamingOverlayWindow: NSPanel {
     /// called once the final text has been delivered — so the user gets
     /// feedback during the whole-buffer decode instead of a blank gap.
     func beginFinalizing() {
+        isFinalizing = true
         if !isShowing {
             // A very short dictation may never have shown the overlay;
             // surface just the progress row.
@@ -220,6 +231,7 @@ final class StreamingOverlayWindow: NSPanel {
     func hide() {
         guard isShowing else { return }
         isShowing = false
+        isFinalizing = false
         // Next session must not flash this session's text.
         lastConfirmed = ""
         lastUnconfirmed = ""
@@ -229,9 +241,12 @@ final class StreamingOverlayWindow: NSPanel {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             self.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            self?.orderOut(nil)
+            // A new session may have called show() during the 300ms fade —
+            // don't order out a now-visible overlay.
+            guard let self, !self.isShowing else { return }
+            self.orderOut(nil)
             // Move off-screen to prevent it from appearing during app transitions
-            self?.setFrameOrigin(CGPoint(x: -9999, y: -9999))
+            self.setFrameOrigin(CGPoint(x: -9999, y: -9999))
         })
     }
 

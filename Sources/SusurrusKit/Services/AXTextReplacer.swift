@@ -30,7 +30,10 @@ public enum ReplaceOutcome: Sendable, Equatable {
     case accessibilityDenied
     /// The recorded pid is gone or now belongs to a different bundle.
     case appNotRunning
-    /// Couldn't get the app's focused UI element or read its string value.
+    /// The record is older than the allowed window — the user has likely
+    /// moved on, so we don't reach into a stale target.
+    case recordStale
+    /// Couldn't get the paste-target UI element or read its string value.
     case focusedElementUnavailable
     /// The pasted text is no longer present verbatim (user edited it, or
     /// the app transformed it — smart quotes, autocorrect).
@@ -48,7 +51,21 @@ public enum ReplaceOutcome: Sendable, Equatable {
 /// front. Never guesses — any ambiguity or failure leaves the target alone.
 public final class AXTextReplacer: @unchecked Sendable {
 
+    /// Records older than this are refused — the fix flow is meant to run
+    /// moments after a dictation, not minutes later against whatever now
+    /// holds focus.
+    public static let maxRecordAge: TimeInterval = 300
+
     public init() {}
+
+    /// The focused UI element of the app with `pid`, captured so the caller
+    /// can pin a replacement to the exact field that was pasted into rather
+    /// than whatever holds focus at fix time. Returns nil without AX trust.
+    public func focusedElement(ofPID pid: pid_t) -> AXUIElement? {
+        guard AXIsProcessTrusted() else { return nil }
+        let axApp = AXUIElementCreateApplication(pid)
+        return copyElement(axApp, kAXFocusedUIElementAttribute)
+    }
 
     /// Locate `needle` in `haystack` and return its NSRange (UTF-16 units,
     /// the coordinate space AX text ranges use) only when it occurs exactly
@@ -73,8 +90,26 @@ public final class AXTextReplacer: @unchecked Sendable {
     }
 
     /// Replace the recorded paste with `replacement` inside the target app.
+    ///
+    /// `preferredElement` should be the focused element captured at paste
+    /// time (via `focusedElement(ofPID:)`). When present, the replacement is
+    /// pinned to that exact field, so focus drifting to another field — or
+    /// another field coincidentally containing the same text — cannot be
+    /// clobbered. When nil (element capture failed), we fall back to the
+    /// app's current focused element, still guarded by the unique-match check.
+    ///
     /// Synchronous AX calls — run off the main thread if latency matters.
-    public func replaceLastPaste(record: PasteRecord, with replacement: String) -> ReplaceOutcome {
+    public func replaceLastPaste(
+        record: PasteRecord,
+        with replacement: String,
+        preferredElement: AXUIElement? = nil
+    ) -> ReplaceOutcome {
+        // Cheapest, AX-independent guard first: don't reach into anything if
+        // the user has clearly moved on since the paste.
+        guard Date().timeIntervalSince(record.pastedAt) <= Self.maxRecordAge else {
+            return .recordStale
+        }
+
         guard AXIsProcessTrusted() else { return .accessibilityDenied }
 
         guard let app = NSRunningApplication(processIdentifier: record.processIdentifier),
@@ -82,12 +117,18 @@ public final class AXTextReplacer: @unchecked Sendable {
             return .appNotRunning
         }
 
-        let axApp = AXUIElementCreateApplication(record.processIdentifier)
-
-        guard let focused = copyElement(axApp, kAXFocusedUIElementAttribute) else {
-            return .focusedElementUnavailable
+        let element: AXUIElement
+        if let preferredElement {
+            element = preferredElement
+        } else {
+            let axApp = AXUIElementCreateApplication(record.processIdentifier)
+            guard let focused = copyElement(axApp, kAXFocusedUIElementAttribute) else {
+                return .focusedElementUnavailable
+            }
+            element = focused
         }
-        guard let value = copyString(focused, kAXValueAttribute) else {
+
+        guard let value = copyString(element, kAXValueAttribute) else {
             return .focusedElementUnavailable
         }
 
@@ -98,21 +139,26 @@ public final class AXTextReplacer: @unchecked Sendable {
         var cfRange = CFRange(location: range.location, length: range.length)
         guard let axRange = AXValueCreate(.cfRange, &cfRange) else { return .notWritable }
         guard AXUIElementSetAttributeValue(
-            focused, kAXSelectedTextRangeAttribute as CFString, axRange
+            element, kAXSelectedTextRangeAttribute as CFString, axRange
         ) == .success else {
             return .notWritable
         }
 
         guard AXUIElementSetAttributeValue(
-            focused, kAXSelectedTextAttribute as CFString, replacement as CFString
+            element, kAXSelectedTextAttribute as CFString, replacement as CFString
         ) == .success else {
             return .notWritable
         }
 
-        // Best-effort verification: some apps report success without
-        // applying the write; only claim victory if the text is there.
-        guard let after = copyString(focused, kAXValueAttribute),
-              after.contains(replacement) else {
+        // Verify against the specific range we wrote: re-read the value and
+        // confirm the replacement now sits where the needle was. `contains`
+        // alone can be fooled when the replacement text already appears
+        // elsewhere in the field.
+        guard let after = copyString(element, kAXValueAttribute) else { return .notWritable }
+        let afterNS = after as NSString
+        let expectedEnd = range.location + (replacement as NSString).length
+        guard expectedEnd <= afterNS.length,
+              afterNS.substring(with: NSRange(location: range.location, length: (replacement as NSString).length)) == replacement else {
             return .notWritable
         }
         return .replaced
@@ -138,27 +184,57 @@ public final class AXTextReplacer: @unchecked Sendable {
     }
 }
 
-/// Process-wide holder for the most recent auto-paste. Written by the
-/// dictation-stop path, read by the Fix Last Dictation window. A new
-/// dictation overwrites it; a successful in-place fix updates it so a
-/// second fix of the same dictation still works.
+/// Process-wide holder for the most recent auto-paste, plus the focused UI
+/// element it landed in. Written by the dictation-stop path, read by the Fix
+/// Last Dictation window. A new dictation overwrites it; a successful
+/// in-place fix updates it so a second fix of the same dictation still works.
+///
+/// The element is a live AX reference (not `Sendable`), so it lives here in a
+/// lock-guarded class rather than in the `Sendable` `PasteRecord`.
 public final class PasteTracker: @unchecked Sendable {
     public static let shared = PasteTracker()
 
     private let lock = NSLock()
     private var record: PasteRecord?
+    private var element: AXUIElement?
 
     public init() {}
 
-    public func set(_ record: PasteRecord?) {
+    public func set(_ record: PasteRecord?, element: AXUIElement? = nil) {
         lock.lock()
         defer { lock.unlock() }
         self.record = record
+        self.element = record == nil ? nil : element
     }
 
     public func last() -> PasteRecord? {
         lock.lock()
         defer { lock.unlock() }
         return record
+    }
+
+    /// The record and its captured paste-target element together, so a fix
+    /// reads a consistent snapshot even if a new dictation lands mid-fix.
+    public func snapshot() -> (record: PasteRecord, element: AXUIElement?)? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let record else { return nil }
+        return (record, element)
+    }
+
+    /// After a successful in-place fix, swap the stored record's text so a
+    /// second fix of the same dictation still matches — keeping the same
+    /// captured element and only if the record hasn't been replaced by a
+    /// newer dictation in the meantime (guarded by `expecting`).
+    public func updateText(to newText: String, expecting previous: PasteRecord) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let current = record, current == previous else { return }
+        record = PasteRecord(
+            text: newText,
+            bundleIdentifier: current.bundleIdentifier,
+            processIdentifier: current.processIdentifier,
+            pastedAt: current.pastedAt
+        )
     }
 }
