@@ -15,6 +15,13 @@ public actor WhisperKitTranscriptionService: Transcribing {
     public init() {}
 
     /// Set the vocabulary prompt (callable from outside the actor).
+    /// Token count of the current vocabulary prompt (nil before model load).
+    /// Exposed for latency benchmarking of prompt prefill cost.
+    public func vocabularyPromptTokenCount() -> Int? {
+        guard let tokenizer = whisperKit?.tokenizer, !vocabularyPrompt.isEmpty else { return nil }
+        return tokenizer.encode(text: vocabularyPrompt).count
+    }
+
     public func setVocabularyPrompt(_ prompt: String) {
         vocabularyPrompt = prompt
     }

@@ -34,6 +34,10 @@ final class StreamingOverlayWindow: NSPanel {
     /// so we don't re-locate the menu bar icon on every callback.
     private var cachedAnchorPoint: CGPoint?
 
+    /// Last streamed text, kept so the finalizing state can dim it in place.
+    private var lastConfirmed = ""
+    private var lastUnconfirmed = ""
+
     // MARK: - Init
 
     init() {
@@ -165,11 +169,28 @@ final class StreamingOverlayWindow: NSPanel {
         repositionBelowMenuBarIcon()
     }
 
+    /// Switches the overlay into its finalizing state: the last streamed
+    /// text dims and a progress row appears. Stays up until `hide()` —
+    /// called once the final text has been delivered — so the user gets
+    /// feedback during the whole-buffer decode instead of a blank gap.
+    func beginFinalizing() {
+        if !isShowing {
+            // A very short dictation may never have shown the overlay;
+            // surface just the progress row.
+            isShowing = true
+            alphaValue = 1
+            orderFront(nil)
+        }
+        updateText(confirmed: lastConfirmed, unconfirmed: lastUnconfirmed, isFinalizing: true)
+    }
+
     /// Updates the displayed text with confirmed and unconfirmed components
     /// (Behaviour 1.2). Repositions only if already visible.
-    func updateText(confirmed: String, unconfirmed: String) {
+    func updateText(confirmed: String, unconfirmed: String, isFinalizing: Bool = false) {
+        lastConfirmed = confirmed
+        lastUnconfirmed = unconfirmed
         // Rebuild the hosting view with new text
-        let newView = StreamingOverlayView(confirmed: confirmed, unconfirmed: unconfirmed)
+        let newView = StreamingOverlayView(confirmed: confirmed, unconfirmed: unconfirmed, isFinalizing: isFinalizing)
         hostingView.rootView = newView
 
         let fittingSize = hostingView.fittingSize
@@ -199,6 +220,9 @@ final class StreamingOverlayWindow: NSPanel {
     func hide() {
         guard isShowing else { return }
         isShowing = false
+        // Next session must not flash this session's text.
+        lastConfirmed = ""
+        lastUnconfirmed = ""
 
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = Self.fadeOutDuration

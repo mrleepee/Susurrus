@@ -73,12 +73,60 @@ struct FixLastDictationView: View {
     private func save(_ item: TranscriptionHistoryItem) {
         let newText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newText.isEmpty else { return }
-        if newText != item.text {
+        let changed = newText != item.text
+        if changed {
             // Records the correction pair -> rule learning, vocab promotion,
             // and the "Susurrus learned…" notification via onLearn.
             historyManager.updateText(id: item.id, newText: newText)
         }
         clipboard.writeText(newText)
+        if changed {
+            replaceInTargetApp(item: item, newText: newText)
+        }
         dismiss()
+    }
+
+    /// Replace the auto-pasted text in the app it was pasted into, when it
+    /// can be done safely — the record must match the item being fixed and
+    /// the pasted string must still be present verbatim and unambiguously.
+    /// Anything else leaves the target app untouched (the corrected text is
+    /// already on the clipboard).
+    private func replaceInTargetApp(item: TranscriptionHistoryItem, newText: String) {
+        guard let record = PasteTracker.shared.last(), record.text == item.text else { return }
+
+        let outcome = AXTextReplacer().replaceLastPaste(record: record, with: newText)
+        let appName = NSRunningApplication(processIdentifier: record.processIdentifier)?
+            .localizedName ?? "the app"
+
+        switch outcome {
+        case .replaced:
+            // A second fix of the same dictation should still work.
+            PasteTracker.shared.set(PasteRecord(
+                text: newText,
+                bundleIdentifier: record.bundleIdentifier,
+                processIdentifier: record.processIdentifier
+            ))
+            UserNotificationService.shared.showNotification(
+                title: "Fixed in \(appName)",
+                body: "The pasted text was updated in place. The corrected version is also on the clipboard."
+            )
+        case .textNotFound:
+            notifyManualPaste("The original text has changed in \(appName), so it wasn't touched.")
+        case .ambiguous:
+            notifyManualPaste("The text appears more than once in \(appName), so nothing was touched.")
+        case .notWritable, .focusedElementUnavailable:
+            notifyManualPaste("\(appName) doesn't allow text replacement.")
+        case .appNotRunning:
+            notifyManualPaste("The app it was pasted into is no longer running.")
+        case .accessibilityDenied:
+            notifyManualPaste("Accessibility permission is needed to edit text in other apps.")
+        }
+    }
+
+    private func notifyManualPaste(_ reason: String) {
+        UserNotificationService.shared.showNotification(
+            title: "Fixed — paste to update",
+            body: "\(reason) The corrected text is on the clipboard."
+        )
     }
 }

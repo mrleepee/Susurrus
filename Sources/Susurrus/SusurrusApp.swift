@@ -31,7 +31,7 @@ struct SusurrusApp: App {
     // Services
     private let streamingService = StreamingTranscriptionService()
     private let clipboard = PasteboardClipboardService()
-    private let notificationService = UserNotificationService()
+    private let notificationService = UserNotificationService.shared
     private let preferences = UserDefaultsPreferencesManager()
     private let vocabularyManager = VocabularyManager.shared
     private let hotkeyService = GlobalHotkeyService()
@@ -624,7 +624,9 @@ struct SusurrusApp: App {
 
     private func stopStreamingSession() {
         stopDurationTimer()
-        overlayWindow?.hide()
+        // Keep the overlay up in a dimmed "Finalizing…" state through the
+        // whole-buffer decode (1–8s) — it hides once the text is delivered.
+        overlayWindow?.beginFinalizing()
 
         let appendMode = preferences.appendToClipboard()
         let shouldLLM = appState.forceLLM || preferences.llmEnabled()
@@ -643,6 +645,7 @@ struct SusurrusApp: App {
         let vocab = vocabularyManager
         let corrections = correctionManager
         let composer = promptComposer
+        let overlay = overlayWindow
 
         Task {
             do {
@@ -731,10 +734,26 @@ struct SusurrusApp: App {
 
                         let autoPaste = prefs.autoPasteEnabled()
                         traceApp("stopStreamingSession: autoPaste=\(autoPaste)")
+                        // Each dictation invalidates the previous paste
+                        // record — in-place fixing only ever targets the
+                        // most recent paste.
+                        PasteTracker.shared.set(nil)
                         if autoPaste {
+                            // The app we're about to paste into (we're an
+                            // accessory app, so the target stays frontmost).
+                            let target = await MainActor.run { NSWorkspace.shared.frontmostApplication }
                             try? await Task.sleep(for: .milliseconds(150))
                             let pasted = clip.simulatePaste()
-                            if !pasted {
+                            if pasted {
+                                if let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                                    PasteTracker.shared.set(PasteRecord(
+                                        text: finalText,
+                                        bundleIdentifier: target.bundleIdentifier,
+                                        processIdentifier: target.processIdentifier
+                                    ))
+                                    traceApp("stopStreamingSession: paste target recorded: \(target.bundleIdentifier ?? "?")")
+                                }
+                            } else {
                                 notifications.showNotification(
                                     title: "Auto-paste blocked — text is on the clipboard",
                                     body: "Grant Accessibility access: System Settings > Privacy & Security > Accessibility. If Susurrus is already listed, remove it (−) and re-add it — the grant resets when the app's signature changes."
@@ -767,6 +786,10 @@ struct SusurrusApp: App {
                     body: error.localizedDescription
                 )
             }
+
+            // All paths land here (success, no-speech, errors) — drop the
+            // finalizing overlay now that the outcome is known.
+            await MainActor.run { overlay?.hide() }
 
             // Consume the duration cap flag after notification (Behaviour 2.6)
             if state.wasDurationCapped {
