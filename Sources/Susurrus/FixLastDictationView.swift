@@ -103,9 +103,18 @@ struct FixLastDictationView: View {
 
         // In-place replacement only when the paste record matches the item
         // being fixed; otherwise there is nothing safe to update.
-        guard changed,
-              let snapshot = PasteTracker.shared.snapshot(),
-              snapshot.record.text == item.text else {
+        guard changed else {
+            traceApp("fixWindow: saved without changes")
+            dismiss()
+            return
+        }
+        guard let snapshot = PasteTracker.shared.snapshot() else {
+            traceApp("fixWindow: no paste record — skipping in-place replace")
+            dismiss()
+            return
+        }
+        guard snapshot.record.text == item.text else {
+            traceApp("fixWindow: paste record doesn't match item (already fixed or newer paste) — skipping in-place replace")
             dismiss()
             return
         }
@@ -130,6 +139,7 @@ struct FixLastDictationView: View {
     private func finish(outcome: ReplaceOutcome, record: PasteRecord, newText: String) {
         let appName = NSRunningApplication(processIdentifier: record.processIdentifier)?
             .localizedName ?? "the app"
+        traceApp("fixWindow: replace outcome=\(outcome) app=\(record.bundleIdentifier ?? "?")")
 
         switch outcome {
         case .replaced:

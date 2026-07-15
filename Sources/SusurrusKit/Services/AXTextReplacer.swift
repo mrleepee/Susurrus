@@ -232,15 +232,21 @@ public final class AXTextReplacer: @unchecked Sendable {
     // MARK: - AX plumbing
 
     /// Chromium-based apps expose their web-content AX tree only when an
-    /// assistive client announces itself. Best effort — native apps ignore
-    /// the attribute (or return an error, which is fine).
+    /// assistive client announces itself. `AXManualAccessibility` is the
+    /// Electron-specific switch (Slack honours it); plain Chromium/WebView2
+    /// apps (new Teams, Chrome, Edge) instead watch `AXEnhancedUserInterface`
+    /// — the flag VoiceOver sets. Try both; native apps ignore or reject
+    /// them harmlessly.
     private func enableManualAccessibility(_ axApp: AXUIElement, pid: pid_t) {
-        let err = AXUIElementSetAttributeValue(
+        let manualErr = AXUIElementSetAttributeValue(
             axApp, "AXManualAccessibility" as CFString, kCFBooleanTrue
         )
-        if err != .success {
-            traceAX("manualAccessibility: not applicable for pid=\(pid) (axErr=\(err.rawValue))")
-        }
+        if manualErr == .success { return }
+
+        let enhancedErr = AXUIElementSetAttributeValue(
+            axApp, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue
+        )
+        traceAX("enableAX pid=\(pid): manual axErr=\(manualErr.rawValue), enhanced axErr=\(enhancedErr.rawValue)")
     }
 
     private func copyElement(_ element: AXUIElement, _ attribute: String) -> (AXUIElement?, AXError) {

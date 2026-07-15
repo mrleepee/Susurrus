@@ -6,7 +6,7 @@ import os.log
 private let log = Logger(subsystem: "com.susurrus.app", category: "App")
 
 /// NSLog wrapper — always visible in Console.app and `log show`, unlike os.Logger info.
-private func traceApp(_ message: String) {
+func traceApp(_ message: String) {
     let path = NSHomeDirectory() + "/susurrus_debug.log"
     let line = "\(Date()) \(message)\n"
     if let handle = FileHandle(forWritingAtPath: path) {
@@ -28,25 +28,43 @@ struct SusurrusApp: App {
     @AppStorage("recordingMode") private var recordingMode = "push-to-talk"
     @Environment(\.openWindow) private var openWindow
 
-    // Services
-    private let streamingService = StreamingTranscriptionService()
-    private let clipboard = PasteboardClipboardService()
-    private let notificationService = UserNotificationService.shared
-    private let preferences = UserDefaultsPreferencesManager()
-    private let vocabularyManager = VocabularyManager.shared
-    private let hotkeyService = GlobalHotkeyService()
-    private let llmHotkeyService = GlobalHotkeyService()
-    private let fixHotkeyService = GlobalHotkeyService()
-    private let hotkeyStorage = HotkeyStorage()
-    private let micPermissionManager = MicPermissionManager()
-    private let llmService = LLMService()
-    private let historyManager = TranscriptionHistoryManager.shared
-    private let correctionManager = CorrectionLearningManager.shared
-    private let notebookManager = NotebookManager.shared
+    // Services — process-stable singletons, NOT per-copy stored properties.
+    // SwiftUI recreates the App struct freely (observed 19 re-inits/sec
+    // during window churn); a `let` service here is deallocated on every
+    // re-init. Carbon keeps an *unretained* pointer to its registered
+    // GlobalHotkeyService, so a per-copy instance is a use-after-free that
+    // killed the fix hotkey after one use; StreamingTranscriptionService
+    // holds the loaded model. Forwarding vars keep call sites unchanged.
+    private static let sharedStreamingService = StreamingTranscriptionService()
+    private var streamingService: StreamingTranscriptionService { Self.sharedStreamingService }
+    private static let sharedClipboard = PasteboardClipboardService()
+    private var clipboard: PasteboardClipboardService { Self.sharedClipboard }
+    private var notificationService: UserNotificationService { UserNotificationService.shared }
+    private static let sharedPreferences = UserDefaultsPreferencesManager()
+    private var preferences: UserDefaultsPreferencesManager { Self.sharedPreferences }
+    private var vocabularyManager: VocabularyManager { VocabularyManager.shared }
+    private static let sharedHotkeyService = GlobalHotkeyService()
+    private var hotkeyService: GlobalHotkeyService { Self.sharedHotkeyService }
+    private static let sharedLLMHotkeyService = GlobalHotkeyService()
+    private var llmHotkeyService: GlobalHotkeyService { Self.sharedLLMHotkeyService }
+    private static let sharedFixHotkeyService = GlobalHotkeyService()
+    private var fixHotkeyService: GlobalHotkeyService { Self.sharedFixHotkeyService }
+    private static let sharedHotkeyStorage = HotkeyStorage()
+    private var hotkeyStorage: HotkeyStorage { Self.sharedHotkeyStorage }
+    private static let sharedMicPermissionManager = MicPermissionManager()
+    private var micPermissionManager: MicPermissionManager { Self.sharedMicPermissionManager }
+    private static let sharedLLMService = LLMService()
+    private var llmService: LLMService { Self.sharedLLMService }
+    private var historyManager: TranscriptionHistoryManager { TranscriptionHistoryManager.shared }
+    private var correctionManager: CorrectionLearningManager { CorrectionLearningManager.shared }
+    private var notebookManager: NotebookManager { NotebookManager.shared }
+    // Value types — cheap and stateless, safe to live per-copy.
     private let promptComposer = PromptComposer()
     private let transcriptCorrector = TranscriptCorrector()
-    private let mediaService = MediaService()
-    private let audioDeviceService = AudioDeviceService()
+    private static let sharedMediaService = MediaService()
+    private var mediaService: MediaService { Self.sharedMediaService }
+    private static let sharedAudioDeviceService = AudioDeviceService()
+    private var audioDeviceService: AudioDeviceService { Self.sharedAudioDeviceService }
 
     // Recording duration timer
     @State private var durationTimer: Timer?
