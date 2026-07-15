@@ -1,6 +1,19 @@
 import AppKit
 import ApplicationServices
 
+/// Writes to ~/susurrus_debug.log — same sink as traceApp() in the app layer.
+private func traceAX(_ message: String) {
+    let path = NSHomeDirectory() + "/susurrus_debug.log"
+    let line = "\(Date()) [ax] \(message)\n"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        handle.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: Data(line.utf8))
+    }
+}
+
 /// What Susurrus pasted, and where, captured at auto-paste time so the Fix
 /// Last Dictation window can later replace it in place.
 public struct PasteRecord: Sendable, Equatable {
@@ -61,10 +74,50 @@ public final class AXTextReplacer: @unchecked Sendable {
     /// The focused UI element of the app with `pid`, captured so the caller
     /// can pin a replacement to the exact field that was pasted into rather
     /// than whatever holds focus at fix time. Returns nil without AX trust.
+    ///
+    /// Chromium/Electron apps (Teams, Slack, VS Code) build their AX tree
+    /// lazily and report no focused element until `AXManualAccessibility`
+    /// is switched on — production logs showed element=false for every
+    /// capture in Teams and Slack. We enable it, then retry once after a
+    /// short pause for the tree to build.
     public func focusedElement(ofPID pid: pid_t) -> AXUIElement? {
-        guard AXIsProcessTrusted() else { return nil }
+        guard AXIsProcessTrusted() else {
+            traceAX("focusedElement: not trusted")
+            return nil
+        }
         let axApp = AXUIElementCreateApplication(pid)
-        return copyElement(axApp, kAXFocusedUIElementAttribute)
+        enableManualAccessibility(axApp, pid: pid)
+
+        let (element, err) = copyElement(axApp, kAXFocusedUIElementAttribute)
+        if let element {
+            traceAX("focusedElement: app-level hit pid=\(pid)")
+            return element
+        }
+        traceAX("focusedElement: app-level miss pid=\(pid) axErr=\(err.rawValue), retrying after tree build")
+
+        // Give a freshly-enabled Chromium tree a moment, then retry.
+        Thread.sleep(forTimeInterval: 0.3)
+        let (retried, retryErr) = copyElement(axApp, kAXFocusedUIElementAttribute)
+        if let retried {
+            traceAX("focusedElement: app-level hit on retry pid=\(pid)")
+            return retried
+        }
+
+        // Last resort: the system-wide focused element, accepted only when
+        // it belongs to the target pid.
+        let systemWide = AXUIElementCreateSystemWide()
+        let (sysFocused, sysErr) = copyElement(systemWide, kAXFocusedUIElementAttribute)
+        if let sysFocused {
+            var elementPid: pid_t = 0
+            if AXUIElementGetPid(sysFocused, &elementPid) == .success, elementPid == pid {
+                traceAX("focusedElement: system-wide hit pid=\(pid)")
+                return sysFocused
+            }
+            traceAX("focusedElement: system-wide element belongs to pid=\(elementPid), wanted \(pid)")
+            return nil
+        }
+        traceAX("focusedElement: all paths failed pid=\(pid) retryErr=\(retryErr.rawValue) sysErr=\(sysErr.rawValue)")
+        return nil
     }
 
     /// Locate `needle` in `haystack` and return its NSRange (UTF-16 units,
@@ -120,33 +173,38 @@ public final class AXTextReplacer: @unchecked Sendable {
         let element: AXUIElement
         if let preferredElement {
             element = preferredElement
-        } else {
-            let axApp = AXUIElementCreateApplication(record.processIdentifier)
-            guard let focused = copyElement(axApp, kAXFocusedUIElementAttribute) else {
-                return .focusedElementUnavailable
-            }
+        } else if let focused = focusedElement(ofPID: record.processIdentifier) {
             element = focused
+        } else {
+            return .focusedElementUnavailable
         }
 
-        guard let value = copyString(element, kAXValueAttribute) else {
+        let (value, valueErr) = copyString(element, kAXValueAttribute)
+        guard let value else {
+            traceAX("replace: value read failed axErr=\(valueErr.rawValue)")
             return .focusedElementUnavailable
         }
 
         guard let range = Self.locateUnique(record.text, in: value) else {
+            traceAX("replace: needle \(value.contains(record.text) ? "ambiguous" : "not found") in \(value.count)-char value")
             return value.contains(record.text) ? .ambiguous : .textNotFound
         }
 
         var cfRange = CFRange(location: range.location, length: range.length)
         guard let axRange = AXValueCreate(.cfRange, &cfRange) else { return .notWritable }
-        guard AXUIElementSetAttributeValue(
+        let selectErr = AXUIElementSetAttributeValue(
             element, kAXSelectedTextRangeAttribute as CFString, axRange
-        ) == .success else {
+        )
+        guard selectErr == .success else {
+            traceAX("replace: selection set failed axErr=\(selectErr.rawValue)")
             return .notWritable
         }
 
-        guard AXUIElementSetAttributeValue(
+        let writeErr = AXUIElementSetAttributeValue(
             element, kAXSelectedTextAttribute as CFString, replacement as CFString
-        ) == .success else {
+        )
+        guard writeErr == .success else {
+            traceAX("replace: text set failed axErr=\(writeErr.rawValue)")
             return .notWritable
         }
 
@@ -154,33 +212,51 @@ public final class AXTextReplacer: @unchecked Sendable {
         // confirm the replacement now sits where the needle was. `contains`
         // alone can be fooled when the replacement text already appears
         // elsewhere in the field.
-        guard let after = copyString(element, kAXValueAttribute) else { return .notWritable }
-        let afterNS = after as NSString
-        let expectedEnd = range.location + (replacement as NSString).length
-        guard expectedEnd <= afterNS.length,
-              afterNS.substring(with: NSRange(location: range.location, length: (replacement as NSString).length)) == replacement else {
+        let (after, afterErr) = copyString(element, kAXValueAttribute)
+        guard let after else {
+            traceAX("replace: verification read failed axErr=\(afterErr.rawValue)")
             return .notWritable
         }
+        let afterNS = after as NSString
+        let replacementLength = (replacement as NSString).length
+        let expectedEnd = range.location + replacementLength
+        guard expectedEnd <= afterNS.length,
+              afterNS.substring(with: NSRange(location: range.location, length: replacementLength)) == replacement else {
+            traceAX("replace: verification mismatch at range \(range.location)+\(replacementLength)")
+            return .notWritable
+        }
+        traceAX("replace: success in \(record.bundleIdentifier ?? "?")")
         return .replaced
     }
 
     // MARK: - AX plumbing
 
-    private func copyElement(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
-        var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success,
-              let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else {
-            return nil
+    /// Chromium-based apps expose their web-content AX tree only when an
+    /// assistive client announces itself. Best effort — native apps ignore
+    /// the attribute (or return an error, which is fine).
+    private func enableManualAccessibility(_ axApp: AXUIElement, pid: pid_t) {
+        let err = AXUIElementSetAttributeValue(
+            axApp, "AXManualAccessibility" as CFString, kCFBooleanTrue
+        )
+        if err != .success {
+            traceAX("manualAccessibility: not applicable for pid=\(pid) (axErr=\(err.rawValue))")
         }
-        return (ref as! AXUIElement)
     }
 
-    private func copyString(_ element: AXUIElement, _ attribute: String) -> String? {
+    private func copyElement(_ element: AXUIElement, _ attribute: String) -> (AXUIElement?, AXError) {
         var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success else {
-            return nil
+        let err = AXUIElementCopyAttributeValue(element, attribute as CFString, &ref)
+        guard err == .success, let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else {
+            return (nil, err)
         }
-        return ref as? String
+        return ((ref as! AXUIElement), err)
+    }
+
+    private func copyString(_ element: AXUIElement, _ attribute: String) -> (String?, AXError) {
+        var ref: CFTypeRef?
+        let err = AXUIElementCopyAttributeValue(element, attribute as CFString, &ref)
+        guard err == .success else { return (nil, err) }
+        return (ref as? String, err)
     }
 }
 

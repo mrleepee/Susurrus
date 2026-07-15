@@ -5,9 +5,10 @@ import SusurrusKit
 /// or the Control+Option+Space hotkey right after a dictation pastes.
 ///
 /// Saving records the edit as a correction (feeding rule learning and vocab
-/// promotion), updates history, and puts the fixed text on the clipboard.
-/// It does NOT touch text already pasted into another app — re-paste if you
-/// need the fixed version there.
+/// promotion), puts the fixed text on the clipboard, and — when the paste
+/// target is still known and the text unambiguous — replaces the pasted text
+/// in the target app in place. The outcome is shown inline in this window
+/// (notification banners proved unreliable on macOS), then the window closes.
 struct FixLastDictationView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -16,6 +17,13 @@ struct FixLastDictationView: View {
 
     @State private var item: TranscriptionHistoryItem?
     @State private var text: String = ""
+    @State private var isSaving = false
+    @State private var status: SaveStatus?
+
+    private struct SaveStatus {
+        let success: Bool
+        let message: String
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -31,6 +39,7 @@ struct FixLastDictationView: View {
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
                     .frame(minHeight: 120)
+                    .disabled(isSaving)
 
                 if let raw = item.rawText, raw != item.text {
                     Text("Heard: \(raw)")
@@ -40,6 +49,16 @@ struct FixLastDictationView: View {
                         .help("The raw transcription before automatic corrections")
                 }
 
+                if let status {
+                    HStack(spacing: 6) {
+                        Image(systemName: status.success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(status.success ? .green : .orange)
+                        Text(status.message)
+                            .font(.callout)
+                    }
+                    .transition(.opacity)
+                }
+
                 HStack {
                     Text(item.date.formatted(date: .omitted, time: .shortened))
                         .font(.caption)
@@ -47,9 +66,10 @@ struct FixLastDictationView: View {
                     Spacer()
                     Button("Cancel") { dismiss() }
                         .keyboardShortcut(.cancelAction)
+                        .disabled(isSaving)
                     Button("Save & Copy") { save(item) }
                         .keyboardShortcut(.defaultAction)
-                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(isSaving || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             } else {
                 Text("No dictations yet.")
@@ -80,22 +100,17 @@ struct FixLastDictationView: View {
             historyManager.updateText(id: item.id, newText: newText)
         }
         clipboard.writeText(newText)
-        if changed {
-            replaceInTargetApp(item: item, newText: newText)
+
+        // In-place replacement only when the paste record matches the item
+        // being fixed; otherwise there is nothing safe to update.
+        guard changed,
+              let snapshot = PasteTracker.shared.snapshot(),
+              snapshot.record.text == item.text else {
+            dismiss()
+            return
         }
-        dismiss()
-    }
 
-    /// Replace the auto-pasted text in the app it was pasted into, when it
-    /// can be done safely — the record must match the item being fixed and
-    /// the pasted string must still be present verbatim and unambiguously.
-    /// Anything else leaves the target app untouched (the corrected text is
-    /// already on the clipboard). The AX work runs off the main thread so an
-    /// unresponsive target app can't freeze Susurrus.
-    private func replaceInTargetApp(item: TranscriptionHistoryItem, newText: String) {
-        guard let snapshot = PasteTracker.shared.snapshot(),
-              snapshot.record.text == item.text else { return }
-
+        isSaving = true
         let record = snapshot.record
         // The captured AXUIElement is used only inside the detached task and
         // never crosses back to the main actor (it isn't Sendable).
@@ -105,49 +120,40 @@ struct FixLastDictationView: View {
                 record: record, with: newText, preferredElement: element
             )
             await MainActor.run {
-                Self.report(outcome: outcome, record: record, newText: newText)
+                finish(outcome: outcome, record: record, newText: newText)
             }
         }
     }
 
-    @MainActor
-    private static func report(
-        outcome: ReplaceOutcome,
-        record: PasteRecord,
-        newText: String
-    ) {
+    /// Show the outcome inline, then close. The corrected text is on the
+    /// clipboard in every case, so failure just means "paste it yourself".
+    private func finish(outcome: ReplaceOutcome, record: PasteRecord, newText: String) {
         let appName = NSRunningApplication(processIdentifier: record.processIdentifier)?
             .localizedName ?? "the app"
 
         switch outcome {
         case .replaced:
-            // A second fix of the same dictation should still work — swap the
-            // stored text in place, keeping the captured paste-target element.
             PasteTracker.shared.updateText(to: newText, expecting: record)
-            UserNotificationService.shared.showNotification(
-                title: "Fixed in \(appName)",
-                body: "The pasted text was updated in place. The corrected version is also on the clipboard."
-            )
+            status = SaveStatus(success: true, message: "Updated in \(appName). Also copied.")
         case .textNotFound:
-            notifyManualPaste("The original text has changed in \(appName), so it wasn't touched.")
+            status = SaveStatus(success: false, message: "Text changed in \(appName) — copied, paste it yourself.")
         case .ambiguous:
-            notifyManualPaste("The text appears more than once in \(appName), so nothing was touched.")
+            status = SaveStatus(success: false, message: "Text appears twice in \(appName) — copied, paste it yourself.")
         case .notWritable, .focusedElementUnavailable:
-            notifyManualPaste("\(appName) doesn't allow text replacement.")
+            status = SaveStatus(success: false, message: "\(appName) blocks text edits — copied, paste it yourself.")
         case .appNotRunning:
-            notifyManualPaste("The app it was pasted into is no longer running.")
+            status = SaveStatus(success: false, message: "\(appName) is gone — copied, paste it yourself.")
         case .recordStale:
-            notifyManualPaste("Too much time has passed since the text was pasted.")
+            status = SaveStatus(success: false, message: "Pasted too long ago — copied, paste it yourself.")
         case .accessibilityDenied:
-            notifyManualPaste("Accessibility permission is needed to edit text in other apps.")
+            status = SaveStatus(success: false, message: "Accessibility permission needed — copied, paste it yourself.")
         }
-    }
 
-    @MainActor
-    private static func notifyManualPaste(_ reason: String) {
-        UserNotificationService.shared.showNotification(
-            title: "Fixed — paste to update",
-            body: "\(reason) The corrected text is on the clipboard."
-        )
+        // Long enough to read a short line; success can close sooner.
+        let holdSeconds: Double = outcome == .replaced ? 0.9 : 2.2
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(holdSeconds))
+            dismiss()
+        }
     }
 }
