@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CoreGraphics
 
 /// Writes to ~/susurrus_debug.log — same sink as traceApp() in the app layer.
 private func traceAX(_ message: String) {
@@ -203,30 +204,98 @@ public final class AXTextReplacer: @unchecked Sendable {
         let writeErr = AXUIElementSetAttributeValue(
             element, kAXSelectedTextAttribute as CFString, replacement as CFString
         )
-        guard writeErr == .success else {
-            traceAX("replace: text set failed axErr=\(writeErr.rawValue)")
-            return .notWritable
+        if writeErr != .success {
+            // The selection AX set is still live even though the direct
+            // write was rejected — try the paste fallback before giving up.
+            traceAX("replace: text set failed axErr=\(writeErr.rawValue), trying paste fallback")
+            return pasteOverSelection(app: app, element: element, replacement: replacement, expectedAt: range)
         }
 
         // Verify against the specific range we wrote: re-read the value and
         // confirm the replacement now sits where the needle was. `contains`
         // alone can be fooled when the replacement text already appears
         // elsewhere in the field.
+        if verifyReplacement(element: element, replacement: replacement, at: range) {
+            traceAX("replace: success in \(record.bundleIdentifier ?? "?")")
+            return .replaced
+        }
+
+        // Some rich-text editors (Slack/Draft.js confirmed in the field —
+        // the selection visibly highlighted but the write was a no-op)
+        // accept kAXSelectedTextAttribute at the AX layer without applying
+        // it to the underlying document. The selection AX *did* set is
+        // still live, so fall back to a real OS-level paste over it — the
+        // same mechanism auto-paste already relies on, which goes through
+        // the app's actual input pipeline instead of its AX bridge.
+        traceAX("replace: AX write didn't stick, falling back to paste-over-selection")
+        return pasteOverSelection(app: app, element: element, replacement: replacement, expectedAt: range)
+    }
+
+    /// Puts `replacement` on the clipboard, brings `app` to the front (a
+    /// synthetic Cmd+V lands on whatever is key — while the Fix window is
+    /// open, that's Susurrus, not the target), and sends Cmd+V to overwrite
+    /// the selection AX already established. Verifies the same way as the
+    /// direct-write path.
+    private func pasteOverSelection(
+        app: NSRunningApplication,
+        element: AXUIElement,
+        replacement: String,
+        expectedAt range: NSRange
+    ) -> ReplaceOutcome {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(replacement, forType: .string)
+
+        app.activate(options: [])
+        Thread.sleep(forTimeInterval: 0.15)
+
+        guard postCommandV() else {
+            traceAX("pasteOverSelection: could not post Cmd+V (Accessibility trust changed?)")
+            return .notWritable
+        }
+        Thread.sleep(forTimeInterval: 0.15)
+
+        if verifyReplacement(element: element, replacement: replacement, at: range) {
+            traceAX("pasteOverSelection: success")
+            return .replaced
+        }
+        traceAX("pasteOverSelection: verification still failed after paste fallback")
+        return .notWritable
+    }
+
+    private func postCommandV() -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false) else {
+            return false
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        usleep(50_000)
+        keyUp.post(tap: .cghidEventTap)
+        return true
+    }
+
+    /// Re-reads `element`'s value and confirms `replacement` sits exactly at
+    /// `range.location` — not just `contains`, which a coincidental earlier
+    /// occurrence of the replacement text could satisfy falsely.
+    private func verifyReplacement(element: AXUIElement, replacement: String, at range: NSRange) -> Bool {
         let (after, afterErr) = copyString(element, kAXValueAttribute)
         guard let after else {
-            traceAX("replace: verification read failed axErr=\(afterErr.rawValue)")
-            return .notWritable
+            traceAX("verify: read failed axErr=\(afterErr.rawValue)")
+            return false
         }
         let afterNS = after as NSString
         let replacementLength = (replacement as NSString).length
         let expectedEnd = range.location + replacementLength
         guard expectedEnd <= afterNS.length,
               afterNS.substring(with: NSRange(location: range.location, length: replacementLength)) == replacement else {
-            traceAX("replace: verification mismatch at range \(range.location)+\(replacementLength)")
-            return .notWritable
+            traceAX("verify: mismatch at range \(range.location)+\(replacementLength)")
+            return false
         }
-        traceAX("replace: success in \(record.bundleIdentifier ?? "?")")
-        return .replaced
+        return true
     }
 
     // MARK: - AX plumbing
