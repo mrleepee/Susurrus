@@ -59,6 +59,20 @@ public final class AppState {
     /// regardless of the llmEnabled preference.
     public var forceLLM = false
 
+    /// Where the next finalized transcription goes.
+    public enum DictationDestination: Sendable {
+        /// Normal flow: auto-paste into the frontmost app (Option+Space).
+        case clipboard
+        /// Review flow: stream into an editable panel, insert on confirm
+        /// (Control+Option+Space). No app is touched until the user inserts.
+        case reviewPanel
+    }
+
+    /// Destination for the in-flight (or next) streaming session. Set before
+    /// `startStreaming()` by whichever hotkey initiated it; read by the app
+    /// layer's start/stop handlers to route interim and final text.
+    public var dictationDestination: DictationDestination = .clipboard
+
     /// Callbacks invoked when streaming starts/stops, set by the app layer.
     /// Bypasses SwiftUI .onChange which doesn't fire reliably on MenuBarExtra.
     public var onStreamingStart: (() -> Void)?
