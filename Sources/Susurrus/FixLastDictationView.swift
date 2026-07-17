@@ -10,7 +10,11 @@ import SusurrusKit
 /// in the target app in place. The outcome is shown inline in this window
 /// (notification banners proved unreliable on macOS), then the window closes.
 struct FixLastDictationView: View {
-    @Environment(\.dismiss) private var dismiss
+    /// `dismiss` is for sheet/presentation dismissal and does not reliably
+    /// close a `Window(id:)` scene — field-confirmed 2026-07-17: after a
+    /// successful in-place fix the window stayed open, fully frozen (see
+    /// `closeWindow()`). `dismissWindow` is the scene-correct mechanism.
+    @Environment(\.dismissWindow) private var dismissWindow
 
     private let historyManager = TranscriptionHistoryManager.shared
     private let clipboard = PasteboardClipboardService()
@@ -64,9 +68,11 @@ struct FixLastDictationView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                     Spacer()
-                    Button("Cancel") { dismiss() }
+                    // Always enabled, even while a save is in flight — an
+                    // escape hatch is non-negotiable after a stuck window
+                    // trapped the user with no way to close it.
+                    Button("Cancel") { closeWindow() }
                         .keyboardShortcut(.cancelAction)
-                        .disabled(isSaving)
                     Button("Save & Copy") { save(item) }
                         .keyboardShortcut(.defaultAction)
                         .disabled(isSaving || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -75,7 +81,7 @@ struct FixLastDictationView: View {
                 Text("No dictations yet.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 80)
-                Button("Close") { dismiss() }
+                Button("Close") { closeWindow() }
                     .keyboardShortcut(.cancelAction)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -88,6 +94,20 @@ struct FixLastDictationView: View {
     private func load() {
         item = historyManager.items().first
         text = item?.text ?? ""
+    }
+
+    /// Closes this window. `dismissWindow(id:)` is the scene-correct API,
+    /// but is called alongside a direct `NSWindow.close()` fallback — the
+    /// same "don't trust a success signal, verify the actual effect"
+    /// lesson AXTextReplacer already learned the hard way. Also clears
+    /// `isSaving` so a future failure to close still leaves the UI usable
+    /// rather than permanently frozen.
+    private func closeWindow() {
+        isSaving = false
+        dismissWindow(id: "fixLast")
+        for window in NSApp.windows where window.title == "Fix Last Dictation" {
+            window.close()
+        }
     }
 
     private func save(_ item: TranscriptionHistoryItem) {
@@ -105,17 +125,17 @@ struct FixLastDictationView: View {
         // being fixed; otherwise there is nothing safe to update.
         guard changed else {
             traceApp("fixWindow: saved without changes")
-            dismiss()
+            closeWindow()
             return
         }
         guard let snapshot = PasteTracker.shared.snapshot() else {
             traceApp("fixWindow: no paste record — skipping in-place replace")
-            dismiss()
+            closeWindow()
             return
         }
         guard snapshot.record.text == item.text else {
             traceApp("fixWindow: paste record doesn't match item (already fixed or newer paste) — skipping in-place replace")
-            dismiss()
+            closeWindow()
             return
         }
 
@@ -137,6 +157,10 @@ struct FixLastDictationView: View {
     /// Show the outcome inline, then close. The corrected text is on the
     /// clipboard in every case, so failure just means "paste it yourself".
     private func finish(outcome: ReplaceOutcome, record: PasteRecord, newText: String) {
+        // Reset immediately, not after the delayed close — if closeWindow()
+        // somehow fails again, the window must stay usable, not frozen.
+        isSaving = false
+
         let appName = NSRunningApplication(processIdentifier: record.processIdentifier)?
             .localizedName ?? "the app"
         traceApp("fixWindow: replace outcome=\(outcome) app=\(record.bundleIdentifier ?? "?")")
@@ -163,7 +187,7 @@ struct FixLastDictationView: View {
         let holdSeconds: Double = outcome == .replaced ? 0.9 : 2.2
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(holdSeconds))
-            dismiss()
+            closeWindow()
         }
     }
 }
