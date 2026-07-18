@@ -648,20 +648,25 @@ struct SusurrusApp: App {
             do {
                 traceApp("startStreamingSession: calling startStreamTranscription (panel=\(toPanel))")
                 try await streaming.startStreamTranscription(deviceID: resolvedDeviceID) { transcript in
-                    // Correct the confirmed (stable) portion live so the
-                    // preview shows the same fixes the final text gets. The
-                    // unconfirmed tail stays raw — a half-spoken word
-                    // shouldn't be fuzzy-matched.
-                    let confirmed = transcript.confirmed.isEmpty
-                        ? transcript.confirmed
-                        : corrector.correct(transcript.confirmed, vocabulary: sessionVocab, rules: sessionRules).text
+                    // Strip Whisper's special tokens / silence markers first
+                    // (<|startoftranscript|>, [ Silence ], …) so neither the
+                    // corrector fuzzy-matches them nor the preview shows them.
+                    // Then correct the confirmed (stable) portion live so the
+                    // preview shows the same fixes the final text gets; the
+                    // unconfirmed tail stays raw of correction — a half-spoken
+                    // word shouldn't be fuzzy-matched — but is still cleaned.
+                    let cleanConfirmed = StreamingTranscriptionService.stripNoiseTokens(from: transcript.confirmed)
+                    let cleanTail = StreamingTranscriptionService.stripNoiseTokens(from: transcript.unconfirmed)
+                    let confirmed = cleanConfirmed.isEmpty
+                        ? ""
+                        : corrector.correct(cleanConfirmed, vocabulary: sessionVocab, rules: sessionRules).text
                     Task { @MainActor in
                         if toPanel {
-                            let tail = transcript.unconfirmed.isEmpty ? "" : " \(transcript.unconfirmed)"
+                            let tail = cleanTail.isEmpty ? "" : (confirmed.isEmpty ? cleanTail : " \(cleanTail)")
                             panel.updateStreaming(confirmed + tail)
                         } else {
                             state.interimText = transcript
-                            overlay?.show(confirmed: confirmed, unconfirmed: transcript.unconfirmed)
+                            overlay?.show(confirmed: confirmed, unconfirmed: cleanTail)
                         }
                     }
                 }
