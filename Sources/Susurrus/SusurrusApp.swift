@@ -657,6 +657,9 @@ struct SusurrusApp: App {
                     // word shouldn't be fuzzy-matched — but is still cleaned.
                     let cleanConfirmed = StreamingTranscriptionService.stripNoiseTokens(from: transcript.confirmed)
                     let cleanTail = StreamingTranscriptionService.stripNoiseTokens(from: transcript.unconfirmed)
+                    // Preview only — never record fires from here. This runs at
+                    // ~10 Hz on partial text; crediting it would swamp the real
+                    // per-dictation counts recorded in stopStreamingSession.
                     let confirmed = cleanConfirmed.isEmpty
                         ? ""
                         : corrector.correct(cleanConfirmed, vocabulary: sessionVocab, rules: sessionRules).text
@@ -731,9 +734,14 @@ struct SusurrusApp: App {
                     // Deterministic corrections only; the user edits the rest
                     // by hand in the panel. Even empty text opens the editor
                     // (so the panel never gets stuck in the recording phase).
-                    let corrected = text.isEmpty
-                        ? ""
-                        : corrector.correct(text, vocabulary: vocab.entries(), rules: corrections.activeRules()).text
+                    let panelOutcome = text.isEmpty
+                        ? CorrectionOutcome(text: "", changes: [])
+                        : corrector.correct(text, vocabulary: vocab.entries(), rules: corrections.activeRules())
+                    let corrected = panelOutcome.text
+                    // Credit whatever actually fired, once per dictation. The
+                    // preview pass is never counted — see TranscriptCorrector.
+                    corrections.recordFires(ruleIDs: panelOutcome.changes.compactMap(\.firedRuleID))
+                    vocab.recordFixes(ids: panelOutcome.changes.compactMap(\.firedVocabularyID))
                     let rawASR = text
                     let notebookMode = (UserDefaults.standard.string(forKey: "outputMode") ?? "clipboard") == "notebook"
                     await MainActor.run {
@@ -787,6 +795,11 @@ struct SusurrusApp: App {
                             .joined(separator: ", ")
                         traceApp("stopStreamingSession: corrector applied \(outcome.changes.count) fixes in \(Int(Date().timeIntervalSince(correctStart) * 1000))ms: \(summary)")
                     }
+                    // Credit fires here and not after the post-LLM re-correction
+                    // below: that is the same utterance, and counting both would
+                    // make fireCount incomparable between LLM-on and LLM-off runs.
+                    corrections.recordFires(ruleIDs: outcome.changes.compactMap(\.firedRuleID))
+                    vocab.recordFixes(ids: outcome.changes.compactMap(\.firedVocabularyID))
                     var finalText = outcome.text
 
                     if shouldLLM {

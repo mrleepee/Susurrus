@@ -149,7 +149,12 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
                 if all[i].replacement == rule.replacement {
                     all[i].hitCount += rule.hitCount
                     all[i].enabled = all[i].enabled || rule.enabled
+                    // fireCount is deliberately not merged: the incoming rule
+                    // is freshly minted and has never fired.
                 } else {
+                    // A new replacement is a new rule — fireCount and id reset,
+                    // which is correct. An in-flight recordFires for the old id
+                    // then finds nothing and is harmlessly dropped.
                     all[i] = rule
                 }
             } else {
@@ -159,6 +164,31 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
                 }
             }
             saveRules(all)
+        }
+    }
+
+    /// Credit rules that actually rewrote a final transcript. Called once per
+    /// dictation from the app layer — never from the corrector, and never from
+    /// the streaming preview, which would inflate counts ~10× per second.
+    public func recordFires(ruleIDs: [UUID]) {
+        guard !ruleIDs.isEmpty else { return }
+        var counts: [UUID: Int] = [:]
+        for id in ruleIDs { counts[id, default: 0] += 1 }
+
+        withLock {
+            var all = rules()
+            var changed = false
+            let now = Date()
+            for i in all.indices {
+                guard let n = counts[all[i].id] else { continue }
+                all[i].fireCount += n
+                all[i].lastFiredAt = now
+                changed = true
+            }
+            // A rule deleted mid-session leaves nothing to credit.
+            if changed {
+                saveRules(all)
+            }
         }
     }
 

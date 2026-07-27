@@ -413,12 +413,25 @@ struct PreferencesView: View {
             Spacer()
 
             if rule.source == .learned {
-                Text(rule.hitCount == 1 ? "learned · 1 fix" : "learned · \(rule.hitCount) fixes")
+                // Two distinct numbers, previously conflated: how often you
+                // taught this, versus how often it has actually fixed anything.
+                Text(rule.hitCount == 1 ? "learned · 1 edit" : "learned · \(rule.hitCount) edits")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(Color.secondary.opacity(0.15)))
+
+                Text(rule.fireCount == 0
+                     ? "never fired"
+                     : (rule.fireCount == 1 ? "fixed 1×" : "fixed \(rule.fireCount)×"))
+                    .font(.caption2)
+                    .foregroundStyle(rule.fireCount == 0 ? .tertiary : .secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.secondary.opacity(rule.fireCount == 0 ? 0.08 : 0.15)))
+                    .help(rule.lastFiredAt.map { "Last fired \($0.formatted(date: .abbreviated, time: .shortened))" }
+                          ?? "This rule has never corrected a transcript")
             } else {
                 Text("manual")
                     .font(.caption2)
