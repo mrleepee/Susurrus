@@ -72,3 +72,48 @@ struct MediaServiceTests {
         #expect(mock.resumedApps == ["Spotify", "Music"])
     }
 }
+
+/// Covers the real `MediaService`'s preference gate. Previously only the
+/// mock was tested, so nothing verified the actual service — the reason a
+/// broken pause shipped unnoticed. The AppleScript paths need a live app
+/// plus an Automation grant, so they stay manual; this pins the pure logic.
+@Suite("MediaService preference gate Tests")
+struct MediaServicePreferenceTests {
+
+    private func defaults(_ suite: String = UUID().uuidString) -> UserDefaults {
+        UserDefaults(suiteName: "com.susurrus.media.test.\(suite)")!
+    }
+
+    @Test("Absent key defaults to enabled")
+    func absentKeyEnabled() {
+        // @AppStorage doesn't persist until the user toggles it, so a fresh
+        // install has no key — pausing must still be on, matching the
+        // Preferences toggle's `= true` default.
+        let d = defaults()
+        #expect(d.object(forKey: "pauseMediaOnRecord") == nil)
+        #expect(MediaService.shouldPause(defaults: d))
+    }
+
+    @Test("Explicit true enables")
+    func explicitTrue() {
+        let d = defaults()
+        d.set(true, forKey: "pauseMediaOnRecord")
+        #expect(MediaService.shouldPause(defaults: d))
+    }
+
+    @Test("Explicit false disables")
+    func explicitFalse() {
+        let d = defaults()
+        d.set(false, forKey: "pauseMediaOnRecord")
+        #expect(!MediaService.shouldPause(defaults: d))
+    }
+
+    @Test("Toggling off then on re-enables")
+    func toggleRoundTrip() {
+        let d = defaults()
+        d.set(false, forKey: "pauseMediaOnRecord")
+        #expect(!MediaService.shouldPause(defaults: d))
+        d.set(true, forKey: "pauseMediaOnRecord")
+        #expect(MediaService.shouldPause(defaults: d))
+    }
+}
