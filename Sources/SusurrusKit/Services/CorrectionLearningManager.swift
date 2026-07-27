@@ -412,48 +412,123 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
 
     // Bump the suffix when the cleanup criteria widen (e.g. CommonWords
     // additions) so the sweep runs once more on existing data.
-    private static let learningQualityMigrationKey = "learningQualityMigration2"
+    private static let learningQualityMigrationKey = "learningQualityMigration3"
 
-    /// Repairs data written before the promotion/activation guards existed:
-    /// removes all-lowercase common-word vocabulary entries (sentence-case
-    /// churn, not terms) and de-activates single-sighting rules whose match
-    /// is entirely common words (e.g. "and while" → "Anwar" hijacking
-    /// ordinary speech). Runs once; returns what it changed for logging.
+    /// The app's own name. Production data had the misspelling "Sussurus" in
+    /// the vocabulary with the correct spelling absent entirely, plus a rule
+    /// actively teaching it — so the app was training itself to get its own
+    /// name wrong.
+    private static let canonicalAppName = "Susurrus"
+
+    /// Lowercase words auto-promoted by mis-parsed edits. They escaped the
+    /// migration-2 sweep only because they aren't in `CommonWords`. Kept as an
+    /// explicit list rather than a heuristic: a vocabulary entry can only be
+    /// deleted, never disabled, and wrongly removing a term the user added but
+    /// hasn't yet dictated is a silent, undiagnosable regression.
+    private static let junkTerms: Set<String> = ["delta", "dictation", "exclude"]
+
+    /// Repairs data written before the current guards existed. Runs once.
+    ///
+    /// Sweeps, in order: lowercase common-word vocabulary junk and risky
+    /// single-sighting rules (migration 2, idempotent on re-run); rules the
+    /// vocabulary pass already covers; multi-word rules that fast-pathed
+    /// before corroboration was required; the app-name misspelling; explicit
+    /// junk terms; and near-duplicate vocabulary entries.
+    ///
+    /// Every rule sweep is restricted to `.learned` — a manual rule is the
+    /// user's explicit instruction and is never touched by inference.
     @discardableResult
-    public func runLearningQualityMigration() -> (removedTerms: [String], disabledRules: [String]) {
-        guard !defaults.bool(forKey: Self.learningQualityMigrationKey) else { return ([], []) }
+    public func runLearningQualityMigration()
+        -> (removedTerms: [String], addedTerms: [String], disabledRules: [String]) {
+        guard !defaults.bool(forKey: Self.learningQualityMigrationKey) else { return ([], [], []) }
 
         var removedTerms: [String] = []
+        var addedTerms: [String] = []
         var disabledRules: [String] = []
         withLock {
             if let vocab = vocabularyManager {
                 let junk = vocab.entries().filter { entry in
                     entry.term == entry.term.lowercased()
-                        && CommonWords.contains(Self.normalizeForFuzzy(entry.term))
+                        && (CommonWords.contains(Self.normalizeForFuzzy(entry.term))
+                            || Self.junkTerms.contains(Self.normalizeForFuzzy(entry.term)))
                 }
                 for entry in junk {
                     vocab.removeEntry(id: entry.id)
                     removedTerms.append(entry.term)
                 }
+
+                // Restore the canonical app name before deduping, so the
+                // use-count heuristic below can't preserve the misspelling —
+                // which on real data is the variant with all the usage.
+                let canonicalNorm = Self.normalizeForFuzzy(Self.canonicalAppName)
+                if !vocab.entries().contains(where: { $0.term == Self.canonicalAppName }) {
+                    if vocab.addEntry(VocabularyEntry(term: Self.canonicalAppName, category: .product)) {
+                        addedTerms.append(Self.canonicalAppName)
+                    }
+                }
+                for entry in vocab.entries()
+                where entry.term != Self.canonicalAppName
+                    && TranscriptCorrector.isFuzzyMatch(Self.normalizeForFuzzy(entry.term), canonicalNorm) {
+                    vocab.removeEntry(id: entry.id)
+                    removedTerms.append(entry.term)
+                }
+
+                // Near-duplicate dedupe ("Harnadh"/"Harandh"): keep the term
+                // with more observed usage, falling back to the earlier entry
+                // so the outcome is deterministic.
+                var kept: [VocabularyEntry] = []
+                for entry in vocab.entries() {
+                    let norm = Self.normalizeForFuzzy(entry.term)
+                    guard let twinIndex = kept.firstIndex(where: {
+                        TranscriptCorrector.isFuzzyMatch(Self.normalizeForFuzzy($0.term), norm)
+                    }) else {
+                        kept.append(entry)
+                        continue
+                    }
+                    if (entry.useCount ?? 0) > (kept[twinIndex].useCount ?? 0) {
+                        vocab.removeEntry(id: kept[twinIndex].id)
+                        removedTerms.append(kept[twinIndex].term)
+                        kept[twinIndex] = entry
+                    } else {
+                        vocab.removeEntry(id: entry.id)
+                        removedTerms.append(entry.term)
+                    }
+                }
             }
 
+            let vocabEntries = vocabularyManager?.entries() ?? []
             var all = rules()
             var changed = false
             // Learned rules only — manual rules are a deliberate user choice.
-            for i in all.indices where all[i].enabled
-                && all[i].source == .learned
-                && all[i].hitCount < Self.ruleActivationSightings {
-                if Self.isRiskyCommonPhraseMatch(match: all[i].match, replacement: all[i].replacement) {
-                    all[i].enabled = false
-                    disabledRules.append("\(all[i].match)→\(all[i].replacement)")
-                    changed = true
-                }
+            for i in all.indices where all[i].enabled && all[i].source == .learned {
+                let match = all[i].match, replacement = all[i].replacement
+                let isRiskySingleSighting = all[i].hitCount < Self.ruleActivationSightings
+                    && Self.isRiskyCommonPhraseMatch(match: match, replacement: replacement)
+                // Redundant with the vocabulary pass, which handles it without
+                // the exact-match false-positive risk.
+                let vocabularyCovers = !vocabEntries.isEmpty
+                    && corrector.vocabularyAlreadyProduces(replacement, from: match, vocabulary: vocabEntries)
+                // Retroactively applies the corroboration requirement: these
+                // activated off one sighting under the old fast path.
+                let uncorroboratedMultiWord = match.contains(" ")
+                    && all[i].hitCount < Self.ruleActivationSightings
+                // A rule producing a term this migration just deleted would go
+                // on reintroducing it. "sysaurus" → "Sussurus" is the live
+                // case: once the misspelling leaves the vocabulary, the rule
+                // is the only thing still teaching it.
+                let producesRemovedTerm = removedTerms.contains(replacement)
+
+                guard isRiskySingleSighting || vocabularyCovers
+                    || uncorroboratedMultiWord || producesRemovedTerm else { continue }
+                all[i].enabled = false
+                disabledRules.append("\(match)→\(replacement)")
+                changed = true
             }
             if changed { saveRules(all) }
 
             defaults.set(true, forKey: Self.learningQualityMigrationKey)
         }
-        return (removedTerms, disabledRules)
+        return (removedTerms, addedTerms, disabledRules)
     }
 
     // MARK: - Word alignment

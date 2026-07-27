@@ -103,6 +103,32 @@ the product.
 
 ---
 
+## Scheduled decision: do learned rules earn their keep?
+
+**Review on 2026-08-26.**
+
+Measured on 2026-07-27 across 200 dictations (2026-07-07 → 2026-07-27):
+
+- **1 of 15** enabled learned rules had ever fired again after being
+  learned, across roughly 2,000 rule × dictation opportunities.
+- 6 of 15 were redundant with the fuzzy vocabulary layer.
+- 2 actively corrupted ordinary English (`'your eyes' → 'URIs'`).
+- Meanwhile vocabulary + prompt bias fixed `SciFinder` **at the source**:
+  4 correct transcriptions, zero variants.
+
+The cause is structural. Whisper does not repeat a mangling — "Abhishek"
+came out as "Abishek" once and never that exact form again — so exact-match
+rules are minted from noise. Prompt bias prevents the error; rules chase it.
+
+**The decision:** if aggregate `fireCount` across all learned rules is
+still under 5 on 2026-08-26, delete the learned-rule path and let
+vocabulary plus prompt bias be the whole loop. Do not add a fourth round
+of guards. Two rounds have already shipped (PR #24, and PRs #27–29), and
+each one is maintenance tax on a mechanism with no demonstrated payout.
+
+To check: Preferences → Corrections now shows fires per rule, or read
+`correctionRules` from `~/Library/Preferences/com.susurrus.app.plist`.
+
 ## Not on the list, on purpose
 
 - **Voice commands** ("new line", "send it") — different product. Revisit

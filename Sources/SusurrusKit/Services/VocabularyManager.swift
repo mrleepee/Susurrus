@@ -289,6 +289,10 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     }
 
     /// Seed default vocabulary entries on first launch.
+    /// Note: `importCSV` has no comment syntax, so every non-empty line here
+    /// becomes a term. Keep annotations in Swift comments, not in the CSV.
+    /// "Harandh" was removed — it is a near-duplicate of "Harnadh", and
+    /// seeding both split usage stats and wasted prompt-token budget.
     private func seedDefaultEntries() {
         let csv = """
         Word,Category
@@ -320,7 +324,6 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
         MatFinder,Product
         APIs,Technical
         MarkLogic,Technical
-        Harandh,Person
         CoRB,Technical
         Schengen,Place
         Gaurav,Person
