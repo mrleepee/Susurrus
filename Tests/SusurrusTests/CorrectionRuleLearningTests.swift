@@ -79,14 +79,102 @@ struct CorrectionRuleLearningTests {
         #expect(mgr.rules().first { $0.match == "and while" }?.enabled == true)
     }
 
-    @Test("Join/casing fix of common words still fast-path activates")
-    func joinFixStillFastActivates() {
-        let (mgr, _) = makeManagers()
+    /// Replaces the former `joinFixStillFastActivates`, which asserted that a
+    /// join fix mints a fast-activated rule. That contract is deliberately
+    /// gone: the vocabulary pass already handles joins, so minting a rule
+    /// added only exact-match risk. The behaviour users care about — the join
+    /// still being corrected — is asserted below and pinned at the corrector.
+    @Test("Join/casing fix is handled by vocabulary, with no rule minted")
+    func joinFixHandledByVocabularyNotRule() {
+        let (mgr, vocab) = makeManagers()
         mgr.recordCorrection(
             raw: "we use mark logic here",
             edited: "we use MarkLogic here"
         )
-        #expect(mgr.activeRules().contains { $0.match == "mark logic" })
+        // The term is the durable artefact — it also biases Whisper up front.
+        #expect(vocab.entries().contains { $0.term == "MarkLogic" })
+        #expect(!mgr.rules().contains { $0.match == "mark logic" })
+    }
+
+    @Test("Vocabulary alone still corrects 'mark logic' with zero rules")
+    func markLogicSurvivesWithoutRules() {
+        // The regression this whole change rests on: multi-word windows skip
+        // the single-word CommonWords guard, so the exact-normalized join
+        // reaches MarkLogic without any rule involved.
+        let out = TranscriptCorrector().correct(
+            "we use mark logic here",
+            vocabulary: [VocabularyEntry(term: "MarkLogic", category: .technical)],
+            rules: []
+        )
+        #expect(out.text == "we use MarkLogic here")
+    }
+
+    // MARK: - Vocabulary-first suppression
+
+    @Test("Single-word fix reachable by fuzzy vocabulary mints no rule")
+    func fuzzyReachableMintsNoRule() {
+        let (mgr, vocab) = makeManagers()
+        vocab.addEntry(VocabularyEntry(term: "Abhishek", category: .person))
+        mgr.recordCorrection(raw: "i asked abishek about it", edited: "i asked Abhishek about it")
+        // The fuzzy vocabulary pass already repairs "abishek"; a rule would
+        // only add exact-match risk for a mangling Whisper never repeats.
+        #expect(!mgr.rules().contains { $0.match == "abishek" })
+    }
+
+    @Test("A common-word match still mints a rule — vocabulary refuses to touch it")
+    func commonWordMatchStillMintsRule() {
+        let (mgr, vocab) = makeManagers()
+        vocab.addEntry(VocabularyEntry(term: "Wattar", category: .person))
+        // "water" is a common word, so applyVocabulary's single-word guard
+        // blocks it. Suppressing the rule here would silently lose the fix.
+        mgr.recordCorrection(raw: "ask water about it", edited: "ask Wattar about it")
+        #expect(mgr.rules().contains { $0.match == "water" })
+    }
+
+    @Test("Suppression retires an existing learned rule but spares manual ones")
+    func suppressionSparesManualRules() {
+        let (mgr, vocab) = makeManagers()
+        vocab.addEntry(VocabularyEntry(term: "Abhishek", category: .person))
+        mgr.addRule(CorrectionRule(match: "abishek", replacement: "Abhishek", source: .manual))
+        mgr.recordCorrection(raw: "i asked abishek", edited: "i asked Abhishek")
+        // A hand-written rule is the user's explicit instruction; never
+        // disable it on the app's own inference.
+        #expect(mgr.rules().first { $0.match == "abishek" }?.enabled == true)
+    }
+
+    // MARK: - Multi-word corroboration
+
+    @Test("Multi-word match never fast-paths, even with known vocabulary")
+    func multiWordNeverFastPaths() {
+        let (mgr, vocab) = makeManagers()
+        vocab.addEntry(VocabularyEntry(term: "URIs", category: .technical))
+        // The live bug: "URIs" was known, so this activated off one sighting
+        // and then rewrote every legitimate "your eyes".
+        mgr.recordCorrection(raw: "check your eyes now", edited: "check URIs now")
+        #expect(mgr.rules().first { $0.match == "your eyes" }?.enabled == false)
+    }
+
+    @Test("Ordinary English survives a single-sighting multi-word edit")
+    func ordinaryEnglishNotCorrupted() {
+        let (mgr, vocab) = makeManagers()
+        vocab.addEntry(VocabularyEntry(term: "URIs", category: .technical))
+        mgr.recordCorrection(raw: "check your eyes now", edited: "check URIs now")
+        let out = TranscriptCorrector().correct(
+            "your eyes look tired",
+            vocabulary: vocab.entries(),
+            rules: mgr.activeRules()
+        )
+        #expect(out.text == "your eyes look tired")
+    }
+
+    @Test("A corroborated multi-word rule does activate")
+    func multiWordActivatesOnSecondSighting() {
+        let (mgr, vocab) = makeManagers()
+        vocab.addEntry(VocabularyEntry(term: "URIs", category: .technical))
+        mgr.recordCorrection(raw: "check your eyes now", edited: "check URIs now")
+        mgr.recordCorrection(raw: "list your eyes please", edited: "list URIs please")
+        // Two independent sightings are real evidence, not a coincidence.
+        #expect(mgr.rules().first { $0.match == "your eyes" }?.enabled == true)
     }
 
     // MARK: - Learning-quality migration
@@ -194,16 +282,20 @@ struct CorrectionRuleLearningTests {
         #expect(second?.enabled == true)
     }
 
-    @Test("Rule activates immediately when replacement is a proper noun")
+    @Test("Single-word rule activates immediately when replacement is a proper noun")
     func properNounRuleActivatesImmediately() {
         let (mgr, _) = makeManagers()
+        // "pancage"/"Pankaj" have different phonetic keys, so the fuzzy
+        // vocabulary pass cannot reach this — the rule genuinely earns its
+        // place and still fast-paths. (Previously asserted with "mark logic"
+        // → "MarkLogic", which vocabulary now handles without any rule.)
         mgr.recordCorrection(
-            raw: "we use mark logic here",
-            edited: "we use MarkLogic here"
+            raw: "i asked pancage about it",
+            edited: "i asked Pankaj about it"
         )
-        let rule = mgr.activeRules().first { $0.match == "mark logic" }
+        let rule = mgr.activeRules().first { $0.match == "pancage" }
         #expect(rule != nil)
-        #expect(rule?.replacement == "MarkLogic")
+        #expect(rule?.replacement == "Pankaj")
     }
 
     @Test("Proper-noun replacement is promoted to vocabulary")

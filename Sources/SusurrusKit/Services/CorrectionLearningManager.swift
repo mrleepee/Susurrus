@@ -50,6 +50,10 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     /// promotion. Set once at app startup to surface it to the user.
     public var onLearn: (@Sendable (LearningOutcome) -> Void)?
 
+    /// Used to ask whether the vocabulary pass alone already covers a
+    /// candidate rule. Stateless and cheap to hold.
+    private let corrector = TranscriptCorrector()
+
     public init(vocabularyManager: VocabularyManaging? = nil, defaults: UserDefaults = .standard) {
         self.vocabularyManager = vocabularyManager
         self.defaults = defaults
@@ -319,6 +323,23 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
                 }
             }
 
+            // If the vocabulary pass already produces this result, the rule is
+            // pure redundancy carrying exact-match false-positive risk. The
+            // term is the durable artefact: it also biases Whisper up front,
+            // where it prevents the error instead of patching it afterwards.
+            // Checked after promotion so a just-added term counts.
+            if let vocab = vocabularyManager,
+               corrector.vocabularyAlreadyProduces(replacement, from: match, vocabulary: vocab.entries()) {
+                // Retire any earlier rule for this match. Self-healing: delete
+                // the vocabulary term later and the next identical edit mints
+                // the rule again normally.
+                if let stale = rules().first(where: { $0.match == match }),
+                   stale.source == .learned, stale.enabled {
+                    setRuleEnabled(id: stale.id, enabled: false)
+                }
+                continue
+            }
+
             // A match made entirely of common English words ("and while")
             // that maps to a *different* word will collide with legitimate
             // speech — never fast-path activate it; require the second
@@ -326,12 +347,23 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
             // same letters) stay on the fast path.
             let matchIsCommonPhrase = Self.isRiskyCommonPhraseMatch(match: match, replacement: replacement)
 
+            // Multi-word matches never fast-path, whatever the replacement.
+            // "your eyes" → "URIs" activated off a single sighting because
+            // "URIs" was known vocabulary, and then rewrote every legitimate
+            // "your eyes". isRiskyCommonPhraseMatch cannot catch that class:
+            // it needs *every* word to be common, and CommonWords is ~700
+            // entries against an unbounded tail of ordinary English ("eyes",
+            // "paths"). Requiring corroboration needs no word list at all.
+            // Multi-word joins that vocabulary handles never reach here — they
+            // were suppressed above.
+            let requiresCorroboration = rawRange.count > 1 || matchIsCommonPhrase
+
             let wasEnabled = rules().first(where: { $0.match == match })?.enabled ?? false
 
             let rule = CorrectionRule(
                 match: match,
                 replacement: replacement,
-                enabled: replacementKnown && !matchIsCommonPhrase
+                enabled: replacementKnown && !requiresCorroboration
             )
             addRule(rule)
             // Second sighting activates.
