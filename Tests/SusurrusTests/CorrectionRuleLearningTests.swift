@@ -195,7 +195,9 @@ struct CorrectionRuleLearningTests {
 
         #expect(Set(outcome.removedTerms) == ["voice", "project"])
         #expect(outcome.disabledRules == ["and while→Anwar"])
-        #expect(vocab.entries().map(\.term).sorted() == ["MarkLogic", "grep"])
+        // "Susurrus" is restored by the app-name repair in migration 3.
+        #expect(vocab.entries().map(\.term).sorted() == ["MarkLogic", "Susurrus", "grep"])
+        #expect(outcome.addedTerms == ["Susurrus"])
         #expect(mgr.rules().first { $0.match == "and while" }?.enabled == false)
         #expect(mgr.rules().first { $0.match == "qay" }?.enabled == true)
         // Manual rules are the user's deliberate choice — untouched.
