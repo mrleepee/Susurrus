@@ -39,6 +39,11 @@ public struct TranscriptCorrector: TranscriptCorrecting {
 
     // MARK: - Entry point
 
+    /// Pure: never writes, never touches a singleton. That is deliberate and
+    /// load-bearing — this runs on the ~10 Hz streaming preview as well as on
+    /// final text, so a corrector that recorded its own fire counts would
+    /// inflate them by orders of magnitude. Changes carry a `CorrectionOrigin`
+    /// instead, and the caller decides which pass to count (final text only).
     public func correct(
         _ text: String,
         vocabulary: [VocabularyEntry],
@@ -97,7 +102,7 @@ public struct TranscriptCorrector: TranscriptCorrecting {
 
             replacements.append(Replacement(range: window.range, span: window.span, text: replacement))
             claimed.append(window.span)
-            changes.append(CorrectionChange(original: original, corrected: replacement))
+            changes.append(CorrectionChange(original: original, corrected: replacement, origin: .rule(rule.id)))
         }
 
         return Self.applying(replacements, to: text)
@@ -206,7 +211,8 @@ public struct TranscriptCorrector: TranscriptCorrecting {
 
             replacements.append(Replacement(range: window.range, span: window.span, text: replacement))
             claimed.append(window.span)
-            changes.append(CorrectionChange(original: original, corrected: replacement))
+            changes.append(CorrectionChange(original: original, corrected: replacement,
+                                            origin: .vocabulary(matched.entry.id)))
         }
 
         return Self.applying(replacements, to: text)

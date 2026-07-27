@@ -174,6 +174,30 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
         }
     }
 
+    /// Credit entries whose fuzzy/exact match actually repaired the final
+    /// text. Ids come from `CorrectionChange.origin`, so only the entry that
+    /// really fired is counted — not every term that happens to appear.
+    public func recordFixes(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        var counts: [UUID: Int] = [:]
+        for id in ids { counts[id, default: 0] += 1 }
+
+        withLock {
+            var all = entries()
+            var changed = false
+            for i in all.indices {
+                guard let n = counts[all[i].id] else { continue }
+                all[i].fixCount = (all[i].fixCount ?? 0) + n
+                changed = true
+            }
+            // An entry deleted mid-session leaves nothing to credit; skip the
+            // write rather than rewriting the store unchanged.
+            if changed {
+                setEntries(all)
+            }
+        }
+    }
+
     // MARK: - CSV Import/Export
 
     /// Export all entries as CSV string: "Word,Category\n..."
