@@ -6,7 +6,7 @@ import os.log
 private let log = Logger(subsystem: "com.susurrus.app", category: "App")
 
 /// NSLog wrapper — always visible in Console.app and `log show`, unlike os.Logger info.
-private func traceApp(_ message: String) {
+func traceApp(_ message: String) {
     let path = NSHomeDirectory() + "/susurrus_debug.log"
     let line = "\(Date()) \(message)\n"
     if let handle = FileHandle(forWritingAtPath: path) {
@@ -28,25 +28,43 @@ struct SusurrusApp: App {
     @AppStorage("recordingMode") private var recordingMode = "push-to-talk"
     @Environment(\.openWindow) private var openWindow
 
-    // Services
-    private let streamingService = StreamingTranscriptionService()
-    private let clipboard = PasteboardClipboardService()
-    private let notificationService = UserNotificationService()
-    private let preferences = UserDefaultsPreferencesManager()
-    private let vocabularyManager = VocabularyManager.shared
-    private let hotkeyService = GlobalHotkeyService()
-    private let llmHotkeyService = GlobalHotkeyService()
-    private let fixHotkeyService = GlobalHotkeyService()
-    private let hotkeyStorage = HotkeyStorage()
-    private let micPermissionManager = MicPermissionManager()
-    private let llmService = LLMService()
-    private let historyManager = TranscriptionHistoryManager.shared
-    private let correctionManager = CorrectionLearningManager.shared
-    private let notebookManager = NotebookManager.shared
+    // Services — process-stable singletons, NOT per-copy stored properties.
+    // SwiftUI recreates the App struct freely (observed 19 re-inits/sec
+    // during window churn); a `let` service here is deallocated on every
+    // re-init. Carbon keeps an *unretained* pointer to its registered
+    // GlobalHotkeyService, so a per-copy instance is a use-after-free that
+    // killed the fix hotkey after one use; StreamingTranscriptionService
+    // holds the loaded model. Forwarding vars keep call sites unchanged.
+    private static let sharedStreamingService = StreamingTranscriptionService()
+    private var streamingService: StreamingTranscriptionService { Self.sharedStreamingService }
+    private static let sharedClipboard = PasteboardClipboardService()
+    private var clipboard: PasteboardClipboardService { Self.sharedClipboard }
+    private var notificationService: UserNotificationService { UserNotificationService.shared }
+    private static let sharedPreferences = UserDefaultsPreferencesManager()
+    private var preferences: UserDefaultsPreferencesManager { Self.sharedPreferences }
+    private var vocabularyManager: VocabularyManager { VocabularyManager.shared }
+    private static let sharedHotkeyService = GlobalHotkeyService()
+    private var hotkeyService: GlobalHotkeyService { Self.sharedHotkeyService }
+    private static let sharedLLMHotkeyService = GlobalHotkeyService()
+    private var llmHotkeyService: GlobalHotkeyService { Self.sharedLLMHotkeyService }
+    private static let sharedFixHotkeyService = GlobalHotkeyService()
+    private var fixHotkeyService: GlobalHotkeyService { Self.sharedFixHotkeyService }
+    private static let sharedHotkeyStorage = HotkeyStorage()
+    private var hotkeyStorage: HotkeyStorage { Self.sharedHotkeyStorage }
+    private static let sharedMicPermissionManager = MicPermissionManager()
+    private var micPermissionManager: MicPermissionManager { Self.sharedMicPermissionManager }
+    private static let sharedLLMService = LLMService()
+    private var llmService: LLMService { Self.sharedLLMService }
+    private var historyManager: TranscriptionHistoryManager { TranscriptionHistoryManager.shared }
+    private var correctionManager: CorrectionLearningManager { CorrectionLearningManager.shared }
+    private var notebookManager: NotebookManager { NotebookManager.shared }
+    // Value types — cheap and stateless, safe to live per-copy.
     private let promptComposer = PromptComposer()
     private let transcriptCorrector = TranscriptCorrector()
-    private let mediaService = MediaService()
-    private let audioDeviceService = AudioDeviceService()
+    private static let sharedMediaService = MediaService()
+    private var mediaService: MediaService { Self.sharedMediaService }
+    private static let sharedAudioDeviceService = AudioDeviceService()
+    private var audioDeviceService: AudioDeviceService { Self.sharedAudioDeviceService }
 
     // Recording duration timer
     @State private var durationTimer: Timer?
@@ -64,6 +82,12 @@ struct SusurrusApp: App {
 
     // Streaming overlay window
     @State private var overlayWindow: StreamingOverlayWindow?
+
+    // Review panel for "dictate into the panel" mode (Control+Option+Space).
+    // Process-stable like the other services so it survives App-struct
+    // re-inits (see the services block above).
+    private static let sharedReviewPanel = DictationReviewPanel()
+    private var reviewPanel: DictationReviewPanel { Self.sharedReviewPanel }
 
     /// Media apps that were paused when recording started.
     @State private var pausedMediaApps: [String] = []
@@ -188,11 +212,6 @@ struct SusurrusApp: App {
         Window("Notebooks", id: "notebooks") {
             NotebooksWindowView()
         }
-
-        Window("Fix Last Dictation", id: "fixLast") {
-            FixLastDictationView()
-        }
-        .windowResizability(.contentSize)
     }
 
     // MARK: - Window management
@@ -415,30 +434,53 @@ struct SusurrusApp: App {
         }
     }
 
-    /// Control+Option+Space opens the fix-last-dictation window: edit the
-    /// most recent transcription, teach the learning loop, get the fixed
-    /// text back on the clipboard.
+    /// Control+Option+Space: dictate into a review panel. Hold to record —
+    /// the transcript streams into an editable panel; release to edit it;
+    /// ⌘⏎ inserts the corrected text into the app you were in with one clean
+    /// paste. Nothing is written to the target app until you insert, so no
+    /// editor's accessibility quirks can block it.
     private func setupFixHotkeyIfNeeded() {
         guard !appState.fixHotkeyConfigured else { return }
 
         // Capture reference/value locals only — never struct self.
         let state = appState
-        let open = openWindow
+        let micManager = micPermissionManager
+        let panel = reviewPanel
 
         Task {
             do {
-                try await fixHotkeyService.register(combo: .fixLast) {
-                    Task { @MainActor in
-                        traceApp("Fix hotkey fired — opening fix window")
-                        NSApp.setActivationPolicy(.regular)
-                        NSApp.activate(ignoringOtherApps: true)
-                        open(id: "fixLast")
+                try await fixHotkeyService.register(
+                    combo: .reviewPanel,
+                    onKeyDown: {
+                        Task { @MainActor in
+                            guard state.recordingState == .idle else { return }
+                            // Capture the paste target before the panel opens.
+                            panel.targetApp = NSWorkspace.shared.frontmostApplication
+                            state.dictationDestination = .reviewPanel
+                            let started = state.handleHotkeyDown()
+                            if started {
+                                if state.micPermission == .undetermined {
+                                    let perm = await micManager.requestPermission()
+                                    state.micPermission = perm
+                                }
+                                guard state.micPermission == .granted else {
+                                    state.dictationDestination = .clipboard
+                                    state.cancel()
+                                    return
+                                }
+                            }
+                        }
+                    },
+                    onKeyUp: {
+                        Task { @MainActor in
+                            state.handleHotkeyUp()
+                        }
                     }
-                }
+                )
                 state.fixHotkeyConfigured = true
-                traceApp("Fix hotkey registered (Control+Option+Space)")
+                traceApp("Review-panel hotkey registered (Control+Option+Space)")
             } catch {
-                traceApp("Fix hotkey registration failed: \(error)")
+                traceApp("Review-panel hotkey registration failed: \(error)")
             }
         }
     }
@@ -584,7 +626,16 @@ struct SusurrusApp: App {
         let state = appState
         let streaming = streamingService
         let notifications = notificationService
-        let overlay = overlayWindow
+        let panel = reviewPanel
+
+        // Review-panel mode streams into the editable panel instead of the
+        // overlay; open it now (non-key, so it doesn't steal focus while the
+        // user is still holding the hotkey).
+        let toPanel = appState.dictationDestination == .reviewPanel
+        let overlay = toPanel ? nil : overlayWindow
+        if toPanel {
+            panel.beginRecording(targetApp: panel.targetApp)
+        }
 
         // Snapshot vocab and rules once per session so the interim callback
         // (fires ~10Hz) doesn't re-read and re-decode UserDefaults each time.
@@ -595,18 +646,28 @@ struct SusurrusApp: App {
         // Start streaming
         Task {
             do {
-                traceApp("startStreamingSession: calling startStreamTranscription")
+                traceApp("startStreamingSession: calling startStreamTranscription (panel=\(toPanel))")
                 try await streaming.startStreamTranscription(deviceID: resolvedDeviceID) { transcript in
-                    // Correct the confirmed (stable) portion live so the
-                    // overlay previews the same fixes the final text gets.
-                    // The unconfirmed tail stays raw — a half-spoken word
-                    // shouldn't be fuzzy-matched.
-                    let confirmed = transcript.confirmed.isEmpty
-                        ? transcript.confirmed
-                        : corrector.correct(transcript.confirmed, vocabulary: sessionVocab, rules: sessionRules).text
+                    // Strip Whisper's special tokens / silence markers first
+                    // (<|startoftranscript|>, [ Silence ], …) so neither the
+                    // corrector fuzzy-matches them nor the preview shows them.
+                    // Then correct the confirmed (stable) portion live so the
+                    // preview shows the same fixes the final text gets; the
+                    // unconfirmed tail stays raw of correction — a half-spoken
+                    // word shouldn't be fuzzy-matched — but is still cleaned.
+                    let cleanConfirmed = StreamingTranscriptionService.stripNoiseTokens(from: transcript.confirmed)
+                    let cleanTail = StreamingTranscriptionService.stripNoiseTokens(from: transcript.unconfirmed)
+                    let confirmed = cleanConfirmed.isEmpty
+                        ? ""
+                        : corrector.correct(cleanConfirmed, vocabulary: sessionVocab, rules: sessionRules).text
                     Task { @MainActor in
-                        state.interimText = transcript
-                        overlay?.show(confirmed: confirmed, unconfirmed: transcript.unconfirmed)
+                        if toPanel {
+                            let tail = cleanTail.isEmpty ? "" : (confirmed.isEmpty ? cleanTail : " \(cleanTail)")
+                            panel.updateStreaming(confirmed + tail)
+                        } else {
+                            state.interimText = transcript
+                            overlay?.show(confirmed: confirmed, unconfirmed: cleanTail)
+                        }
                     }
                 }
             } catch {
@@ -624,10 +685,23 @@ struct SusurrusApp: App {
 
     private func stopStreamingSession() {
         stopDurationTimer()
-        overlayWindow?.hide()
+
+        // Review-panel mode finalizes into the editable panel, not the app;
+        // reset the destination immediately so the next session defaults to
+        // clipboard even if this one throws.
+        let toPanel = appState.dictationDestination == .reviewPanel
+        appState.dictationDestination = .clipboard
+
+        // Keep the overlay up in a dimmed "Finalizing…" state through the
+        // whole-buffer decode (1–8s) — it hides once the text is delivered.
+        // Panel mode never showed the overlay, so leave it alone.
+        if !toPanel {
+            overlayWindow?.beginFinalizing()
+        }
 
         let appendMode = preferences.appendToClipboard()
-        let shouldLLM = appState.forceLLM || preferences.llmEnabled()
+        // Panel mode skips the LLM — the user reviews and edits by hand.
+        let shouldLLM = !toPanel && (appState.forceLLM || preferences.llmEnabled())
         appState.forceLLM = false
 
         // Capture reference types only
@@ -643,6 +717,8 @@ struct SusurrusApp: App {
         let vocab = vocabularyManager
         let corrections = correctionManager
         let composer = promptComposer
+        let overlay = overlayWindow
+        let panel = reviewPanel
 
         Task {
             do {
@@ -651,7 +727,47 @@ struct SusurrusApp: App {
                 let text = try await streaming.stopStreamTranscription()
                 traceApp("stopStreamingSession: got text in \(Int(Date().timeIntervalSince(stopStart) * 1000))ms (\(text.count) chars): \(text.prefix(100))")
 
-                if !text.isEmpty {
+                if toPanel {
+                    // Deterministic corrections only; the user edits the rest
+                    // by hand in the panel. Even empty text opens the editor
+                    // (so the panel never gets stuck in the recording phase).
+                    let corrected = text.isEmpty
+                        ? ""
+                        : corrector.correct(text, vocabulary: vocab.entries(), rules: corrections.activeRules()).text
+                    let rawASR = text
+                    let notebookMode = (UserDefaults.standard.string(forKey: "outputMode") ?? "clipboard") == "notebook"
+                    await MainActor.run {
+                        let targetApp = panel.targetApp
+                        panel.enterEditing(finalText: corrected) { edited in
+                            let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !final.isEmpty else { return }
+                            // Learn from any manual edit beyond the corrector.
+                            if final != corrected, !corrected.isEmpty {
+                                corrections.recordCorrection(raw: corrected, edited: final)
+                            }
+                            vocab.recordUsage(in: final)
+                            history.add(final, rawText: rawASR)
+                            if notebookMode {
+                                nbManager.appendToActiveNotebook(text: final)
+                            }
+                            clip.writeText(final)
+                            // Return focus to the target app, then one clean
+                            // paste — the only thing we ever do to it.
+                            targetApp?.activate(options: [])
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(150))
+                                let pasted = clip.simulatePaste()
+                                if !pasted {
+                                    notifications.showNotification(
+                                        title: "Text copied — paste to insert",
+                                        body: "Couldn't paste automatically. The corrected text is on the clipboard; press ⌘V where you want it."
+                                    )
+                                }
+                                traceApp("reviewInsert: pasted=\(pasted) into \(targetApp?.bundleIdentifier ?? "?")")
+                            }
+                        }
+                    }
+                } else if !text.isEmpty {
                     // Layer 1: deterministic corrections — learned rules,
                     // fuzzy vocabulary matches, casing. Always on, ~0ms.
                     let correctStart = Date()
@@ -756,17 +872,30 @@ struct SusurrusApp: App {
                 }
             } catch TranscriptionError.noSpeechDetected {
                 traceApp("stopStreamingSession: no speech detected")
-                notifications.showNotification(
-                    title: "No speech detected",
-                    body: "Nothing was transcribed. Check the input device in Preferences."
-                )
+                // Panel mode: nothing to edit — just close, no nagging banner.
+                if toPanel {
+                    await MainActor.run { panel.cancel() }
+                } else {
+                    notifications.showNotification(
+                        title: "No speech detected",
+                        body: "Nothing was transcribed. Check the input device in Preferences."
+                    )
+                }
             } catch {
                 traceApp("stopStreamingSession: transcription failed: \(error.localizedDescription)")
+                if toPanel {
+                    await MainActor.run { panel.cancel() }
+                }
                 notifications.showNotification(
                     title: "Transcription failed",
                     body: error.localizedDescription
                 )
             }
+
+            // All paths land here (success, no-speech, errors) — drop the
+            // finalizing overlay now that the outcome is known. (Panel mode
+            // never showed it; hide() is a no-op there.)
+            await MainActor.run { overlay?.hide() }
 
             // Consume the duration cap flag after notification (Behaviour 2.6)
             if state.wasDurationCapped {

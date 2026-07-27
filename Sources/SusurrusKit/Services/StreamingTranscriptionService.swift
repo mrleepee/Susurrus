@@ -604,7 +604,9 @@ public actor StreamingTranscriptionService {
     ]
 
     /// Strips Whisper special tokens and hallucinated noise from transcribed text.
-    static func stripNoiseTokens(from text: String) -> String {
+    /// Public so the app layer can clean the live interim stream for display —
+    /// the final text is already cleaned here before it's returned.
+    public static func stripNoiseTokens(from text: String) -> String {
         // Strip Whisper special tokens: <|startoftranscript|>, <|en|>, <|0.00|>, etc.
         var result = text.replacingOccurrences(
             of: "<\\|[^|]+\\|>",

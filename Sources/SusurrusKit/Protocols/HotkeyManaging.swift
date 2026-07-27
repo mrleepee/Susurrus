@@ -16,8 +16,8 @@ public struct HotkeyCombo: Sendable, Equatable, Codable {
     /// LLM hotkey: Shift+Option+Space
     public static let withLLM = HotkeyCombo(keyCode: 0x31, modifiers: 0x0A00)
 
-    /// Fix-last-dictation hotkey: Control+Option+Space
-    public static let fixLast = HotkeyCombo(keyCode: 0x31, modifiers: 0x1800)
+    /// Review-panel dictation hotkey: Control+Option+Space
+    public static let reviewPanel = HotkeyCombo(keyCode: 0x31, modifiers: 0x1800)
 }
 
 /// Protocol for managing global hotkeys.

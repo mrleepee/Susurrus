@@ -22,6 +22,11 @@ private func traceNotify(_ message: String) {
 /// (common for menu-bar-only apps).
 public final class UserNotificationService: NSObject, Notifying, UNUserNotificationCenterDelegate, @unchecked Sendable {
 
+    /// Process-wide instance. `init` claims the notification-center
+    /// delegate, so creating a second instance would silently steal it —
+    /// every call site must use this.
+    public static let shared = UserNotificationService()
+
     /// Whether we're running inside a proper .app bundle.
     private static let isInAppBundle: Bool = {
         Bundle.main.bundlePath.hasSuffix(".app")

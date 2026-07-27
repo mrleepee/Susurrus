@@ -34,6 +34,15 @@ final class StreamingOverlayWindow: NSPanel {
     /// so we don't re-locate the menu bar icon on every callback.
     private var cachedAnchorPoint: CGPoint?
 
+    /// Last streamed text, kept so the finalizing state can dim it in place.
+    private var lastConfirmed = ""
+    private var lastUnconfirmed = ""
+
+    /// True between `beginFinalizing()` and `hide()`. While set, late
+    /// streaming updates (a throttled interim callback that lands after the
+    /// hotkey release) are ignored so they can't clear the progress row.
+    private var isFinalizing = false
+
     // MARK: - Init
 
     init() {
@@ -144,6 +153,11 @@ final class StreamingOverlayWindow: NSPanel {
     /// Shows the overlay with the given text (Behaviour 1.1).
     /// If already visible, updates text immediately.
     func show(confirmed: String, unconfirmed: String) {
+        // A throttled interim update can arrive after the hotkey release
+        // flipped us into the finalizing state — ignore it so it can't
+        // wipe the "Finalizing…" progress row.
+        guard !isFinalizing else { return }
+
         // Invalidate cached anchor on show so position refreshes each session
         cachedAnchorPoint = nil
 
@@ -165,11 +179,29 @@ final class StreamingOverlayWindow: NSPanel {
         repositionBelowMenuBarIcon()
     }
 
+    /// Switches the overlay into its finalizing state: the last streamed
+    /// text dims and a progress row appears. Stays up until `hide()` —
+    /// called once the final text has been delivered — so the user gets
+    /// feedback during the whole-buffer decode instead of a blank gap.
+    func beginFinalizing() {
+        isFinalizing = true
+        if !isShowing {
+            // A very short dictation may never have shown the overlay;
+            // surface just the progress row.
+            isShowing = true
+            alphaValue = 1
+            orderFront(nil)
+        }
+        updateText(confirmed: lastConfirmed, unconfirmed: lastUnconfirmed, isFinalizing: true)
+    }
+
     /// Updates the displayed text with confirmed and unconfirmed components
     /// (Behaviour 1.2). Repositions only if already visible.
-    func updateText(confirmed: String, unconfirmed: String) {
+    func updateText(confirmed: String, unconfirmed: String, isFinalizing: Bool = false) {
+        lastConfirmed = confirmed
+        lastUnconfirmed = unconfirmed
         // Rebuild the hosting view with new text
-        let newView = StreamingOverlayView(confirmed: confirmed, unconfirmed: unconfirmed)
+        let newView = StreamingOverlayView(confirmed: confirmed, unconfirmed: unconfirmed, isFinalizing: isFinalizing)
         hostingView.rootView = newView
 
         let fittingSize = hostingView.fittingSize
@@ -199,15 +231,22 @@ final class StreamingOverlayWindow: NSPanel {
     func hide() {
         guard isShowing else { return }
         isShowing = false
+        isFinalizing = false
+        // Next session must not flash this session's text.
+        lastConfirmed = ""
+        lastUnconfirmed = ""
 
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = Self.fadeOutDuration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             self.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            self?.orderOut(nil)
+            // A new session may have called show() during the 300ms fade —
+            // don't order out a now-visible overlay.
+            guard let self, !self.isShowing else { return }
+            self.orderOut(nil)
             // Move off-screen to prevent it from appearing during app transitions
-            self?.setFrameOrigin(CGPoint(x: -9999, y: -9999))
+            self.setFrameOrigin(CGPoint(x: -9999, y: -9999))
         })
     }
 
