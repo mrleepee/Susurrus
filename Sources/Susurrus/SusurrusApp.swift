@@ -738,10 +738,11 @@ struct SusurrusApp: App {
                     let notebookMode = (UserDefaults.standard.string(forKey: "outputMode") ?? "clipboard") == "notebook"
                     await MainActor.run {
                         let targetApp = panel.targetApp
-                        panel.enterEditing(finalText: corrected) { edited in
+                        panel.enterEditing(finalText: corrected) { edited, shouldPaste in
                             let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !final.isEmpty else { return }
                             // Learn from any manual edit beyond the corrector.
+                            // Copy and Insert are equally good teaching signal.
                             if final != corrected, !corrected.isEmpty {
                                 corrections.recordCorrection(raw: corrected, edited: final)
                             }
@@ -751,6 +752,10 @@ struct SusurrusApp: App {
                                 nbManager.appendToActiveNotebook(text: final)
                             }
                             clip.writeText(final)
+                            guard shouldPaste else {
+                                traceApp("reviewCopy: copied \(final.count) chars, target untouched")
+                                return
+                            }
                             // Return focus to the target app, then one clean
                             // paste — the only thing we ever do to it.
                             targetApp?.activate(options: [])

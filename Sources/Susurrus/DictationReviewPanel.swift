@@ -12,6 +12,9 @@ final class DictationReviewModel: ObservableObject {
     @Published var text: String = ""
 
     var onInsert: ((String) -> Void)?
+    /// Copy to clipboard without touching the app you dictated from —
+    /// for when you want the text somewhere else, or nowhere yet.
+    var onCopy: ((String) -> Void)?
     var onCancel: (() -> Void)?
 }
 
@@ -24,6 +27,10 @@ final class DictationReviewModel: ObservableObject {
 struct DictationReviewView: View {
     @ObservedObject var model: DictationReviewModel
     @FocusState private var editorFocused: Bool
+
+    private var isEmpty: Bool {
+        model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -44,7 +51,7 @@ struct DictationReviewView: View {
                 .frame(minHeight: 90, maxHeight: 160)
 
             case .editing:
-                Text("Fix anything, then ⌘⏎ to insert — Susurrus learns from your edits.")
+                Text("Fix anything, then ⌘⏎ to insert or ⇧⌘C to copy — Susurrus learns from your edits.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 TextEditor(text: $model.text)
@@ -59,9 +66,12 @@ struct DictationReviewView: View {
                     Spacer()
                     Button("Cancel") { model.onCancel?() }
                         .keyboardShortcut(.cancelAction)
+                    Button("Copy") { model.onCopy?(model.text) }
+                        .keyboardShortcut("c", modifiers: [.command, .shift])
+                        .disabled(isEmpty)
                     Button("Insert") { model.onInsert?(model.text) }
                         .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(isEmpty)
                 }
             }
         }
@@ -115,6 +125,7 @@ final class DictationReviewPanel: NSPanel {
     func beginRecording(targetApp: NSRunningApplication?) {
         self.targetApp = targetApp
         model.onInsert = nil
+        model.onCopy = nil
         model.text = ""
         model.phase = .recording
         sizeToFit()
@@ -129,11 +140,17 @@ final class DictationReviewPanel: NSPanel {
     }
 
     /// Switch to the editable phase with the finalized text and take focus.
-    /// `onInsert` is invoked with the user's edited text when they insert.
-    func enterEditing(finalText: String, onInsert: @escaping (String) -> Void) {
+    /// `onFinish` receives the user's edited text and whether it should be
+    /// pasted into the target app (Insert) or only copied (Copy). Either way
+    /// the panel closes.
+    func enterEditing(finalText: String, onFinish: @escaping (String, Bool) -> Void) {
         model.text = finalText
         model.onInsert = { [weak self] edited in
-            onInsert(edited)
+            onFinish(edited, true)
+            self?.orderOut(nil)
+        }
+        model.onCopy = { [weak self] edited in
+            onFinish(edited, false)
             self?.orderOut(nil)
         }
         model.phase = .editing

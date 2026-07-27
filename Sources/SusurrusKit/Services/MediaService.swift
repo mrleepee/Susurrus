@@ -1,8 +1,29 @@
 import AppKit
 
+/// Writes to ~/susurrus_debug.log — same sink as traceApp() in the app layer.
+private func traceMedia(_ message: String) {
+    let path = NSHomeDirectory() + "/susurrus_debug.log"
+    let line = "\(Date()) [media] \(message)\n"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        handle.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: Data(line.utf8))
+    }
+}
+
 /// Controls media playback in other applications via AppleScript.
 /// Pauses playing media when recording starts and resumes when recording stops.
+///
+/// Sending Apple Events to another app requires both
+/// `NSAppleEventsUsageDescription` in Info.plist (else macOS denies silently
+/// and never prompts) and a user Automation grant. Denials are traced, not
+/// swallowed — this failed invisibly for months because nothing logged.
 public final class MediaService: MediaControlling, @unchecked Sendable {
+
+    /// Apple Event error raised when the Automation grant is missing/denied.
+    private static let notPermittedError = -1743
 
     /// Media apps with AppleScript support for play/pause.
     private let knownApps: [(name: String, pauseScript: String, resumeScript: String)] = [
@@ -15,25 +36,37 @@ public final class MediaService: MediaControlling, @unchecked Sendable {
 
     public init() {}
 
+    /// Whether media should be paused, given the stored preference.
+    /// Absent key means enabled — the Preferences toggle defaults to on, and
+    /// `@AppStorage` doesn't write a value until the user changes it.
+    static func shouldPause(defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: "pauseMediaOnRecord") != nil else { return true }
+        return defaults.bool(forKey: "pauseMediaOnRecord")
+    }
+
     public func pausePlayingApps() async -> [String] {
-        let preference = UserDefaults.standard.bool(forKey: "pauseMediaOnRecord")
-        // Default is true if key not set
-        guard preference || !UserDefaults.standard.object(forKey: "pauseMediaOnRecord").exists else {
-            return []
-        }
-        // If key not set at all, default to enabled
-        if UserDefaults.standard.object(forKey: "pauseMediaOnRecord") == nil {
-            // Key not set, default enabled — continue
-        } else if !preference {
+        guard Self.shouldPause(defaults: .standard) else {
+            traceMedia("pause skipped — preference off")
             return []
         }
 
         var paused: [String] = []
         for app in knownApps {
-            if await isRunning(app.name), await isPlaying(app.name) {
-                await runAppleScript("tell application \"\(app.name)\" to \(app.pauseScript)")
-                paused.append(app.name)
+            // Cheap, permission-free liveness check first: asking System
+            // Events instead would need its own Automation grant just to
+            // learn the app isn't running.
+            guard isRunning(app.name) else { continue }
+            guard await isPlaying(app.name) else {
+                traceMedia("\(app.name) running but not playing")
+                continue
             }
+            let result = await runAppleScript("tell application \"\(app.name)\" to \(app.pauseScript)")
+            if result.denied {
+                traceMedia("\(app.name) pause DENIED — grant Automation in System Settings > Privacy & Security > Automation")
+                continue
+            }
+            traceMedia("paused \(app.name)")
+            paused.append(app.name)
         }
         return paused
     }
@@ -41,15 +74,17 @@ public final class MediaService: MediaControlling, @unchecked Sendable {
     public func resumeApps(_ appNames: [String]) async {
         for appName in appNames {
             guard let app = knownApps.first(where: { $0.name == appName }) else { continue }
-            await runAppleScript("tell application \"\(app.name)\" to \(app.resumeScript)")
+            let result = await runAppleScript("tell application \"\(app.name)\" to \(app.resumeScript)")
+            traceMedia(result.denied ? "\(app.name) resume DENIED" : "resumed \(app.name)")
         }
     }
 
-    // MARK: - AppleScript helpers
+    // MARK: - Helpers
 
-    private func isRunning(_ appName: String) async -> Bool {
-        let result = await runAppleScript("tell application \"System Events\" to (name of processes) contains \"\(appName)\"")
-        return result == "true"
+    /// Uses NSWorkspace rather than AppleScript — no Automation grant needed,
+    /// and it can't be defeated by a missing System Events permission.
+    private func isRunning(_ appName: String) -> Bool {
+        NSWorkspace.shared.runningApplications.contains { $0.localizedName == appName }
     }
 
     private func isPlaying(_ appName: String) async -> Bool {
@@ -63,24 +98,35 @@ public final class MediaService: MediaControlling, @unchecked Sendable {
         end tell
         """
         let result = await runAppleScript(script)
-        return result == "true"
+        if result.denied {
+            traceMedia("\(appName) player-state DENIED — Automation grant missing")
+            return false
+        }
+        return result.value == "true"
     }
 
-    /// Runs an AppleScript and returns the result as a string, or nil on failure.
-    private func runAppleScript(_ source: String) async -> String? {
+    private struct ScriptResult {
+        let value: String?
+        /// True when macOS refused the Apple Event (no Automation grant).
+        let denied: Bool
+    }
+
+    /// Runs an AppleScript, distinguishing a permission denial from a plain
+    /// failure so the caller can tell the user something actionable.
+    private func runAppleScript(_ source: String) async -> ScriptResult {
         await Task.detached {
-            let script = NSAppleScript(source: source)
             var errorInfo: NSDictionary?
-            let result = script?.executeAndReturnError(&errorInfo)
-            if errorInfo != nil {
-                return nil
+            let result = NSAppleScript(source: source)?.executeAndReturnError(&errorInfo)
+            if let errorInfo {
+                let code = (errorInfo[NSAppleScript.errorNumber] as? Int) ?? 0
+                let message = (errorInfo[NSAppleScript.errorMessage] as? String) ?? "unknown"
+                let denied = (code == Self.notPermittedError)
+                if !denied {
+                    traceMedia("AppleScript error \(code): \(message)")
+                }
+                return ScriptResult(value: nil, denied: denied)
             }
-            return result?.stringValue
+            return ScriptResult(value: result?.stringValue, denied: false)
         }.value
     }
-}
-
-// Helper to check if UserDefaults key exists
-private extension Optional {
-    var exists: Bool { self != nil }
 }

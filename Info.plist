@@ -20,6 +20,8 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Susurrus needs microphone access for speech-to-text transcription.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Susurrus needs to control media apps so it can pause playback while you dictate.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
