@@ -189,4 +189,48 @@ struct AppStateTests {
         #expect(state.recordingState == .idle)
         #expect(state.interimText == nil)
     }
+
+    // MARK: - Request cancel (Esc during recording)
+
+    @Test("Request cancel fires the callback while streaming")
+    func requestCancelFiresWhileStreaming() {
+        let state = makeReadyState()
+        state.startStreaming()
+        var fired = false
+        state.onCancelRequested = { fired = true }
+        state.requestCancel()
+        #expect(fired)
+    }
+
+    @Test("Request cancel is a no-op when idle")
+    func requestCancelNoOpWhenIdle() {
+        let state = makeReadyState()
+        var fired = false
+        state.onCancelRequested = { fired = true }
+        state.requestCancel()
+        #expect(!fired)
+    }
+
+    @Test("Request cancel is a no-op once finalizing — the panel's own Esc takes over")
+    func requestCancelNoOpWhenFinalizing() {
+        let state = makeReadyState()
+        state.startStreaming()
+        state.stopStreaming()
+        var fired = false
+        state.onCancelRequested = { fired = true }
+        state.requestCancel()
+        #expect(!fired)
+        #expect(state.recordingState == .finalizing)
+    }
+
+    @Test("Request cancel does not itself change recordingState — the app layer decides")
+    func requestCancelDoesNotChangeStateDirectly() {
+        let state = makeReadyState()
+        state.startStreaming()
+        state.onCancelRequested = {}
+        state.requestCancel()
+        // Still .streaming: AppState only signals intent via the callback.
+        // Actually leaving .streaming is the app layer's job (cancel()).
+        #expect(state.recordingState == .streaming)
+    }
 }

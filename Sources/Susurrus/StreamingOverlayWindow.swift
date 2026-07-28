@@ -43,6 +43,12 @@ final class StreamingOverlayWindow: NSPanel {
     /// hotkey release) are ignored so they can't clear the progress row.
     private var isFinalizing = false
 
+    /// True while a `showMessage()` result is on screen and managing its own
+    /// timed dismissal. Makes the caller's unconditional end-of-session
+    /// `hide()` a safe no-op instead of cutting the message off before the
+    /// user can read it.
+    private var isShowingMessage = false
+
     // MARK: - Init
 
     init() {
@@ -158,6 +164,15 @@ final class StreamingOverlayWindow: NSPanel {
         // wipe the "Finalizing…" progress row.
         guard !isFinalizing else { return }
 
+        // The interim callback fires ~10Hz for the whole session, including
+        // the silence before the user says anything. Without this guard that
+        // put a visibly empty card on screen the instant recording started —
+        // reported as "a blank notification appears and disappears" for a
+        // session where nothing was ever said. Once real text has shown,
+        // keep updating even through a momentary empty tick (e.g. between
+        // words) rather than flicker the window away.
+        guard isShowing || !confirmed.isEmpty || !unconfirmed.isEmpty else { return }
+
         // Invalidate cached anchor on show so position refreshes each session
         cachedAnchorPoint = nil
 
@@ -183,15 +198,15 @@ final class StreamingOverlayWindow: NSPanel {
     /// text dims and a progress row appears. Stays up until `hide()` —
     /// called once the final text has been delivered — so the user gets
     /// feedback during the whole-buffer decode instead of a blank gap.
+    ///
+    /// Only does anything if the overlay is already showing real text. If
+    /// nothing was ever transcribed (silence, or no speech detected), there
+    /// is nothing to finalize — popping up just to show "Finalizing…" and
+    /// then immediately fading out is exactly the blank flash this exists
+    /// to avoid.
     func beginFinalizing() {
+        guard isShowing else { return }
         isFinalizing = true
-        if !isShowing {
-            // A very short dictation may never have shown the overlay;
-            // surface just the progress row.
-            isShowing = true
-            alphaValue = 1
-            orderFront(nil)
-        }
         updateText(confirmed: lastConfirmed, unconfirmed: lastUnconfirmed, isFinalizing: true)
     }
 
@@ -226,10 +241,29 @@ final class StreamingOverlayWindow: NSPanel {
         }
     }
 
+    /// Shows a short informational message in place of a transcript — e.g.
+    /// "No speech detected" — for a fixed duration, then fades out on its
+    /// own. Used instead of a system notification: this app has previously
+    /// hit macOS dropping UNUserNotificationCenter banner bodies on this
+    /// machine (the earlier Fix-window redesign hit the same thing), so
+    /// anything the user actually needs to read goes through this window,
+    /// which is guaranteed to render since it's ours.
+    func showMessage(_ text: String, duration: TimeInterval = 1.8) {
+        isFinalizing = false
+        isShowingMessage = true
+        show(confirmed: text, unconfirmed: "")
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+            self?.isShowingMessage = false
+            self?.hide()
+        }
+    }
+
     /// Hides the overlay with a 300ms fade-out animation (Behaviour 1.3, R10).
     /// After fade completes, the panel is moved off-screen.
     func hide() {
-        guard isShowing else { return }
+        // A message manages its own dismissal (see showMessage) — the
+        // caller's generic end-of-session hide() must not cut it short.
+        guard isShowing, !isShowingMessage else { return }
         isShowing = false
         isFinalizing = false
         // Next session must not flash this session's text.

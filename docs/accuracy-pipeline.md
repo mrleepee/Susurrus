@@ -57,6 +57,12 @@ rewrite a common English word) plus `CommonWords.domainStoplist` (explicit
 fragments of multi-word vocab terms, e.g. "mark", "logic"). Multi-word
 joins that normalize exactly to a vocab term bypass the guard by design.
 
+That bypass is a **guarantee, not an incidental detail**: the `CommonWords`
+check in `applyVocabulary` is gated on `isSingleWord`, which is what makes
+"mark logic" → "MarkLogic" work with no rule involved. Layer 3 relies on
+it to suppress redundant rules and to require corroboration for every
+multi-word rule, so it is pinned by a corrector-level test.
+
 ## Layer 2 — LLM polish (optional)
 
 `LLMService` providers: `local` (OpenAI-compatible — LM Studio :1234,
@@ -80,7 +86,21 @@ Every edit in History or Notebooks calls `recordCorrection(raw:edited:)`:
 
 - **LCS word alignment** of raw vs edited. Substitution regions (≤3 words
   per side) become `CorrectionRule`s — active after 2 sightings, or
-  immediately when the replacement is a known vocab term / proper noun.
+  immediately when the replacement is a known vocab term / proper noun
+  **and the match is a single word**.
+- **Vocabulary first.** Before minting a rule, the learner asks
+  `TranscriptCorrector.vocabularyAlreadyProduces` whether the vocabulary
+  pass alone yields the same result; if so it promotes the term and skips
+  the rule, which would add only exact-match false-positive risk. The
+  check runs the real corrector rather than re-implementing `isFuzzyMatch`,
+  so it honours the `CommonWords` guard (rules that *are* needed survive),
+  best-match selection, and multi-word joins. Suppression is self-healing:
+  delete the term and the next identical edit mints the rule again.
+- **Multi-word corroboration.** A multi-word match never activates on one
+  sighting, whatever the replacement. `'your eyes' → 'URIs'` reached
+  production this way — `isRiskyCommonPhraseMatch` requires *every* word to
+  be common, and ~700 `CommonWords` entries cannot cover the tail of
+  ordinary English ("eyes", "paths"). Corroboration needs no word list.
 - **Case-only fixes** at aligned positions ("databid" → "DataBid") promote
   straight to vocabulary with a guessed category (ALLCAPS → acronym).
 - **Promotion guards** (from production data): the promoted form must pass
@@ -89,18 +109,44 @@ Every edit in History or Notebooks calls `recordCorrection(raw:edited:)`:
   must not fuzzy-match an existing vocabulary entry (no "Sussurus" beside
   "Susurrus"). A rule whose match is entirely common English words mapped
   to a *different* word ("and while" → "Anwar") never fast-path activates
-  off a known replacement — it needs the second sighting; join/casing
-  fixes of common words ("mark logic" → "MarkLogic") keep the fast path.
-  `runLearningQualityMigration()` repairs data written before these
-  guards, once.
+  off a known replacement — it needs the second sighting. Join/casing
+  fixes ("mark logic" → "MarkLogic") no longer need a rule at all; Layer 1
+  pass 2 delivers them. `runLearningQualityMigration()`
+  (key `learningQualityMigration3`) repairs data written before these
+  guards, once — retiring vocabulary-redundant and uncorroborated
+  multi-word rules, restoring the canonical app name, dropping explicit
+  junk terms, and deduplicating near-identical entries. Every rule sweep
+  is restricted to `.learned`; manual rules are never touched.
 - **Reversals** — an edit that turns a rule's replacement back into its
   match disables that rule.
-- **Usage stats** — after each session, `VocabularyManager.recordUsage`
-  bumps `useCount`/`lastUsedAt` for terms present in the final text,
-  feeding Layer 0's ranking.
+
+### Telemetry — four counters, two distinctions
+
+Effectiveness was unmeasurable until 2026-07-27, which is how a layer that
+had fired once in ~2,000 opportunities survived two rounds of guards.
+
+| Counter | Means | Bumped by |
+|---|---|---|
+| `CorrectionRule.hitCount` | times the **user made** this edit | `addRule` merge |
+| `CorrectionRule.fireCount` | times the rule **repaired** a transcript | `recordFires`, once per dictation |
+| `VocabularyEntry.useCount` | sessions where the term appeared at all | `recordUsage` |
+| `VocabularyEntry.fixCount` | sessions where the corrector had to **repair** it | `recordFixes` |
+
+`hitCount` was previously displayed as "N fixes", conflating the first two.
+Read the pairs together: a rule with many edits and zero fires is being
+taught repeatedly and never paying off, and **high `useCount` with zero
+`fixCount` is the success signal** — Whisper getting a term right unaided
+because Layer 0 biased it at the source.
+
+`CorrectionChange` carries a `CorrectionOrigin` so credit lands on the
+exact rule or entry. `TranscriptCorrector` records nothing itself and must
+stay that way: it runs on the ~10 Hz streaming preview, so a self-counting
+corrector would inflate every figure. The app layer commits fires from the
+final pass only — never the preview, never the post-LLM re-correction.
 
 Rules are visible and editable in **Preferences → Corrections** (toggle,
-delete, add manual find→replace rules).
+delete, add manual find→replace rules), showing edits taught and fires
+delivered as separate labels.
 
 ## Concurrency
 

@@ -62,6 +62,25 @@ public struct TranscriptCorrector: TranscriptCorrecting {
         return CorrectionOutcome(text: result, changes: changes)
     }
 
+    /// Whether the vocabulary pass alone already turns `match` into
+    /// `replacement` — in which case a learned rule adds nothing but
+    /// exact-match false-positive risk.
+    ///
+    /// Deliberately runs the real corrector rather than calling `isFuzzyMatch`
+    /// directly: that way it honours the single-word `CommonWords` guard (so
+    /// rules that *are* needed get kept), best-match selection between similar
+    /// terms, and exact-normalized multi-word joins that fuzzy matching can
+    /// never reach. It cannot drift from the corrector because it is the
+    /// corrector.
+    public func vocabularyAlreadyProduces(
+        _ replacement: String,
+        from match: String,
+        vocabulary: [VocabularyEntry]
+    ) -> Bool {
+        guard !vocabulary.isEmpty else { return false }
+        return correct(match, vocabulary: vocabulary, rules: []).text == replacement
+    }
+
     // MARK: - Pass 1: learned rules
 
     private func applyRules(
