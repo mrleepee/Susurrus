@@ -62,7 +62,6 @@ struct SusurrusApp: App {
     private var llmService: LLMService { Self.sharedLLMService }
     private var historyManager: TranscriptionHistoryManager { TranscriptionHistoryManager.shared }
     private var correctionManager: CorrectionLearningManager { CorrectionLearningManager.shared }
-    private var notebookManager: NotebookManager { NotebookManager.shared }
     // Value types — cheap and stateless, safe to live per-copy.
     private let promptComposer = PromptComposer()
     private let transcriptCorrector = TranscriptCorrector()
@@ -111,7 +110,6 @@ struct SusurrusApp: App {
 
         // Edits anywhere feed the learning loop (rules + vocab promotion).
         historyManager.correctionManager = correctionManager
-        notebookManager.correctionLearning = correctionManager
 
         // One-time repair of learning data written before the promotion
         // and activation guards existed (lowercase common-word vocab junk,
@@ -169,7 +167,7 @@ struct SusurrusApp: App {
             "Susurrus",
             systemImage: menuBarIcon
         ) {
-            MenuBarView(appState: appState, notebookManager: notebookManager) {
+            MenuBarView(appState: appState) {
                 startModelLoadingIfNeeded()
                 checkMicPermission()
                 setupHotkeyIfNeeded()
@@ -214,10 +212,6 @@ struct SusurrusApp: App {
         Window("History", id: "history") {
             HistoryView()
         }
-
-        Window("Notebooks", id: "notebooks") {
-            NotebooksWindowView()
-        }
     }
 
     // MARK: - Window management
@@ -240,7 +234,7 @@ struct SusurrusApp: App {
         ) { notification in
             // Only react to our titled windows closing, not menu bar popovers
             guard let window = notification.object as? NSWindow,
-                  (window.title == "Susurrus Preferences" || window.title == "History" || window.title == "Notebooks") else {
+                  (window.title == "Susurrus Preferences" || window.title == "History") else {
                 return
             }
             Task { @MainActor in
@@ -608,22 +602,18 @@ struct SusurrusApp: App {
 
         // Sync vocabulary bias: relevance-ranked at stop time against the
         // streaming preview, so the prompt-token budget goes to terms this
-        // session plausibly contains. Context terms come from the active
-        // notebook, falling back to recent dictation history so the "what
-        // am I talking about lately" bias needs no notebook habit.
+        // session plausibly contains. Context terms come from recent
+        // dictation history — the "what am I talking about lately" bias
+        // needs no setup or habit.
         let vocabMgr = vocabularyManager
-        let nbMgr = notebookManager
         let historyMgr = historyManager
         Task {
             await streamingService.setVocabularySelector { preview in
-                var contextTerms = nbMgr.activeNotebookBiasTerms()
-                if contextTerms.isEmpty {
-                    contextTerms = historyMgr.recentBiasTerms()
-                }
+                let contextTerms = historyMgr.recentBiasTerms()
                 return VocabularyRanker().selectTerms(
                     previewText: preview,
                     vocabulary: vocabMgr.entries(),
-                    notebookTerms: contextTerms
+                    contextTerms: contextTerms
                 )
             }
         }
@@ -774,7 +764,6 @@ struct SusurrusApp: App {
         let prefs = preferences
         let llm = llmService
         let history = historyManager
-        let nbManager = notebookManager
         let corrector = transcriptCorrector
         let vocab = vocabularyManager
         let corrections = correctionManager
@@ -802,7 +791,6 @@ struct SusurrusApp: App {
                     corrections.recordFires(ruleIDs: panelOutcome.changes.compactMap(\.firedRuleID))
                     vocab.recordFixes(ids: panelOutcome.changes.compactMap(\.firedVocabularyID))
                     let rawASR = text
-                    let notebookMode = (UserDefaults.standard.string(forKey: "outputMode") ?? "clipboard") == "notebook"
                     await MainActor.run {
                         let targetApp = panel.targetApp
                         panel.enterEditing(finalText: corrected) { edited, shouldPaste in
@@ -815,9 +803,6 @@ struct SusurrusApp: App {
                             }
                             vocab.recordUsage(in: final)
                             history.add(final, rawText: rawASR)
-                            if notebookMode {
-                                nbManager.appendToActiveNotebook(text: final)
-                            }
                             clip.writeText(final)
                             guard shouldPaste else {
                                 traceApp("reviewCopy: copied \(final.count) chars, target untouched")
@@ -867,8 +852,7 @@ struct SusurrusApp: App {
                             let prompt = composer.compose(
                                 base: prefs.llmSystemPrompt(),
                                 vocabularyContext: vocab.llmContextString(relevantTo: finalText),
-                                correctionExamples: corrections.fewShotString(for: finalText, limit: 5),
-                                notebookContext: nbManager.activeNotebookContext()
+                                correctionExamples: corrections.fewShotString(for: finalText, limit: 5)
                             )
                             let llmText = try await llm.process(text: finalText, systemPrompt: prompt)
                             if TranscriptGuardrail.accepts(input: finalText, output: llmText) {
@@ -901,45 +885,27 @@ struct SusurrusApp: App {
                     vocab.recordUsage(in: finalText)
 
                     traceApp("stopStreamingSession: writing to clipboard")
-                    let outputMode = UserDefaults.standard.string(forKey: "outputMode") ?? "clipboard"
-
-                    if outputMode == "notebook" {
-                        // Notebook mode: append to notebook, open notebooks window for editing
-                        traceApp("stopStreamingSession: notebook mode — appending to notebook")
-                        nbManager.appendToActiveNotebook(text: finalText)
-                        history.add(finalText, rawText: text)
-                        traceApp("stopStreamingSession: opening notebooks window")
-                        NSApp.setActivationPolicy(.regular)
-                        NSApp.activate(ignoringOtherApps: true)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            openWindow(id: "notebooks")
-                        }
+                    if appendMode {
+                        clip.appendText(finalText)
                     } else {
-                        // Clipboard mode: write to clipboard, auto-paste, also append to notebook
-                        if appendMode {
-                            clip.appendText(finalText)
-                        } else {
-                            clip.writeText(finalText)
-                        }
-
-                        let autoPaste = prefs.autoPasteEnabled()
-                        traceApp("stopStreamingSession: autoPaste=\(autoPaste)")
-                        if autoPaste {
-                            try? await Task.sleep(for: .milliseconds(150))
-                            let pasted = clip.simulatePaste()
-                            if !pasted {
-                                notifications.showNotification(
-                                    title: "Auto-paste blocked — text is on the clipboard",
-                                    body: "Grant Accessibility access: System Settings > Privacy & Security > Accessibility. If Susurrus is already listed, remove it (−) and re-add it — the grant resets when the app's signature changes."
-                                )
-                            }
-                        }
-
-                        traceApp("stopStreamingSession: saving to history")
-                        history.add(finalText, rawText: text)
-                        traceApp("stopStreamingSession: appending to notebook")
-                        nbManager.appendToActiveNotebook(text: finalText)
+                        clip.writeText(finalText)
                     }
+
+                    let autoPaste = prefs.autoPasteEnabled()
+                    traceApp("stopStreamingSession: autoPaste=\(autoPaste)")
+                    if autoPaste {
+                        try? await Task.sleep(for: .milliseconds(150))
+                        let pasted = clip.simulatePaste()
+                        if !pasted {
+                            notifications.showNotification(
+                                title: "Auto-paste blocked — text is on the clipboard",
+                                body: "Grant Accessibility access: System Settings > Privacy & Security > Accessibility. If Susurrus is already listed, remove it (−) and re-add it — the grant resets when the app's signature changes."
+                            )
+                        }
+                    }
+
+                    traceApp("stopStreamingSession: saving to history")
+                    history.add(finalText, rawText: text)
                     traceApp("stopStreamingSession: done")
                 } else {
                     // Not a system notification: this machine has been

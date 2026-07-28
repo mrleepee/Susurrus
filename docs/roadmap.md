@@ -5,51 +5,29 @@
 
 ---
 
-## Notebooks: keep, but understand what they are
+## Notebooks: removed (2026-07-28)
 
-A notebook is a named collection that your dictations get saved into. You
-pick an "active" notebook, and everything you dictate lands there. That's
-the whole idea.
+Notebooks required picking an "active" notebook before dictating — a mode
+decision before you speak, in a tool whose whole point is not having to
+think before you speak. The watch period this roadmap called for ran on
+its own: 144 entries between 2026-04-06 and 2026-04-27, one more on
+2026-07-07, then nothing. Three months of the feature being off.
 
-### Strengths
+Nothing of value was lost. Everything notebooks provided is covered
+elsewhere: `TranscriptionHistoryManager.recentBiasTerms()` gives the same
+ASR context boost with no setup (this was already the live path, since no
+notebook was ever active); `TranscriptionHistoryItem` stores the raw/edited
+pair on every dictation, not only when a notebook happened to be active;
+and edits already reach the correction loop through the review panel and
+History. The removal deleted ~930 lines of dedicated code plus a menu-bar
+JSON parse that ran on every single menu open regardless of whether
+notebooks were ever used.
 
-- **They tell Susurrus what you're working on.** Dictate into a "MarkLogic
-  migration" notebook and the names from your recent entries get fed to
-  the speech model as hints. Your project's jargon gets recognised without
-  you maintaining a vocabulary list.
-- **They catch your fixes at the best moment.** Notebook mode opens the
-  window right after you dictate. You fix mistakes while you still
-  remember what you said, and every fix teaches Susurrus a rule.
-- **They cost nothing when ignored.** No active notebook = no overhead.
-
-### Weaknesses
-
-- **They need a habit.** All the value depends on you remembering to pick
-  an active notebook. If you never do, notebooks do nothing.
-- **Unfixed mistakes spread.** If the speech model writes a name wrong and
-  you don't correct it, the wrong spelling sits in the notebook and gets
-  fed back as a "hint" next time.
-- **The original feature is the weakest one.** Notebooks were built to send
-  your last 10 entries to the cleanup AI as background reading. That only
-  works when the cleanup AI is switched on, and it's the least effective
-  thing notebooks do today.
-
-### The verdict, and what happens next
-
-Keep them — but stop *depending* on them. As of today, if you have no
-active notebook, Susurrus gets the same context boost from your recent
-dictation history automatically. Notebooks are now a bonus for people who
-like organising, not a requirement for accuracy.
-
-The plan:
-
-1. **Watch for a week or two.** Does notebook mode actually get used in
-   real dictation?
-2. **If yes** — invest: make switching the active notebook faster (menu
-   bar picker) and keep improving what gets learned from entry edits.
-3. **If no** — demote: keep notebooks as a plain filing feature, and cut
-   the "send entries to the cleanup AI" part first. The automatic
-   history-based hints already cover the accuracy job.
+The SPEC R31 idea (LLM auto-assigns each dictation to a notebook) would
+have actually solved the context-switching problem, by removing the
+manual pick — but it wasn't worth an LLM call per dictation for a feature
+with four months of zero pull. Filing was never the job that needed
+doing; corrections were, and the review panel already does that job.
 
 ---
 
@@ -60,15 +38,15 @@ Ranked. Number 1 matters most.
 ### 1. Context without asking
 
 Susurrus should know what you're talking about without being told.
-Today it looks at your active notebook, then your recent dictations.
-Next: look at **where you're pasting**. Dictating into Xcode? Bias
-toward code words. Into Slack? Names of your colleagues. The goal: delete
-every setup step between "install app" and "it knows my words".
+Today it looks at your recent dictations. Next: look at **where you're
+pasting**. Dictating into Xcode? Bias toward code words. Into Slack?
+Names of your colleagues. The goal: delete every setup step between
+"install app" and "it knows my words".
 
 ### 2. Effortless corrections
 
-Right now, teaching Susurrus means opening History or a notebook and
-editing text. Too much work. Instead:
+Right now, teaching Susurrus means opening History and editing text.
+Too much work. Instead:
 
 - A "fix that" button (or hotkey) right after a dictation pastes.
 - Highlight the words Whisper itself wasn't sure about, so you can see
@@ -96,10 +74,9 @@ and thinking out loud — not just short bursts.
 
 ### 5. Your words on every Mac
 
-Vocabulary, learned rules, and notebooks should follow you via iCloud.
-Teach Susurrus a name on your desktop, and your laptop knows it too.
-Without sync, every machine starts from zero — and the learning loop is
-the product.
+Vocabulary and learned rules should follow you via iCloud. Teach Susurrus
+a name on your desktop, and your laptop knows it too. Without sync, every
+machine starts from zero — and the learning loop is the product.
 
 ---
 

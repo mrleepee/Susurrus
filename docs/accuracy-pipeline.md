@@ -12,8 +12,8 @@ audio ──► streaming preview (no prompt tokens — latency)
       ──► deterministic corrector                                (Layer 1, always-on, ~0ms)
       ──► optional LLM polish, guarded                           (Layer 2, opt-in)
       │      └── corrector re-applied to LLM output
-      ──► clipboard / notebook / history
-user edits (History, Notebooks) ──► rules + vocab promotion + usage stats (Layer 3)
+      ──► clipboard / history
+user edits (History) ──► rules + vocab promotion + usage stats (Layer 3)
 ```
 
 ## Layer 0 — Relevance-ranked ASR bias
@@ -25,9 +25,9 @@ not session start, using the streaming preview text:
    preview. A phonetic-but-wrong hit ("sparkle" when SPARQL is in vocab)
    ranks highest: that's precisely when biasing the final decode matters.
    Ties break by usage count, then alphabetically (reproducible packing).
-2. **Context terms** — proper nouns from the active notebook's recent
-   entries; falls back to recent dictation history when no notebook is
-   active (`TranscriptionHistoryManager.recentBiasTerms`). Extraction is
+2. **Context terms** — proper nouns from recent dictation history
+   (`TranscriptionHistoryManager.recentBiasTerms`), so "what have I been
+   talking about lately" needs no setup from the user. Extraction is
    shared in `ProperNoun.extractBiasTerms` (CamelCase / ALLCAPS /
    capitalized-uncommon, sentence-initial words excluded).
 3. **Evergreen fill** — remaining vocab by usage, then category priority.
@@ -71,8 +71,8 @@ probe, then cloud). Default is `cloud` — legacy behaviour, no surprise
 local-endpoint hang. Temperature 0 everywhere.
 
 Context is filtered: only vocab entries evidenced in the transcript
-(`llmContextString(relevantTo:)`), Jaccard-ranked few-shot correction
-pairs, and notebook context.
+(`llmContextString(relevantTo:)`) and Jaccard-ranked few-shot correction
+pairs.
 
 **Guardrail**: `TranscriptGuardrail.accepts` rejects output whose word-LCS
 similarity to the input is < 0.5 or whose length ratio leaves [0.5, 1.6] —
@@ -82,7 +82,7 @@ corrector again so vocabulary casing survives.
 
 ## Layer 3 — Learning loop (`CorrectionLearningManager`)
 
-Every edit in History or Notebooks calls `recordCorrection(raw:edited:)`:
+Every edit in History calls `recordCorrection(raw:edited:)`:
 
 - **LCS word alignment** of raw vs edited. Substitution regions (≤3 words
   per side) become `CorrectionRule`s — active after 2 sightings, or
@@ -151,10 +151,9 @@ delivered as separate labels.
 ## Concurrency
 
 `VocabularyManager` and `CorrectionLearningManager` serialize all
-load-modify-write on UserDefaults behind an `NSRecursiveLock`;
-`NotebookManager` uses a barrier queue for its JSON files. Production code
-must use the `.shared` singletons — separate instances on the same keys
-would race despite the locks.
+load-modify-write on UserDefaults behind an `NSRecursiveLock`. Production
+code must use the `.shared` singletons — separate instances on the same
+keys would race despite the locks.
 
 ## Key files
 

@@ -38,13 +38,13 @@ struct VocabularyRankerTests {
         #expect(terms.first == "SPARQL")
     }
 
-    @Test("Notebook terms rank above unevidenced vocabulary")
-    func notebookAboveEvergreen() {
+    @Test("History context terms rank above unevidenced vocabulary")
+    func contextAboveEvergreen() {
         let vocab = entries([("Balvinder", .person)])
         let terms = ranker.selectTerms(
             previewText: "",
             vocabulary: vocab,
-            notebookTerms: ["BioFinder"]
+            contextTerms: ["BioFinder"]
         )
         #expect(terms == ["BioFinder", "Balvinder"])
     }
@@ -68,7 +68,7 @@ struct VocabularyRankerTests {
         let terms = ranker.selectTerms(
             previewText: "the marklogic upgrade",
             vocabulary: vocab,
-            notebookTerms: ["marklogic", "CoRB"]
+            contextTerms: ["marklogic", "CoRB"]
         )
         #expect(terms == ["MarkLogic", "CoRB"])
     }

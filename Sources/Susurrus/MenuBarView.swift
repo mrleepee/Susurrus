@@ -3,13 +3,8 @@ import SusurrusKit
 
 struct MenuBarView: View {
     let appState: AppState
-    let notebookManager: NotebookManaging
     let onLoad: (() -> Void)?
     @Environment(\.openWindow) private var openWindow
-
-    // Refreshed each time the menu appears
-    @State private var notebookList: [Notebook] = []
-    @State private var activeNotebookId: UUID?
 
     var body: some View {
         Group {
@@ -47,40 +42,6 @@ struct MenuBarView: View {
                 .foregroundStyle(.secondary)
 
             Divider()
-
-            // Notebook selector submenu
-            Menu {
-                Button(activeNotebookId == nil ? "✓ None (clipboard only)" : "None (clipboard only)") {
-                    notebookManager.setActiveNotebookId(nil)
-                    refreshNotebooks()
-                }
-                Divider()
-                ForEach(notebookList) { notebook in
-                    Button {
-                        notebookManager.setActiveNotebookId(notebook.id)
-                        refreshNotebooks()
-                    } label: {
-                        HStack {
-                            Text(notebook.name)
-                            if activeNotebookId == notebook.id {
-                                Spacer()
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                Label("Notebook", systemImage: "book")
-            }
-
-            Divider()
-            Button("Notebooks...") {
-                NSApp.setActivationPolicy(.regular)
-                NSApp.activate(ignoringOtherApps: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    openWindow(id: "notebooks")
-                }
-            }
             Button("History...") {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
@@ -106,12 +67,6 @@ struct MenuBarView: View {
         }
         .onAppear {
             onLoad?()
-            refreshNotebooks()
         }
-    }
-
-    private func refreshNotebooks() {
-        notebookList = notebookManager.notebooks()
-        activeNotebookId = notebookManager.activeNotebookId()
     }
 }

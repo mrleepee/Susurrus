@@ -77,8 +77,8 @@ public final class TranscriptionHistoryManager: @unchecked Sendable {
     }
 
     /// Proper-noun-ish terms from recent dictations, newest first. Used as
-    /// ASR bias candidates when no notebook is active — "what have I been
-    /// talking about lately" needs no setup from the user.
+    /// ASR bias candidates — "what have I been talking about lately" needs
+    /// no setup from the user.
     public func recentBiasTerms(itemLimit: Int = 10, termLimit: Int = 20) -> [String] {
         ProperNoun.extractBiasTerms(
             from: loadAll().prefix(itemLimit).map(\.text),
