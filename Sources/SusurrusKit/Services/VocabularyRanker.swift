@@ -10,7 +10,7 @@ import Foundation
 ///    phonetic hits. A phonetic-but-not-exact hit means the preview likely
 ///    *misrecognized* the term, exactly when biasing the final decode
 ///    matters most.
-/// 2. Bias terms drawn from the active notebook's recent entries.
+/// 2. Bias terms drawn from recent dictation history.
 /// 3. Remaining vocabulary by category priority (names and products first).
 public struct VocabularyRanker: Sendable {
 
@@ -23,7 +23,7 @@ public struct VocabularyRanker: Sendable {
     public func selectTerms(
         previewText: String,
         vocabulary: [VocabularyEntry],
-        notebookTerms: [String] = []
+        contextTerms: [String] = []
     ) -> [String] {
         var selected: [String] = []
         var seen: Set<String> = []
@@ -83,8 +83,8 @@ public struct VocabularyRanker: Sendable {
             add(hit.term)
         }
 
-        // Tier 2: recent notebook terms.
-        for term in notebookTerms {
+        // Tier 2: recent history terms.
+        for term in contextTerms {
             add(term)
         }
 

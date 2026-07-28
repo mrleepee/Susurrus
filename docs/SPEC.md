@@ -42,8 +42,8 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 | R28 | Streaming transcription with live interim text displayed in a floating overlay | Must | 8 |
 | R29 | Overlay shows confirmed text in primary color and unconfirmed text in secondary color | Should | 8 |
 | R30 | Overlay does not steal focus from the active application | Must | 8 |
-| R31 | LLM automatically assigns each transcription to the most relevant notebook based on content | Should | 9 |
-| R32 | Notebook entries store original ASR text and edited text for Whisper training pairs | Must | 9 |
+| R31 | ~~LLM automatically assigns each transcription to the most relevant notebook based on content~~ **REMOVED 2026-07-28** — never implemented as specced; notebooks shipped with manual selection only, then removed entirely | Should | 9 |
+| R32 | ~~Notebook entries store original ASR text and edited text for Whisper training pairs~~ **REMOVED 2026-07-28** — `TranscriptionHistoryItem.rawText` already covers this on every dictation, notebook or not | Must | 9 |
 | R33 | Pause all playing media (Spotify, Apple Music, VLC) when recording starts; resume when recording stops | Must | 10 |
 
 ## Constraints
@@ -530,7 +530,7 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 - Then `RecordingState` transitions to `.finalizing`
 - And the overlay fades out over 300ms
 - And the final text is extracted from confirmed + unconfirmed segments
-- And text is written to clipboard, auto-pasted, saved to history, and appended to active notebook
+- And text is written to clipboard, auto-pasted, and saved to history
 - And `RecordingState` transitions to `.idle`
 
 **Streaming flush catches trailing words**
@@ -572,7 +572,16 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 
 ---
 
-## Phase 9 — LLM-Driven Notebook Assignment & Edit Tracking
+## Phase 9 — LLM-Driven Notebook Assignment & Edit Tracking (REMOVED 2026-07-28)
+
+> **Removed.** Notebooks required picking an active notebook before dictating — a mode
+> decision before speaking, which is the wrong shape for a dictation tool. Usage data
+> (144 entries in April, one in July, then nothing) confirmed it went unused. Everything
+> notebooks provided is covered elsewhere: `TranscriptionHistoryManager.recentBiasTerms()`
+> for ASR context, `TranscriptionHistoryItem.rawText` for training pairs, and the review
+> panel + History for edit-driven learning. The LLM auto-assignment described below was
+> never actually built — what shipped was manual selection only, documented here for
+> historical record before removal. See [roadmap.md](roadmap.md) for the full writeup.
 
 > After transcription, the LLM classifies which notebook the text belongs to based on content and existing notebook context. Notebook entries store original ASR text alongside edits for Whisper fine-tuning.
 > Traces to: R31, R32
@@ -728,7 +737,7 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 - ~~Streaming overlay with interim text~~ ✅ Shipped in v1.1
 - ~~Ontological vocabulary (F9)~~ ✅ Shipped
 - ~~Edit-driven learning (F10)~~ ✅ Shipped
-- ~~Project notebooks with dual output (F11)~~ ✅ Shipped
+- ~~Project notebooks with dual output (F11)~~ ✅ Shipped, then ❌ **removed 2026-07-28** — unused for 3 months, see roadmap.md
 
 #### Competitive Features (inspired by Wispr Flow)
 
@@ -744,8 +753,8 @@ Core flow: hold hotkey to talk, release to transcribe, `Cmd+V` to paste.
 | F8 | Vocabulary editor with autocomplete | Enhanced vocabulary UI that suggests completions from a built-in dictionary and the user's transcription history. Reduces friction of adding new terms. | Low | None |
 | F9 | Ontological vocabulary | Categorise vocabulary entries into typed groups: People, Places, Projects, Technical Terms, Products, Acronyms, etc. Categories enable context-aware injection — ASR bias (promptTokens) gets proper nouns and technical terms, while LLM cleanup prompt gets category context ("DataBid is a product name, always capitalize"). Supports user-defined categories. | High | Vocabulary model refactor, Preferences UI |
 | F10 | Edit-driven learning | When users edit transcriptions in the history panel, store correction pairs (raw → edited). Inject the most relevant pairs into the LLM cleanup prompt as few-shot examples. Captures user-specific preferences (capitalisation, filler word tolerance, style) without fine-tuning. Auto-extracts proper noun corrections back into vocabulary. | High | History edit UI, correction pair storage, prompt engineering |
-| F11 | Project notebooks | Named notebooks that accumulate transcriptions as project context. Dual output: text always goes to clipboard (primary workflow preserved), and also appends to the active notebook. Notebook content is injected into the LLM cleanup prompt as domain context. User edits notebook entries to refine context. Menu bar has notebook selector. Preferences has notebook management (create, rename, delete, export). | High | Notebook data model, Preferences UI, Menu bar UI, LLM prompt integration |
-| F12 | LLM-driven notebook assignment | After transcription completes, the LLM classifies the text against all existing notebooks and assigns it to the most relevant one. Eliminates manual notebook switching. Uses a dedicated classification prompt that receives notebook names and recent context, returns a notebook ID or null. Manual selection overrides. Failed classification falls back gracefully. | High | LLM integration, notebook context extraction |
+| F11 | ~~Project notebooks~~ **REMOVED 2026-07-28** | Named notebooks that accumulate transcriptions as project context. Dual output: text always goes to clipboard (primary workflow preserved), and also appends to the active notebook. Notebook content is injected into the LLM cleanup prompt as domain context. User edits notebook entries to refine context. Menu bar has notebook selector. Preferences has notebook management (create, rename, delete, export). | High | Notebook data model, Preferences UI, Menu bar UI, LLM prompt integration |
+| F12 | ~~LLM-driven notebook assignment~~ **REMOVED 2026-07-28** (never built) | After transcription completes, the LLM classifies the text against all existing notebooks and assigns it to the most relevant one. Eliminates manual notebook switching. Uses a dedicated classification prompt that receives notebook names and recent context, returns a notebook ID or null. Manual selection overrides. Failed classification falls back gracefully. | High | LLM integration, notebook context extraction |
 
 #### Context-Aware Spelling — Technical Detail
 
@@ -904,7 +913,7 @@ Now clean up this transcription:
 - Auto-prune pairs older than 90 days or when user deletes history entries
 - F10 depends on F9 for the auto-extraction of vocabulary from edits
 
-#### Project Notebooks — Technical Detail (F11)
+#### Project Notebooks — Technical Detail (F11) — REMOVED 2026-07-28
 
 Named notebooks that accumulate transcriptions as project-specific context. The primary clipboard workflow is never disrupted — text always goes to clipboard, and optionally to the active notebook.
 
@@ -1010,7 +1019,7 @@ This gives the LLM three advantages over generic cleanup:
 - F12 (LLM notebook assignment): Determines which notebook receives each transcription, replacing manual switching.
 - F1 (context-aware spelling): If the focused app is a text editor with an open document matching a notebook name, could auto-select that notebook.
 
-#### LLM-Driven Notebook Assignment — Technical Detail (F12)
+#### LLM-Driven Notebook Assignment — Technical Detail (F12) — REMOVED 2026-07-28, never built
 
 After transcription completes (and optional LLM cleanup), a second LLM call classifies the text into the most relevant notebook. This replaces manual notebook switching for users with multiple project notebooks.
 

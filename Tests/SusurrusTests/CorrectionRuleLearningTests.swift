@@ -386,38 +386,3 @@ struct CorrectionRuleLearningTests {
         #expect(regions[0].1 == 1..<2)
     }
 }
-
-@Suite("NotebookManager learning Tests")
-struct NotebookLearningTests {
-
-    @Test("Entry edits are recorded as corrections")
-    func entryEditRecords() {
-        let nb = NotebookManager.createForTesting()
-        let corrections = CorrectionLearningManager.createForTesting()
-        nb.correctionLearning = corrections
-
-        let notebook = nb.createNotebook(name: "Test")
-        nb.setActiveNotebookId(notebook.id)
-        nb.appendToActiveNotebook(text: "we use mark logic here")
-        let entry = nb.notebookEntries(id: notebook.id)[0]
-
-        nb.updateEntry(notebookId: notebook.id, entryId: entry.id, newText: "we use MarkLogic here")
-        #expect(corrections.allCorrections().count == 1)
-        #expect(corrections.allCorrections()[0].editedText == "we use MarkLogic here")
-    }
-
-    @Test("Bias terms extracted from recent entries")
-    func biasTerms() {
-        let nb = NotebookManager.createForTesting()
-        let notebook = nb.createNotebook(name: "Migration")
-        nb.setActiveNotebookId(notebook.id)
-        nb.appendToActiveNotebook(text: "Talked to Jayendra about the MarkLogic upgrade and the QAS pipeline.")
-
-        let terms = nb.activeNotebookBiasTerms()
-        #expect(terms.contains("Jayendra"))
-        #expect(terms.contains("MarkLogic"))
-        #expect(terms.contains("QAS"))
-        #expect(!terms.contains("about"))
-        #expect(!terms.contains("Talked"))
-    }
-}

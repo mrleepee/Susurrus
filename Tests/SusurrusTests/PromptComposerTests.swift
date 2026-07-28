@@ -17,15 +17,12 @@ struct PromptComposerTests {
         let result = composer.compose(
             base: "Clean up text.",
             vocabularyContext: "DataBid is a product name.",
-            correctionExamples: "Raw: \"data bid\" → Fixed: \"DataBid\"",
-            notebookContext: "We discussed the SOW renewal."
+            correctionExamples: "Raw: \"data bid\" → Fixed: \"DataBid\""
         )
         #expect(result.contains("Clean up text."))
         #expect(result.contains("Vocabulary guidance:"))
         #expect(result.contains("DataBid is a product name."))
         #expect(result.contains("Examples of previous corrections by this user:"))
-        #expect(result.contains("Project context (recent entries):"))
-        #expect(result.contains("We discussed the SOW renewal."))
     }
 
     @Test("Empty sections are omitted")
@@ -33,12 +30,10 @@ struct PromptComposerTests {
         let result = composer.compose(
             base: "Clean up text.",
             vocabularyContext: "DataBid is a product name.",
-            correctionExamples: "",
-            notebookContext: ""
+            correctionExamples: ""
         )
         #expect(result.contains("Vocabulary guidance:"))
         #expect(!result.contains("Examples of previous corrections"))
-        #expect(!result.contains("Project context"))
     }
 
     @Test("All empty context returns just base")
@@ -46,8 +41,7 @@ struct PromptComposerTests {
         let result = composer.compose(
             base: "Clean up text.",
             vocabularyContext: "",
-            correctionExamples: "",
-            notebookContext: ""
+            correctionExamples: ""
         )
         #expect(result == "Clean up text.")
     }
@@ -57,8 +51,7 @@ struct PromptComposerTests {
         let result = composer.compose(
             base: "Clean up text.",
             vocabularyContext: "   \n  ",
-            correctionExamples: "\n",
-            notebookContext: " "
+            correctionExamples: "\n"
         )
         #expect(result == "Clean up text.")
     }

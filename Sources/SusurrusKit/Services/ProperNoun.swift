@@ -1,7 +1,7 @@
 import Foundation
 
 /// Heuristic for words worth learning as vocabulary: CamelCase, ALLCAPS,
-/// or Capitalized-and-uncommon. Shared by notebook bias-term extraction
+/// or Capitalized-and-uncommon. Shared by history bias-term extraction
 /// and correction-driven vocabulary promotion.
 enum ProperNoun {
     /// Sentence-initial words are capitalized by convention, so the
@@ -36,7 +36,7 @@ enum ProperNoun {
     /// Extract proper-noun-ish bias terms from a batch of texts (newest
     /// first), deduplicated case-insensitively. Splits into sentences first
     /// so sentence-initial capitalization isn't mistaken for a proper noun.
-    /// Shared by notebook and history bias-term extraction.
+    /// Shared by history bias-term extraction.
     static func extractBiasTerms(from texts: [String], limit: Int) -> [String] {
         var terms: [String] = []
         var seen: Set<String> = []
