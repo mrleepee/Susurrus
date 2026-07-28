@@ -31,6 +31,7 @@ bundle: release
 	mkdir -p $(APP_BUNDLE)/Contents/Resources
 	cp .build/release/$(APP_NAME) $(APP_BUNDLE)/Contents/MacOS/
 	cp Info.plist $(APP_BUNDLE)/Contents/
+	cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/
 	# Never ship .env or any secrets in the bundle — API keys belong in macOS Keychain only
 	@if [ -n "$(SIGN_IDENTITY)" ]; then \
 		echo "Signing with stable identity: $(SIGN_IDENTITY)"; \
@@ -49,6 +50,11 @@ install: bundle
 	-killall $(APP_NAME) 2>/dev/null || true
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
 	cp -r $(APP_BUNDLE) $(INSTALL_DIR)/
+	@# Force Launch Services to re-scan the new copy. Without this it can
+	@# keep serving a stale registration (wrong mod date, or a lingering
+	@# launch-disabled flag from before code-signing was stabilized),
+	@# which is what kept the app from surfacing in Spotlight/Siri search.
+	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f $(INSTALL_DIR)/$(APP_NAME).app
 	@echo "Installed to $(INSTALL_DIR)/$(APP_NAME).app"
 
 launch:

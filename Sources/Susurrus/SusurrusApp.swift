@@ -49,6 +49,11 @@ struct SusurrusApp: App {
     private var llmHotkeyService: GlobalHotkeyService { Self.sharedLLMHotkeyService }
     private static let sharedFixHotkeyService = GlobalHotkeyService()
     private var fixHotkeyService: GlobalHotkeyService { Self.sharedFixHotkeyService }
+    // Registered dynamically only while actually recording (see
+    // startStreamingSession) — a permanent global Esc hotkey would swallow
+    // Esc everywhere else in the OS.
+    private static let sharedEscHotkeyService = GlobalHotkeyService()
+    private var escHotkeyService: GlobalHotkeyService { Self.sharedEscHotkeyService }
     private static let sharedHotkeyStorage = HotkeyStorage()
     private var hotkeyStorage: HotkeyStorage { Self.sharedHotkeyStorage }
     private static let sharedMicPermissionManager = MicPermissionManager()
@@ -174,6 +179,7 @@ struct SusurrusApp: App {
                 appState.recordingMode = preferences.recordingMode()
                 appState.onStreamingStart = { self.startStreamingSession() }
                 appState.onStreamingStop = { self.stopStreamingSession() }
+                appState.onCancelRequested = { self.cancelActiveDictation() }
             }
         }
         .onChange(of: appState.recordingState) { _, newState in
@@ -564,6 +570,27 @@ struct SusurrusApp: App {
         traceApp("startStreamingSession: starting streaming session")
         startDurationTimer()
 
+        // Esc cancels the in-flight session — registered only for the
+        // duration of this recording (unregistered in cancelActiveDictation
+        // and at stopStreamingSession's convergence point), so it never
+        // intercepts Esc anywhere else in the system.
+        let escState = appState
+        let esc = escHotkeyService
+        Task {
+            do {
+                try await esc.register(
+                    combo: HotkeyCombo(keyCode: 0x35, modifiers: 0),
+                    onKeyDown: {
+                        Task { @MainActor in
+                            escState.requestCancel()
+                        }
+                    }
+                )
+            } catch {
+                traceApp("Esc-cancel hotkey registration failed: \(error)")
+            }
+        }
+
         // Pause any playing media (Spotify, Apple Music, etc.)
         let media = mediaService
         Task {
@@ -679,9 +706,41 @@ struct SusurrusApp: App {
                     state.cancel()
                     notifications.showNotification(
                         title: "Recording failed",
-                        body: error.localizedDescription
+                        body: "\(error.localizedDescription) Try again — if it keeps happening, check the input device in Preferences > Audio."
                     )
                 }
+            }
+        }
+    }
+
+    /// Discards the in-flight streaming session with no output: no history
+    /// entry, no notification, no paste — the target app is never touched.
+    /// Bound to Esc, which is only registered while actively recording (see
+    /// startStreamingSession), so this is unreachable once a session has
+    /// already finished or wasn't running.
+    private func cancelActiveDictation() {
+        traceApp("cancelActiveDictation: Esc pressed, discarding session")
+
+        // Capture reference types only — do NOT capture `self` (the struct).
+        let state = appState
+        let streaming = streamingService
+        let media = mediaService
+        let esc = escHotkeyService
+        let apps = pausedMediaApps
+        pausedMediaApps = []
+
+        stopDurationTimer()
+        state.dictationDestination = .clipboard
+        overlayWindow?.hide()
+        reviewPanel.cancel()
+        state.cancel()
+
+        Task {
+            await streaming.cancelStreamTranscription()
+            await esc.unregister()
+            if !apps.isEmpty {
+                traceApp("cancelActiveDictation: resuming media: \(apps.joined(separator: ", "))")
+                await media.resumeApps(apps)
             }
         }
     }
@@ -883,10 +942,11 @@ struct SusurrusApp: App {
                     }
                     traceApp("stopStreamingSession: done")
                 } else {
-                    notifications.showNotification(
-                        title: "No speech detected",
-                        body: "Nothing was transcribed. Check the input device in Preferences."
-                    )
+                    // Not a system notification: this machine has been
+                    // observed dropping UNUserNotificationCenter banner
+                    // bodies for this app, so this goes through the overlay
+                    // instead, which is guaranteed to actually render.
+                    overlay?.showMessage("No speech detected — check the input device in Preferences.")
                 }
             } catch TranscriptionError.noSpeechDetected {
                 traceApp("stopStreamingSession: no speech detected")
@@ -894,10 +954,11 @@ struct SusurrusApp: App {
                 if toPanel {
                     await MainActor.run { panel.cancel() }
                 } else {
-                    notifications.showNotification(
-                        title: "No speech detected",
-                        body: "Nothing was transcribed. Check the input device in Preferences."
-                    )
+                    // Not a system notification: this machine has been
+                    // observed dropping UNUserNotificationCenter banner
+                    // bodies for this app, so this goes through the overlay
+                    // instead, which is guaranteed to actually render.
+                    overlay?.showMessage("No speech detected — check the input device in Preferences.")
                 }
             } catch {
                 traceApp("stopStreamingSession: transcription failed: \(error.localizedDescription)")
@@ -906,7 +967,7 @@ struct SusurrusApp: App {
                 }
                 notifications.showNotification(
                     title: "Transcription failed",
-                    body: error.localizedDescription
+                    body: "\(error.localizedDescription) The recording was discarded — try again."
                 )
             }
 
@@ -914,6 +975,11 @@ struct SusurrusApp: App {
             // finalizing overlay now that the outcome is known. (Panel mode
             // never showed it; hide() is a no-op there.)
             await MainActor.run { overlay?.hide() }
+            // Esc is only meaningful while state == .streaming (see
+            // AppState.requestCancel); tear it down now that this session
+            // has reached a terminal state via the normal stop path. The
+            // cancel path unregisters it itself and never reaches here.
+            await escHotkeyService.unregister()
 
             // Consume the duration cap flag after notification (Behaviour 2.6)
             if state.wasDurationCapped {

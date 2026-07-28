@@ -503,7 +503,14 @@ public actor StreamingTranscriptionService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Stop streaming without returning a result (e.g., on cancel).
+    /// Abandon the in-flight session with no output: no whole-buffer decode,
+    /// nothing returned, nothing thrown. Used for a deliberate user cancel
+    /// (Esc, wired in SusurrusApp.cancelActiveDictation) rather than a normal
+    /// stop. Stopping the transcriber before touching `sessionTask` matters:
+    /// it lets the realtime loop exit normally, so whichever caller is still
+    /// blocked on `startStreamTranscription()`'s `task.value` returns without
+    /// throwing, instead of surfacing a spurious "Recording failed"
+    /// notification for what was actually a clean cancel.
     public func cancelStreamTranscription() async {
         await streamTranscriber?.stopStreamTranscription()
         try? await sessionTask?.value

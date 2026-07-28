@@ -78,6 +78,10 @@ public final class AppState {
     public var onStreamingStart: (() -> Void)?
     public var onStreamingStop: (() -> Void)?
 
+    /// Fired when the user cancels an in-flight dictation (Esc) rather than
+    /// finishing it — no history entry, no notification, no paste.
+    public var onCancelRequested: (() -> Void)?
+
     /// Download/load progress for the model (0.0 to 1.0).
     public var modelLoadProgress: Double = 0
 
@@ -175,6 +179,15 @@ public final class AppState {
     public func cancel() {
         recordingState = .idle
         interimText = nil
+    }
+
+    /// A deliberate user cancel (Esc) during an active recording. Only
+    /// meaningful mid-stream — once `stopStreaming()` has already moved to
+    /// `.finalizing`, the panel's own Esc/Cancel handling takes over instead,
+    /// so this is a guarded no-op by then rather than a competing handler.
+    public func requestCancel() {
+        guard recordingState == .streaming else { return }
+        onCancelRequested?()
     }
 
     // MARK: - Hotkey handling
