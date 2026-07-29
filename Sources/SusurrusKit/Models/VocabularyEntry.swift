@@ -14,6 +14,10 @@ public struct VocabularyEntry: Identifiable, Codable, Equatable, Sendable {
     /// `useCount`: high use with zero fixes means Whisper is getting the term
     /// right unaided, which is prompt-bias working at the source.
     public var fixCount: Int?
+    /// When the term entered the vocabulary. Stamped by `addEntry`, so entries
+    /// persisted before this existed decode as nil and are simply treated as
+    /// established — see `VocabularyRanker`'s grace tier.
+    public var createdAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -21,7 +25,8 @@ public struct VocabularyEntry: Identifiable, Codable, Equatable, Sendable {
         category: VocabularyCategory = .custom,
         useCount: Int? = nil,
         lastUsedAt: Date? = nil,
-        fixCount: Int? = nil
+        fixCount: Int? = nil,
+        createdAt: Date? = nil
     ) {
         self.id = id
         self.term = term
@@ -29,5 +34,6 @@ public struct VocabularyEntry: Identifiable, Codable, Equatable, Sendable {
         self.useCount = useCount
         self.lastUsedAt = lastUsedAt
         self.fixCount = fixCount
+        self.createdAt = createdAt
     }
 }

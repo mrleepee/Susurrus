@@ -106,6 +106,18 @@ each one is maintenance tax on a mechanism with no demonstrated payout.
 To check: Preferences → Corrections now shows fires per rule, or read
 `correctionRules` from `~/Library/Preferences/com.susurrus.app.plist`.
 
+**Interim re-measurement, 2026-07-29** (200 dictations, 45 rules). Aggregate
+`fireCount` is still **0**. The guards shipped in PRs #27–29 are working as
+designed: of 7 rules minted since 2026-07-27, 5 were suppressed and 2 enabled,
+and every call was right — `'right' → 'write'` recurred two days later in
+"the right-hand column", and `'they all' → 'they'll'` came from an
+ungrammatical edit. Across the whole corpus only 5 triggers ever genuinely
+recurred; 3 of those would have corrupted English, 1 was already handled by
+vocabulary, 1 was a real missed fix. So suppression is net-positive, and
+separately the rules layer has still delivered nothing. Nothing here changes
+the 2026-08-26 decision — it points the same way. Full working in
+[accuracy-pipeline.md](accuracy-pipeline.md).
+
 ## Not on the list, on purpose
 
 - **Voice commands** ("new line", "send it") — different product. Revisit

@@ -30,12 +30,28 @@ not session start, using the streaming preview text:
    talking about lately" needs no setup from the user. Extraction is
    shared in `ProperNoun.extractBiasTerms` (CamelCase / ALLCAPS /
    capitalized-uncommon, sentence-initial words excluded).
-3. **Evergreen fill** — remaining vocab by usage, then category priority.
+3. **Newly learned terms** — a bounded head start for terms just added
+   (`graceWindow` 14 days, only while `useCount < graceUseThreshold`, at most
+   `maxGraceTerms` slots). Tier 4 sorts by `useCount`, which is
+   rich-get-richer: a term you just taught starts at zero and loses every slot
+   to terms Whisper already handles. Measured 2026-07-29, "Posthog" reached
+   the prompt 0 times in the days after it was learned while "MarkLogic"
+   (24 uses, 0 repairs) held a slot on 193 of 260 stops. A term is most likely
+   to be said again right after you say it. Terms leave the tier on their own,
+   by being used or by aging out; `runCreatedAtBackfill` stamps `createdAt` on
+   pre-existing entries once, inferring it from `lastUsedAt` only for entries
+   still under the use threshold.
+4. **Evergreen fill** — remaining vocab by usage, then category priority.
 
 Terms pack whole into the 48-token budget (`maxPromptTokens`); a term that
 doesn't fit is skipped, never truncated mid-token. The streaming preview
 decode stays prompt-free — prefill on every realtime pass is what made
 uncapped vocab cost seconds.
+
+The budget is the binding constraint, not the vocabulary size: across 260
+stops the prompt ran 47–48/48 tokens every time, admitting 13–15 terms out of
+33–55 candidates. Roughly two thirds of candidates are dropped on every
+dictation, which is why tier order decides whether biasing helps.
 
 ## Layer 1 — Deterministic corrector (`TranscriptCorrector`)
 
@@ -142,7 +158,31 @@ because Layer 0 biased it at the source.
 exact rule or entry. `TranscriptCorrector` records nothing itself and must
 stay that way: it runs on the ~10 Hz streaming preview, so a self-counting
 corrector would inflate every figure. The app layer commits fires from the
-final pass only — never the preview, never the post-LLM re-correction.
+final pass only — never the preview, never the post-LLM re-correction. Both
+the direct and review-panel paths record fires and trace what the corrector
+changed, so neither surface is a measurement blind spot.
+
+### Re-measured 2026-07-29 (200 dictations, 45 rules, 33 correction sessions)
+
+Aggregate `fireCount` across all 45 rules is **0**, and only one entry in the
+whole vocabulary has ever recorded a `fixCount`. The counters are live, not
+dead: that single `fixCount` is written from the call site adjacent to
+`recordFires`, and every corrector change in the debug log is a vocabulary
+hit, never a rule.
+
+Only 5 of 45 rule triggers ever reappeared in raw ASR. (A naive count says 11;
+six of those are rules matching the very dictation that taught them, because
+`recordCorrection` runs before `history.add`. Any future analysis has to
+exclude the teaching dictation.) Of the 5 genuine recurrences, 3 would have
+corrupted ordinary English had the rule been active — "I can't **access** my
+account", "the **right**-hand column" (the tokenizer splits on hyphens, so
+`'right' → 'write'` matches), "in **your eyes**" — 1 was already repaired by
+the vocabulary layer, and 1 (`'dev4' → 'dev-full'`) was a real missed fix.
+The activation guards bought three prevented corruptions for one missed fix.
+
+Meanwhile the terms carrying prompt bias are right at the source: MarkLogic
+appears in raw ASR 21 times since being added with 0 repairs, URIs 8, CAS 6,
+QA 5, SciFinder 4, Rodney 4 — all with `fixCount` 0.
 
 Rules are visible and editable in **Preferences → Corrections** (toggle,
 delete, add manual find→replace rules), showing edits taught and fires
