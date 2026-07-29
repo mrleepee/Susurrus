@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import SusurrusKit
 
 /// Observable model bridging the imperative `DictationReviewPanel` to its
 /// SwiftUI content. The panel mutates `phase`/`text`; the view renders them
@@ -10,12 +11,28 @@ final class DictationReviewModel: ObservableObject {
 
     @Published var phase: Phase = .recording
     @Published var text: String = ""
+    /// Mid-phrase capitals `CasingProfile` thinks Whisper invented. Offered,
+    /// never applied — see that type for why they must not auto-apply.
+    @Published var casingSuggestions: [CasingSuggestion] = []
 
     var onInsert: ((String) -> Void)?
     /// Copy to clipboard without touching the app you dictated from —
     /// for when you want the text somewhere else, or nowhere yet.
     var onCopy: ((String) -> Void)?
     var onCancel: (() -> Void)?
+
+    /// Apply one suggestion and retire its chip. The chip goes away either
+    /// way: if the user has already edited that span by hand, the range no
+    /// longer matches and there is nothing left to offer.
+    func applyCasing(_ suggestion: CasingSuggestion) {
+        text = CasingProfile.apply([suggestion], to: text)
+        casingSuggestions.removeAll { $0.id == suggestion.id }
+    }
+
+    func applyAllCasing() {
+        text = CasingProfile.apply(casingSuggestions, to: text)
+        casingSuggestions.removeAll()
+    }
 }
 
 /// The editable surface for "dictate into the panel" mode. While the hotkey
@@ -62,6 +79,7 @@ struct DictationReviewView: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
                     .frame(minHeight: 100, maxHeight: 220)
                     .focused($editorFocused)
+                casingRow
                 HStack {
                     Spacer()
                     Button("Cancel") { model.onCancel?() }
@@ -79,6 +97,42 @@ struct DictationReviewView: View {
         .frame(width: 480)
         .onChange(of: model.phase) { _, newPhase in
             editorFocused = (newPhase == .editing)
+        }
+    }
+
+    /// Whisper Title-Cases noun phrases it mistakes for names. These are
+    /// offered rather than applied: roughly one suggestion in four is a real
+    /// name that happens to be an ordinary word, which is fine to glance past
+    /// and would not be fine to have silently rewritten.
+    @ViewBuilder
+    private var casingRow: some View {
+        if !model.casingSuggestions.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "textformat")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Looks capitalized:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(model.casingSuggestions) { suggestion in
+                    Button {
+                        model.applyCasing(suggestion)
+                    } label: {
+                        Text("\(suggestion.original) → \(suggestion.suggested)")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Change “\(suggestion.original)” to “\(suggestion.suggested)”")
+                }
+                if model.casingSuggestions.count > 1 {
+                    Button("All") { model.applyAllCasing() }
+                        .font(.caption)
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                }
+                Spacer()
+            }
         }
     }
 }
@@ -127,6 +181,7 @@ final class DictationReviewPanel: NSPanel {
         model.onInsert = nil
         model.onCopy = nil
         model.text = ""
+        model.casingSuggestions = []
         model.phase = .recording
         sizeToFit()
         centerNearTop()
@@ -143,8 +198,13 @@ final class DictationReviewPanel: NSPanel {
     /// `onFinish` receives the user's edited text and whether it should be
     /// pasted into the target app (Insert) or only copied (Copy). Either way
     /// the panel closes.
-    func enterEditing(finalText: String, onFinish: @escaping (String, Bool) -> Void) {
+    func enterEditing(
+        finalText: String,
+        casingSuggestions: [CasingSuggestion] = [],
+        onFinish: @escaping (String, Bool) -> Void
+    ) {
         model.text = finalText
+        model.casingSuggestions = casingSuggestions
         model.onInsert = { [weak self] edited in
             onFinish(edited, true)
             self?.orderOut(nil)

@@ -804,9 +804,20 @@ struct SusurrusApp: App {
                     corrections.recordFires(ruleIDs: panelOutcome.changes.compactMap(\.firedRuleID))
                     vocab.recordFixes(ids: panelOutcome.changes.compactMap(\.firedVocabularyID))
                     let rawASR = text
+                    // Whisper Title-Cases noun phrases it reads as names. The
+                    // user's own approved transcripts are the only corpus that
+                    // knows "documents" is normally lowercase but "Datavid"
+                    // isn't, so the profile is built from history rather than
+                    // any fixed word list.
+                    let casing = CasingProfile
+                        .build(from: history.items().map(\.text))
+                        .suggestions(for: corrected, vocabulary: vocab.entries())
+                    if !casing.isEmpty {
+                        traceApp("stopStreamingSession: casing suggestions: \(casing.map { "\($0.original)→\($0.suggested)" }.joined(separator: ", "))")
+                    }
                     await MainActor.run {
                         let targetApp = panel.targetApp
-                        panel.enterEditing(finalText: corrected) { edited, shouldPaste in
+                        panel.enterEditing(finalText: corrected, casingSuggestions: casing) { edited, shouldPaste in
                             let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !final.isEmpty else { return }
                             // Learn from any manual edit beyond the corrector.

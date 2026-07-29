@@ -50,7 +50,10 @@ Too much work. Instead:
 
 - A "fix that" button (or hotkey) right after a dictation pastes.
 - Highlight the words Whisper itself wasn't sure about, so you can see
-  at a glance what to check.
+  at a glance what to check. *(Partly shipped 2026-07-29: the review panel
+  now flags mid-phrase capitals Whisper invented — see Layer 1.5 in
+  [accuracy-pipeline.md](accuracy-pipeline.md). Confidence-based highlighting
+  is still open.)*
 - After you fix the same mistake twice, ask once: *"Always replace
   'core bee' with 'CoRB'?"* — one click, learned forever.
 

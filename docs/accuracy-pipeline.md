@@ -10,6 +10,7 @@ audio ──► streaming preview (no prompt tokens — latency)
       ──► final whole-buffer decode
       │      promptTokens = 48-token budget, relevance-ranked   (Layer 0)
       ──► deterministic corrector                                (Layer 1, always-on, ~0ms)
+      ──► casing suggestions, offered not applied                (Layer 1.5, panel only)
       ──► optional LLM polish, guarded                           (Layer 2, opt-in)
       │      └── corrector re-applied to LLM output
       ──► clipboard / history
@@ -78,6 +79,45 @@ check in `applyVocabulary` is gated on `isSingleWord`, which is what makes
 "mark logic" → "MarkLogic" work with no rule involved. Layer 3 relies on
 it to suppress redundant rules and to require corroboration for every
 multi-word rule, so it is pinned by a corrector-level test.
+
+## Layer 1.5 — Casing suggestions (`CasingProfile`, review panel only)
+
+Whisper Title-Cases noun phrases it reads as names: "My Voice Dictation to
+Text Project", "a Global News Application", "the Delta between the data".
+Measured over 200 dictations, this is the single largest category of manual
+correction — 23 of 26 case-only edits, **none of them sentence-initial**.
+
+`CasingProfile` learns casing from the user's own approved transcripts rather
+than a fixed list: if "documents" appears lowercase mid-sentence 23 times and
+capitalized zero times, a mid-phrase "Documents" is almost certainly invented.
+A word is flagged when it is mid-phrase, preceded by a plain word (not
+punctuation), not ALL-CAPS, not in vocabulary, and seen lowercase at least
+`minLowercaseSightings` times with at least `minLowercaseRatio` of sightings
+lowercase. A `Word, Capital` run is skipped as a label list.
+
+**These are offered, never applied.** Leave-one-out evaluation puts the best
+achievable operating point at ~73% precision / ~42% recall, and the curve is
+*flat*: raising the evidence bar from 3 to 8 sightings drops recall 46% → 19%
+and buys no precision. That flatness is the finding — the residual errors are
+"K Bank", "Content Stats API" and a UI button list ("we have Insert, Cancel,
+Add, Copy"), real names that happen to be ordinary words. No corpus statistic
+separates them. One wrong change in three is unacceptable for a silent rewrite
+and fine for a chip you glance past, so the panel shows them as buttons.
+Volume is about one flag per ten dictations.
+
+Accepting a chip is an ordinary manual edit, so it feeds Layer 3 like any
+other. It cannot pollute the vocabulary: the promoted form would be lowercase,
+and `ProperNoun.looksLikeProperNoun` rejects that.
+
+Why the fixed-list alternative was rejected: `CommonWords.top` covers 9 of the
+23 real cases, and [CommonWords.swift](../Sources/SusurrusKit/Services/CommonWords.swift)
+explicitly reserves `top` for a real frequency list, so closing the gap would
+mean a domain-word treadmill.
+
+Also considered and dropped: letting vocabulary joins span a spurious full
+stop, to repair a term split by a pause. Across the same 200 dictations that
+fires **zero** times — no vocabulary term was ever split that way — so it
+would have been machinery with no measured demand.
 
 ## Layer 2 — LLM polish (optional)
 
@@ -205,6 +245,7 @@ keys would race despite the locks.
 | Learning | `Sources/SusurrusKit/Services/CorrectionLearningManager.swift` |
 | Rules model | `Sources/SusurrusKit/Models/CorrectionRule.swift` |
 | Word guards | `Sources/SusurrusKit/Services/CommonWords.swift` |
+| Casing model | `Sources/SusurrusKit/Services/CasingProfile.swift` |
 | Proper nouns | `Sources/SusurrusKit/Services/ProperNoun.swift` |
 | LLM providers | `Sources/SusurrusKit/Services/LLMService.swift` |
 | Stop-time tokens | `Sources/SusurrusKit/Services/StreamingTranscriptionService.swift` (`composeStopTimePromptTokens`) |
