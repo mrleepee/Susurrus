@@ -27,6 +27,69 @@ struct VocabularyManagerTests {
         #expect(manager.entries()[0].category == .technical)
     }
 
+    @Test("addEntry stamps createdAt so the ranker can spot a new term")
+    func addEntryStampsCreatedAt() {
+        let manager = makeManager()
+        let before = Date()
+        manager.addEntry(VocabularyEntry(term: "Posthog"))
+        let created = manager.entries()[0].createdAt
+        #expect(created != nil)
+        #expect(created! >= before)
+    }
+
+    @Test("addEntry preserves an explicit createdAt")
+    func addEntryKeepsExplicitCreatedAt() {
+        let manager = makeManager()
+        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+        manager.addEntry(VocabularyEntry(term: "Posthog", createdAt: stamp))
+        #expect(manager.entries()[0].createdAt == stamp)
+    }
+
+    // MARK: - createdAt backfill
+
+    @Test("Backfill stamps createdAt from lastUsedAt for low-use entries")
+    func backfillStampsLowUse() {
+        let manager = makeManager()
+        let used = Date(timeIntervalSince1970: 1_700_000_000)
+        manager.setEntries([
+            VocabularyEntry(term: "Posthog", useCount: 1, lastUsedAt: used)
+        ])
+        #expect(manager.runCreatedAtBackfill() == 1)
+        #expect(manager.entries()[0].createdAt == used)
+    }
+
+    @Test("Backfill leaves established entries alone")
+    func backfillSkipsEstablished() {
+        let manager = makeManager()
+        manager.setEntries([
+            VocabularyEntry(term: "MarkLogic", useCount: 24, lastUsedAt: Date())
+        ])
+        #expect(manager.runCreatedAtBackfill() == 0)
+        #expect(manager.entries()[0].createdAt == nil)
+    }
+
+    @Test("Backfill skips entries that were never used")
+    func backfillSkipsNeverUsed() {
+        let manager = makeManager()
+        manager.setEntries([VocabularyEntry(term: "Schengen")])
+        #expect(manager.runCreatedAtBackfill() == 0)
+        #expect(manager.entries()[0].createdAt == nil)
+    }
+
+    @Test("Backfill runs once and never overwrites an existing createdAt")
+    func backfillRunsOnce() {
+        let manager = makeManager()
+        let used = Date(timeIntervalSince1970: 1_700_000_000)
+        manager.setEntries([VocabularyEntry(term: "Posthog", useCount: 1, lastUsedAt: used)])
+        #expect(manager.runCreatedAtBackfill() == 1)
+        // A later use must not re-stamp the term as freshly learned.
+        var all = manager.entries()
+        all[0].lastUsedAt = Date()
+        manager.setEntries(all)
+        #expect(manager.runCreatedAtBackfill() == 0)
+        #expect(manager.entries()[0].createdAt == used)
+    }
+
     @Test("removeEntry deletes by id")
     func removeEntry() {
         let manager = makeManager()

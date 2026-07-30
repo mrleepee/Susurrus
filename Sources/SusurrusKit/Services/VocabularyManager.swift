@@ -83,7 +83,15 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
             guard !current.contains(where: { $0.term.lowercased() == key }) else {
                 return false
             }
-            current.append(entry)
+            var stamped = entry
+            // Single funnel for "a term entered the vocabulary", so the ranker
+            // can tell a just-taught term from an established one. First-launch
+            // seeding also comes through here and stamps the whole seed set,
+            // which the ranker's grace-tier cap keeps bounded.
+            if stamped.createdAt == nil {
+                stamped.createdAt = Date()
+            }
+            current.append(stamped)
             setEntries(current)
             return true
         }
@@ -286,6 +294,38 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
         let migrated = flatWords.map { VocabularyEntry(term: $0, category: .custom) }
         setEntries(migrated)
         defaults.removeObject(forKey: flatKey)
+    }
+
+    private static let createdAtBackfillKey = "vocabularyCreatedAtBackfill1"
+
+    /// Backfill `createdAt` for entries written before it existed, so the
+    /// ranker's grace tier applies to terms already in the store rather than
+    /// only to ones learned from here on.
+    ///
+    /// Only entries still under `graceUseThreshold` are stamped, and only from
+    /// `lastUsedAt`. For a term used once or twice that timestamp is within a
+    /// dictation of when it was learned, so this infers rather than invents.
+    /// Entries above the threshold are left nil: they are established by
+    /// definition, and the grace tier would skip them anyway.
+    @discardableResult
+    public func runCreatedAtBackfill() -> Int {
+        withLock {
+            guard !defaults.bool(forKey: Self.createdAtBackfillKey) else { return 0 }
+            var all = entries()
+            var stamped = 0
+            for i in all.indices {
+                guard all[i].createdAt == nil,
+                      (all[i].useCount ?? 0) < VocabularyRanker.graceUseThreshold,
+                      let used = all[i].lastUsedAt else { continue }
+                all[i].createdAt = used
+                stamped += 1
+            }
+            if stamped > 0 {
+                setEntries(all)
+            }
+            defaults.set(true, forKey: Self.createdAtBackfillKey)
+            return stamped
+        }
     }
 
     /// Seed default vocabulary entries on first launch.
