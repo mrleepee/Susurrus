@@ -65,7 +65,7 @@ struct DictationReviewView: View {
                         .foregroundStyle(model.text.isEmpty ? .tertiary : .primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(minHeight: 90, maxHeight: 160)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             case .editing:
                 Text("Fix anything, then ⌘⏎ to insert or ⇧⌘C to copy — Susurrus learns from your edits.")
@@ -77,7 +77,7 @@ struct DictationReviewView: View {
                     .padding(8)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
-                    .frame(minHeight: 100, maxHeight: 220)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .focused($editorFocused)
                 casingRow
                 HStack {
@@ -94,7 +94,7 @@ struct DictationReviewView: View {
             }
         }
         .padding(16)
-        .frame(width: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: model.phase) { _, newPhase in
             editorFocused = (newPhase == .editing)
         }
@@ -150,8 +150,8 @@ final class DictationReviewPanel: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 240),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -162,6 +162,9 @@ final class DictationReviewPanel: NSPanel {
         hidesOnDeactivate = false
         isFloatingPanel = true
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        // Small enough that the button row can never be squeezed out, however
+        // far the user drags the window down.
+        minSize = NSSize(width: 420, height: 260)
 
         let host = NSHostingView(rootView: DictationReviewView(model: model))
         contentView = host
@@ -169,6 +172,15 @@ final class DictationReviewPanel: NSPanel {
         // Cancel button / Esc / close button all just discard and close —
         // there is no state to unwind, only the window to dismiss.
         model.onCancel = { [weak self] in self?.orderOut(nil) }
+
+        // `setFrameAutosaveName` both restores a previously saved frame (if
+        // one exists) and registers the window to keep saving on every future
+        // move/resize — so dragging the panel bigger once is remembered
+        // across launches, with no bespoke UserDefaults plumbing needed.
+        let restored = setFrameAutosaveName("DictationReviewPanel")
+        if !restored {
+            centerNearTop()
+        }
     }
 
     // MARK: - Public API
@@ -183,8 +195,6 @@ final class DictationReviewPanel: NSPanel {
         model.text = ""
         model.casingSuggestions = []
         model.phase = .recording
-        sizeToFit()
-        centerNearTop()
         orderFront(nil)
     }
 
@@ -214,7 +224,6 @@ final class DictationReviewPanel: NSPanel {
             self?.orderOut(nil)
         }
         model.phase = .editing
-        sizeToFit()
         makeKeyAndOrderFront(nil)
     }
 
@@ -224,12 +233,6 @@ final class DictationReviewPanel: NSPanel {
     }
 
     // MARK: - Internals
-
-    private func sizeToFit() {
-        guard let contentView else { return }
-        let fitting = contentView.fittingSize
-        setContentSize(NSSize(width: 480, height: max(160, min(fitting.height, 420))))
-    }
 
     private func centerNearTop() {
         guard let screen = NSScreen.main else { return }
