@@ -48,6 +48,16 @@ public struct CasingProfile: Sendable {
     /// Share of mid-phrase sightings that must be lowercase.
     public static let minLowercaseRatio = 0.9
 
+    /// Thresholds for the bias-term question, which is a different question
+    /// with a different cost of being wrong. `suggestions(for:vocabulary:)`
+    /// proposes an edit to the user's text, so it demands ≥3 sightings at 90%.
+    /// `writesInLowercase(_:)` only decides whether a word may occupy one of
+    /// ~14 prompt slots; a wrong call there costs a slot, not a wrong word in
+    /// the user's transcript. Reusing the strict pair was measured and rejected
+    /// — it caught 2 of 23 known-bad terms in production data, against 14 here.
+    public static let biasMinLowercaseSightings = 1
+    public static let biasMinLowercaseRatio = 0.5
+
     public init(counts: [String: (lower: Int, upper: Int)] = [:]) {
         self.counts = counts
     }
@@ -111,6 +121,23 @@ public struct CasingProfile: Sendable {
             out.append(CasingSuggestion(range: token.range, original: word, suggested: suggested))
         }
         return out
+    }
+
+    /// Whether the user's own prose writes this word in lowercase mid-sentence.
+    ///
+    /// Used to keep ordinary words out of the ASR bias prompt. When Whisper
+    /// Title-Cases a common noun, the capital survives into approved history,
+    /// gets scraped as a "proper noun", and the prompt then tells Whisper to
+    /// expect that capital next time — the error teaches itself. Asking whether
+    /// the user ever writes the word in lowercase breaks that loop.
+    ///
+    /// No casing record means no evidence, which is not the same as evidence of
+    /// absence: an unseen word returns false and stays eligible.
+    public func writesInLowercase(_ word: String) -> Bool {
+        guard let entry = counts[word.lowercased()] else { return false }
+        let total = entry.lower + entry.upper
+        guard total > 0, entry.lower >= Self.biasMinLowercaseSightings else { return false }
+        return Double(entry.lower) / Double(total) >= Self.biasMinLowercaseRatio
     }
 
     /// Applies suggestions back-to-front so earlier ranges stay valid.

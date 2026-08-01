@@ -266,6 +266,14 @@ struct SusurrusApp: App {
         Task {
             await preloadModel()
         }
+        // The system word list is ~236k entries and takes ~210ms to read. It is
+        // needed when bias terms are composed at the start of a dictation, so
+        // load it now, off any path the user is waiting on.
+        Task.detached(priority: .utility) {
+            let started = Date()
+            let available = EnglishDictionary.shared.isAvailable
+            traceApp("englishDictionary: loaded=\(available) in \(Int(Date().timeIntervalSince(started) * 1000))ms")
+        }
     }
 
     private func preloadModel() async {

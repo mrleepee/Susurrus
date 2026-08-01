@@ -79,10 +79,26 @@ public final class TranscriptionHistoryManager: @unchecked Sendable {
     /// Proper-noun-ish terms from recent dictations, newest first. Used as
     /// ASR bias candidates — "what have I been talking about lately" needs
     /// no setup from the user.
-    public func recentBiasTerms(itemLimit: Int = 10, termLimit: Int = 20) -> [String] {
-        ProperNoun.extractBiasTerms(
-            from: loadAll().prefix(itemLimit).map(\.text),
-            limit: termLimit
+    ///
+    /// Candidates are drawn from the last `itemLimit` dictations, but the
+    /// casing evidence used to reject ordinary words is built from the *whole*
+    /// history: whether the user writes "document" in lowercase is a fact about
+    /// them, not about the last ten things they said, and the wider corpus
+    /// makes the judgement on rare words far sooner.
+    public func recentBiasTerms(
+        itemLimit: Int = 10,
+        termLimit: Int = 20,
+        dictionary: EnglishDictionary = .shared
+    ) -> [String] {
+        let all = loadAll()
+        let profile = CasingProfile.build(from: all.map(\.text))
+        return ProperNoun.extractBiasTerms(
+            from: all.prefix(itemLimit).map(\.text),
+            limit: termLimit,
+            excluding: ProperNoun.ordinaryWordExclusion(
+                profile: profile,
+                dictionary: dictionary
+            )
         )
     }
 

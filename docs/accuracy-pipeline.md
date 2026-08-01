@@ -31,6 +31,13 @@ not session start, using the streaming preview text:
    talking about lately" needs no setup from the user. Extraction is
    shared in `ProperNoun.extractBiasTerms` (CamelCase / ALLCAPS /
    capitalized-uncommon, sentence-initial words excluded).
+   Ordinary English that Whisper Title-Cased is rejected here by
+   `ProperNoun.ordinaryWordExclusion` — without it the capital survives into
+   approved history, gets scraped as a proper noun, and the prompt then teaches
+   Whisper to repeat it, while Layer 1.5 flags the same word for lowercasing.
+   Measured 2026-07-31: `Document` held 9 of 14 prompt slots on the same day
+   `CasingProfile` suggested `Document→document`. See
+   [SPEC-prompt-bias-composition.md](SPEC-prompt-bias-composition.md).
 3. **Newly learned terms** — a bounded head start for terms just added
    (`graceWindow` 14 days, only while `useCount < graceUseThreshold`, at most
    `maxGraceTerms` slots). Tier 4 sorts by `useCount`, which is
