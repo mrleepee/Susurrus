@@ -39,7 +39,10 @@ struct SusurrusApp: App {
     private var streamingService: StreamingTranscriptionService { Self.sharedStreamingService }
     private static let sharedClipboard = PasteboardClipboardService()
     private var clipboard: PasteboardClipboardService { Self.sharedClipboard }
-    private var notificationService: UserNotificationService { UserNotificationService.shared }
+    // Renders through our own overlay window rather than Notification Center,
+    // which has repeatedly delivered this app's messages with no readable
+    // content — see OverlayMessageService for the diagnosis.
+    private var notificationService: OverlayMessageService { OverlayMessageService.shared }
     private static let sharedPreferences = UserDefaultsPreferencesManager()
     private var preferences: UserDefaultsPreferencesManager { Self.sharedPreferences }
     private var vocabularyManager: VocabularyManager { VocabularyManager.shared }
@@ -134,9 +137,11 @@ struct SusurrusApp: App {
         correctionManager.onLearn = { outcome in
             traceApp("learning: activated=\(outcome.activatedRules.map { "\($0.match)→\($0.replacement)" }) promoted=\(outcome.promotedTerms)")
             if let rule = outcome.activatedRules.first {
+                // No "manage in Preferences" tail: this is a two-second glance
+                // at the corner of the screen, not a menu.
                 notifications.showNotification(
                     title: "Correction learned",
-                    body: "Susurrus will now write '\(rule.replacement)' when it hears '\(rule.match)'. Manage in Preferences → Corrections."
+                    body: "'\(rule.match)' → '\(rule.replacement)'"
                 )
             } else if !outcome.promotedTerms.isEmpty {
                 let terms = outcome.promotedTerms.map { "'\($0)'" }.joined(separator: ", ")
@@ -385,7 +390,7 @@ struct SusurrusApp: App {
                                     state.cancel()
                                     notifications.showNotification(
                                         title: "Microphone access needed",
-                                        body: "Enable Susurrus in System Settings > Privacy & Security > Microphone."
+                                        body: "Enable Susurrus in System Settings → Privacy & Security → Microphone."
                                     )
                                     return
                                 }
@@ -557,7 +562,7 @@ struct SusurrusApp: App {
                     state.cancel()
                     notifications.showNotification(
                         title: "Microphone access needed",
-                        body: "Enable Susurrus in System Settings > Privacy & Security > Microphone."
+                        body: "Enable Susurrus in System Settings → Privacy & Security → Microphone."
                     )
                 }
             }
@@ -567,7 +572,7 @@ struct SusurrusApp: App {
             appState.cancel()
             notificationService.showNotification(
                 title: "Microphone access needed",
-                body: "Enable Susurrus in System Settings > Privacy & Security > Microphone."
+                body: "Enable Susurrus in System Settings → Privacy & Security → Microphone."
             )
             return
         @unknown default:
@@ -610,9 +615,9 @@ struct SusurrusApp: App {
             }
         }
 
-        // Lazily create the overlay window
+        // Shared with the message path — see StreamingOverlayWindow.shared.
         if overlayWindow == nil {
-            overlayWindow = StreamingOverlayWindow()
+            overlayWindow = StreamingOverlayWindow.shared
         }
 
         // Sync vocabulary bias: relevance-ranked at stop time against the
@@ -931,7 +936,7 @@ struct SusurrusApp: App {
                         if !pasted {
                             notifications.showNotification(
                                 title: "Auto-paste blocked — text is on the clipboard",
-                                body: "Grant Accessibility access: System Settings > Privacy & Security > Accessibility. If Susurrus is already listed, remove it (−) and re-add it — the grant resets when the app's signature changes."
+                                body: "Grant System Settings → Privacy & Security → Accessibility. If Susurrus is already listed, remove and re-add it."
                             )
                         }
                     }

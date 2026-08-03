@@ -11,6 +11,13 @@ import SwiftUI
 /// The panel fades out over 300ms when hidden (Behaviour 1.3, R10).
 final class StreamingOverlayWindow: NSPanel {
 
+    /// Process-wide instance. This window is the app's only reliable way to
+    /// put text in front of the user — see `showMessage(_:duration:)` — so it
+    /// has to be reachable from the learning callbacks and error paths, not
+    /// just from the dictation session that used to create it lazily.
+    /// Main-actor isolated because it is an `NSPanel`.
+    @MainActor static let shared = StreamingOverlayWindow()
+
     // MARK: - Constants
 
     /// Maximum width of the overlay card.
