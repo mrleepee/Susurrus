@@ -45,7 +45,7 @@ it rolls out of the 10-item history window (about a day).
 | B6 | Newly taught vocabulary must keep its tier-3 head start regardless of tier-2 changes | Must | 2 |
 | B7 | Bias-term selection must stay deterministic for identical input | Must | 1, 2 |
 
-## Phase 1 — Stop promoting words the user writes in lowercase
+## Phase 1 — Stop promoting words the user writes in lowercase *(shipped 2026-08-01)*
 
 Addresses B1, B2, B3, B7. Fixes defect A.
 
@@ -141,7 +141,7 @@ lowercase mid-sentence. There is no evidence to act on. Each is caught
 automatically the first time the user writes it lowercase — the rule
 self-improves with use and needs no list maintenance.
 
-## Phase 2 — Rank recent context by repetition
+## Phase 2 — Rank recent context by repetition *(shipped 2026-08-05)*
 
 Addresses B4, B5, B6, B7. Fixes defect B. Depends on phase 1.
 
@@ -188,24 +188,52 @@ that condition 0 deliberately spares — `4QAS`, `JMX29`, `LXP29`. They never
 recur, so repetition ranking drops them without needing to judge whether they
 are real acronyms.
 
-### Accepted risk
+### Accepted risk, and what actually happened
 
-Repetition ranking demotes one-off proper nouns. In simulation, 17 plausible
-real names said in exactly one recent dictation lost their slot: `Elizabeth`,
-`Erica`, `Hanad`, `John`, `Jonathan`, `Julia`, `Paul`, `Rachel`, `Rajesh`,
-`Ricardo`, `Airbnb`, `Architect`, `Carter`, `DevSmall`, `Haiku`, `TimingApp`,
-`UltraCode`.
+The simulation predicted a real cost: repetition ranking demotes one-off proper
+nouns, and 17 plausible real names said in exactly one recent dictation lost
+their slot (`Elizabeth`, `Erica`, `Hanad`, `John`, `Jonathan`, `Julia`, `Paul`,
+`Rachel`, `Rajesh`, `Ricardo`, `Airbnb`, `Architect`, `Carter`, `DevSmall`,
+`Haiku`, `TimingApp`, `UltraCode`). That is why this phase was separated from
+phase 1 and held back for live measurement.
 
-This is the phase's real cost and is why it is separated from phase 1. The
-mitigation already exists: any name that matters gets corrected once, which adds
-it to vocabulary, which gives it a tier-3 grace slot for 14 days. Tier 2 becomes
-"what you keep talking about"; tier 3 remains "what you just taught me". A name
-said once and never corrected is the only case that loses, and for that case
-biasing was speculative anyway.
+**Measured on the shipped code against the 279-dictation corpus, 2026-08-05, the
+cost did not materialise — and the diagnosis was wrong in an instructive way.**
 
-**Ship phase 1 first and measure before committing to phase 2.** Phase 1 has no
-measured downside; phase 2 trades recall for precision and the trade should be
-observed on live data rather than assumed.
+| | context terms reaching the prompt |
+|---|---|
+| phase 1 only, 10-item window | `MarkLogic`, `Dev`, `Datavid`, `Silvia` — **4** |
+| phase 2, 30 items ranked | the above plus `Starrocks`, `Balvinder`, `API`, `Rodney`, `ZIP`, `Java`, `PoC`, `MVP`, `SIFI`, `Delta` — **14** |
+
+Nothing was dropped. Every term the 10-item window produced survived, and ten
+more joined them.
+
+The ten-item window was not merely making repetition unmeasurable, it was
+**starving tier 2 of candidates**: it yielded 4 terms for a 14-slot budget, so
+the rest of the prompt fell through to vocabulary tiers regardless of what the
+user had actually been talking about. Widening the window was the load-bearing
+half of this change; the ranking is what stops the extra candidates being noise.
+
+The mitigation for the predicted risk still stands and is still the reason this
+is safe: any name that matters gets corrected once, which adds it to vocabulary,
+which gives it a tier-3 grace slot for 14 days. Tier 2 is "what you keep talking
+about"; tier 3 is "what you just taught me".
+
+### Why this shipped when WER could not justify it
+
+WER still cannot adjudicate — see the appendix. What justified shipping was a
+directly observed harm that this phase addresses.
+
+On 2026-08-03 15:50 Whisper inserted two prompt terms into a dictation where
+neither was spoken: `IDs → ideas` and a spurious `Iceberg`. Both had a document
+frequency of **zero** across the last 30 dictations. Under this phase both are
+demoted out of the budget, while the terms worth spending it on are kept:
+`MarkLogic` 5/30, `Dev` 4/30, `Starrocks` 3/30, `Silvia` 3/30, `Rodney` 2/30.
+
+This is the first measured instance of the bias layer *causing* an error rather
+than failing to prevent one. Nothing in the pipeline counts these — every metric
+to date measures errors the prompt fails to prevent. That asymmetry is worth
+closing.
 
 ## Constraints
 
@@ -297,6 +325,44 @@ touched) is the wrong metric for comparing these periods. It scales with
 dictation length — a 200-word dictation has more chances to contain one error —
 and median length moved from 36 to 62 words across the window. An earlier pass
 of this analysis read that as a quality regression. It was a length artefact.
+
+### Three things wrong with the WER numbers above (added 2026-08-05)
+
+**The 07-12 → 07-28 baseline is not a valid comparator, and this document has
+been using it as one.** The same investigation that produced it established that
+the panel was too small to show a whole dictation, so text scrolled out of view
+and was approved unread. Those transcripts were only partially reviewed, which
+biases the error count *low*. Comparing anything against 0.51% overstates every
+subsequent rise. The valid comparator is the immediately preceding period.
+
+**The metric is not residual error.** `rawText` is pre-corrector and `text` is
+post-corrector *and* post-user-edit, so the diff counts the deterministic
+corrector's **successes** as errors. Every `mark logic → MarkLogic` the corrector
+fixes automatically makes this number worse. It is a *total repair distance*, not
+a residual error rate, and improving the corrector degrades it.
+
+**It also counts content rewrites as transcription errors.** On 2026-08-04
+12:09 the user changed "without some kind of formal communication from him" to
+"without a meeting and an MVP being defined" — Whisper had transcribed correctly
+and the user changed their mind. That single edit contributed 7 of the period's
+50 ops.
+
+Corrected view of the post-phase-1 window (56 dictations, 2,230 words):
+
+| | WER | 95% CI |
+|---|---|---|
+| as previously reported | 2.24% | [1.70, 2.94] |
+| minus 5 corrector successes | 2.02% | [1.51, 2.69] |
+| minus the one content rewrite | 1.70% | [1.24, 2.33] |
+| **valid comparator: 07-29 → 08-01** | **1.33%** | **[1.05, 1.69]** |
+
+Those last two intervals overlap. **There is no detectable WER change from
+phase 1 in either direction** — the apparent regression was an artefact of the
+invalid baseline plus two metric contaminations.
+
+A future measurement should store the post-corrector text alongside `rawText`
+and `text`, so the automatic and manual layers can be separated instead of
+inferred from the debug log.
 
 ### Prompt composition on 2026-07-31
 

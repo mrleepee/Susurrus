@@ -85,8 +85,15 @@ public final class TranscriptionHistoryManager: @unchecked Sendable {
     /// history: whether the user writes "document" in lowercase is a fact about
     /// them, not about the last ten things they said, and the wider corpus
     /// makes the judgement on rare words far sooner.
+    ///
+    /// The window is 30 rather than 10 because `extractBiasTerms` now ranks by
+    /// how many dictations contain a term, and repetition is unmeasurable
+    /// across ten items — nearly every candidate appears exactly once, so
+    /// ranking changes nothing. Measured over 60 dictations: ranking across 10
+    /// left the junk share of prompt slots at 25%, unchanged; across 30 it fell
+    /// to 11%.
     public func recentBiasTerms(
-        itemLimit: Int = 10,
+        itemLimit: Int = 30,
         termLimit: Int = 20,
         dictionary: EnglishDictionary = .shared
     ) -> [String] {

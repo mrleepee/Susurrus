@@ -38,6 +38,19 @@ enum ProperNoun {
     /// so sentence-initial capitalization isn't mistaken for a proper noun.
     /// Shared by history bias-term extraction.
     ///
+    /// Results are ordered by how many of `texts` contain the term, most
+    /// repeated first. The prompt budget fits roughly 14 of 55 candidates, so
+    /// ordering decides what actually reaches Whisper, and a term said once is
+    /// the weakest evidence there is that it will be said again. Production
+    /// data, 2026-08-05: `Iceberg` and `IDs` each appeared in **zero** of the
+    /// last 30 dictations yet held prompt slots, and Whisper duly inserted both
+    /// into a dictation where neither was spoken. Meanwhile `MarkLogic` (5 of
+    /// 30), `Starrocks` (3) and `Silvia` (3) are the terms worth spending the
+    /// budget on.
+    ///
+    /// Ties break on first appearance, so packing stays reproducible for
+    /// identical input.
+    ///
     /// `excluding` rejects a candidate after every other test has passed. It
     /// exists so callers can drop ordinary words the user writes in lowercase
     /// without this type needing to know about casing profiles or dictionaries.
@@ -47,9 +60,16 @@ enum ProperNoun {
         limit: Int,
         excluding isExcluded: (String) -> Bool = { _ in false }
     ) -> [String] {
-        var terms: [String] = []
-        var seen: Set<String> = []
-        outer: for text in texts {
+        /// First-seen spelling, order of first appearance, and the number of
+        /// distinct texts the term appears in.
+        var display: [String: String] = [:]
+        var order: [String: Int] = [:]
+        var documentCount: [String: Int] = [:]
+
+        for text in texts {
+            // Per text, not per sentence: a term repeated three times in one
+            // dictation is one piece of evidence, not three.
+            var seenInThisText: Set<String> = []
             for sentence in text.split(whereSeparator: { ".!?\n".contains($0) }) {
                 let words = sentence.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
                 // Whisper occasionally emits whole passages IN CAPITALS.
@@ -61,20 +81,31 @@ enum ProperNoun {
                 let sentenceIsShouted = capsEligible.count >= 3
                     && allCapsCount * 3 > capsEligible.count * 2
                 for (index, word) in words.enumerated() {
-                    if terms.count >= limit { break outer }
                     let term = String(word)
                     guard term.count >= 3 else { continue }
                     let lowered = term.lowercased()
-                    guard !seen.contains(lowered) else { continue }
                     if isAllCaps(term), sentenceIsShouted || CommonWords.contains(lowered) { continue }
                     guard looksLikeProperNoun(term, isSentenceInitial: index == 0) else { continue }
                     guard !isExcluded(term) else { continue }
-                    seen.insert(lowered)
-                    terms.append(term)
+                    guard seenInThisText.insert(lowered).inserted else { continue }
+                    if display[lowered] == nil {
+                        display[lowered] = term
+                        order[lowered] = order.count
+                    }
+                    documentCount[lowered, default: 0] += 1
                 }
             }
         }
-        return terms
+
+        return documentCount.keys
+            .sorted { a, b in
+                let ca = documentCount[a] ?? 0
+                let cb = documentCount[b] ?? 0
+                if ca != cb { return ca > cb }
+                return (order[a] ?? 0) < (order[b] ?? 0)
+            }
+            .prefix(limit)
+            .compactMap { display[$0] }
     }
 
     static func isAllCaps(_ word: String) -> Bool {

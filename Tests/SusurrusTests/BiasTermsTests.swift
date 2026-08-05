@@ -299,3 +299,91 @@ struct CasingProfileLowercaseEvidenceTests {
         #expect(!profile.writesInLowercase("Document"))
     }
 }
+
+// MARK: - Repetition ranking (SPEC-prompt-bias-composition phase 2)
+
+@Suite("Bias terms rank by how many dictations contain them")
+struct BiasTermRepetitionTests {
+
+    @Test("A term in several dictations outranks one said once")
+    func repeatedBeatsOneOff() {
+        // The production failure this fixes: 'Iceberg' and 'IDs' appeared in
+        // zero of the last 30 dictations, held prompt slots anyway, and Whisper
+        // inserted both into a dictation where neither was spoken.
+        let terms = ProperNoun.extractBiasTerms(
+            from: [
+                "A one-off mention of Iceberg here.",
+                "We deployed MarkLogic again.",
+                "The MarkLogic cluster is fine.",
+                "Checking MarkLogic once more.",
+            ],
+            limit: 20
+        )
+        #expect(terms.first == "MarkLogic")
+        #expect(terms.contains("Iceberg"))          // demoted, not banned
+        #expect(terms.firstIndex(of: "MarkLogic")! < terms.firstIndex(of: "Iceberg")!)
+    }
+
+    @Test("Repetition inside a single dictation counts once")
+    func withinTextCountsOnce() {
+        // Otherwise one rambling dictation could crown any term it repeated.
+        let terms = ProperNoun.extractBiasTerms(
+            from: [
+                "We saw Starrocks and Starrocks and Starrocks again.",
+                "We discussed Kalpesh today.",
+                "Then Kalpesh replied already.",
+            ],
+            limit: 20
+        )
+        #expect(terms.first == "Kalpesh")
+    }
+
+    @Test("Equal repetition falls back to first appearance")
+    func tiesBreakOnFirstAppearance() {
+        let texts = ["Spoke to Kalpesh and Subha.", "Saw Kalpesh and Subha again."]
+        let terms = ProperNoun.extractBiasTerms(from: texts, limit: 20)
+        #expect(terms == ["Kalpesh", "Subha"])
+        #expect(ProperNoun.extractBiasTerms(from: texts, limit: 20) == terms)
+    }
+
+    @Test("The limit is applied after ranking, not before")
+    func limitAppliesAfterRanking() {
+        // Previously extraction stopped as soon as `limit` candidates had been
+        // seen, so a repeated term appearing late in the window could be cut
+        // before its repetition was ever counted.
+        let terms = ProperNoun.extractBiasTerms(
+            from: [
+                "Alpha Bravo Charlie Delta were mentioned once.",
+                "Now Zulu appears.",
+                "Zulu again here.",
+                "And Zulu once more.",
+            ],
+            limit: 1
+        )
+        #expect(terms == ["Zulu"])
+    }
+
+    @Test("Ranking survives the ordinary-word exclusion")
+    func rankingComposesWithExclusion() {
+        let dictionary = EnglishDictionary(words: ["document"])
+        let profile = CasingProfile.build(from: [
+            "we reviewed the document", "we filed the document", "we signed the document",
+        ])
+        let terms = ProperNoun.extractBiasTerms(
+            from: [
+                "The Document was late.", "The Document was late again.",
+                "The Document once more.", "Then Kalpesh replied.",
+            ],
+            limit: 20,
+            excluding: ProperNoun.ordinaryWordExclusion(profile: profile, dictionary: dictionary)
+        )
+        // Document is the most repeated term and still must not appear.
+        #expect(!terms.contains("Document"))
+        #expect(terms == ["Kalpesh"])
+    }
+
+    @Test("An empty window yields no terms")
+    func emptyWindow() {
+        #expect(ProperNoun.extractBiasTerms(from: [], limit: 20).isEmpty)
+    }
+}
