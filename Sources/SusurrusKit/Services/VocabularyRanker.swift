@@ -38,6 +38,21 @@ public struct VocabularyRanker: Sendable {
     static let graceUseThreshold = 3
     /// Hard cap so a bulk import (or first-launch seeding) can't fill the budget.
     static let maxGraceTerms = 5
+    /// Hard cap on tier 2, for the same reason `maxGraceTerms` exists: no tier
+    /// may take the whole budget.
+    ///
+    /// Tier 2 is fed by `recentBiasTerms`, which returns up to 20 terms into a
+    /// budget of roughly 15. Whenever recent dictations happen to be dense in
+    /// capitalised words, tier 2 alone filled the prompt and the user's own
+    /// curated vocabulary — the terms they explicitly taught — never got a slot.
+    /// Measured 2026-08-18: curated vocabulary fell from 66% of prompt slots to
+    /// 33% as the user's subject matter shifted, with names they had corrected
+    /// before (`Jayendra`, `Balvinder`, `Divya`) crowded out and re-mangled.
+    /// Capping tier 2 at 8 restores it to 73% on the same data.
+    ///
+    /// Roughly half the budget. Recent context is a guess about what you might
+    /// say; vocabulary is a statement of what you have said you say.
+    static let maxContextTerms = 8
 
     public init() {}
 
@@ -105,8 +120,10 @@ public struct VocabularyRanker: Sendable {
             add(hit.term)
         }
 
-        // Tier 2: recent history terms.
-        for term in contextTerms {
+        // Tier 2: recent history terms, best-evidenced first (they arrive
+        // ranked by how many recent dictations contain them). Capped — see
+        // maxContextTerms.
+        for term in contextTerms.prefix(Self.maxContextTerms) {
             add(term)
         }
 

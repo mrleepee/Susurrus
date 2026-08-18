@@ -445,3 +445,61 @@ names.
   phase 1 must not disturb
 - `Sources/SusurrusKit/Services/CommonWords.swift` — the 721-word list that is
   the current and insufficient defence
+
+## Phase 3 — Cap tier 2 *(shipped 2026-08-18)*
+
+Addresses a defect neither earlier phase saw, and which phase 2's own
+measurement obscured.
+
+### The defect
+
+`recentBiasTerms` returns up to 20 terms. The prompt budget is about 15 slots,
+and tier 2 sits *above* both the grace tier and curated vocabulary in
+`VocabularyRanker`. So whenever recent dictations happen to be dense in
+capitalised words, tier 2 alone fills the prompt and the terms the user
+explicitly taught never reach it.
+
+Measured 2026-08-18 from the live log, as the user's subject matter shifted to
+name-dense technical material:
+
+| | curated vocabulary share of prompt slots |
+|---|---|
+| 08-03 / 08-04 | 66% |
+| 08-17 / 08-18 | **33%** |
+
+Terms the user had already corrected once — `Jayendra`, `Balvinder`, `Divya` —
+were crowded out and re-mangled: `Jane Derrick → Jayendra`,
+`in Brightwood Jane but → invite with Jayendra`, `Belvinder → Balvinder`.
+
+### The fix
+
+A hard cap of 8 on tier 2, for the same reason `maxGraceTerms` exists: no tier
+may take the whole budget. Roughly half. Recent context is a guess about what
+you might say; curated vocabulary is a statement of what you have said you say.
+
+Verified with the shipped `VocabularyRanker` against the live 200-dictation
+corpus: curated share returns to **73%**, and `Jayendra` and `Silvia` re-enter
+the prompt.
+
+### Why phase 2 was not the cause, despite the timing
+
+The obvious suspicion was that phase 2's wider window caused this. It did not.
+Running the shipped ranker on current history with a 10-item window — phase 2
+reverted — yields the same 20 tier-2 candidates and the same 40% curated share.
+The window was never the constraint; `termLimit: 20` against a 15-slot budget
+always was, in every version of this code. Reverting phase 2 would not have
+helped.
+
+### What phase 2's measurement got wrong
+
+Phase 2 was justified partly on "context terms went from 4 to 14", reported as a
+win. That measurement ran `extractBiasTerms` **in isolation** and never
+instantiated `VocabularyRanker`, so it could not see that those ten extra slots
+come directly out of tiers 3 and 4. The number was real and the interpretation
+was backwards.
+
+The lesson is specific and worth keeping: *a change to one tier of a
+fixed-budget ranker cannot be evaluated on that tier alone.* Every measurement
+in this document that predates phase 3 shares this flaw — the "junk share" and
+"curated vocabulary share" figures in phases 1 and 2 are tier-2-only and do not
+describe the prompt that actually reached Whisper.
