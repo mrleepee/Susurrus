@@ -11,7 +11,7 @@ SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null \
 	| grep -E -o '"(Apple Development|Developer ID Application|Susurrus)[^"]*"' \
 	| head -1 | tr -d '"')
 
-.PHONY: test build clean perf release bundle install uninstall launch
+.PHONY: test build clean perf release bundle install uninstall launch eval-build eval-golden eval eval-baseline eval-compare
 
 build:
 	swift build
@@ -80,3 +80,31 @@ perf:
 clean:
 	swift package clean
 	rm -rf build
+
+# --- Offline accuracy harness (docs/eval-harness.md) ---
+GOLDEN := Tests/Fixtures/eval/golden
+EVAL := .build/release/susurrus-eval
+EVAL_CONFIG ?= $(GOLDEN)/config.production.json
+EVAL_OUT ?= eval-runs/$(shell date +%Y%m%d-%H%M%S).json
+
+eval-build:
+	swift build -c release --product susurrus-eval
+
+# Render the golden scripts to audio (regenerate after a macOS update changes voices).
+eval-golden: eval-build
+	$(EVAL) synth --scripts $(GOLDEN)/scripts.jsonl --out $(GOLDEN) --voices "Daniel,Flo" --variants clean,paused,noisy
+
+# Score the golden set and gate against the committed baseline.
+eval: eval-build
+	@test -f $(GOLDEN)/manifest.jsonl || $(MAKE) eval-golden
+	@mkdir -p eval-runs
+	$(EVAL) run --corpus $(GOLDEN) --config $(EVAL_CONFIG) --out $(EVAL_OUT)
+	$(EVAL) compare $(GOLDEN)/baseline.json $(EVAL_OUT) --gate
+
+# Deliberately replace the committed baseline.
+eval-baseline: eval-build
+	@test -f $(GOLDEN)/manifest.jsonl || $(MAKE) eval-golden
+	$(EVAL) run --corpus $(GOLDEN) --config $(EVAL_CONFIG) --out $(GOLDEN)/baseline.json
+
+eval-compare: eval-build
+	$(EVAL) compare $(A) $(B)

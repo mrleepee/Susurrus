@@ -12,6 +12,7 @@ make dev             # Build and run debug binary directly (shows stdout/stderr 
 make build           # Build release .app bundle
 make install         # Install to /Applications
 swift test           # Run tests (currently blocked — test files use Swift Testing which isn't in toolchain)
+make eval            # Score the golden audio set against the committed baseline (accuracy gate; see docs/eval-harness.md)
 ```
 
 ## Development Workflow
@@ -22,6 +23,7 @@ swift test           # Run tests (currently blocked — test files use Swift Tes
 3. Run in dev mode: `make dev`
 4. Check debug log: `cat ~/susurrus_debug.log`
 5. Test the fix interactively before moving on
+6. For any change that can affect transcription accuracy (decoding, prompt, chunking, corrector), run `make eval` — it needs no microphone and gates WER, vocabulary hits, dropped/invented phrases and silence hallucinations
 
 The `make dev` target runs the debug binary directly from `.build/debug/` with stdout visible — much faster than building an .app bundle and essential for catching runtime errors.
 

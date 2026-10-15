@@ -68,6 +68,7 @@ struct SusurrusApp: App {
     // Value types — cheap and stateless, safe to live per-copy.
     private let promptComposer = PromptComposer()
     private let transcriptCorrector = TranscriptCorrector()
+    private let transcriptFinalizer = TranscriptFinalizer()
     private static let sharedMediaService = MediaService()
     private var mediaService: MediaService { Self.sharedMediaService }
     private static let sharedAudioDeviceService = AudioDeviceService()
@@ -784,7 +785,7 @@ struct SusurrusApp: App {
         let prefs = preferences
         let llm = llmService
         let history = historyManager
-        let corrector = transcriptCorrector
+        let finalizer = transcriptFinalizer
         let vocab = vocabularyManager
         let corrections = correctionManager
         let composer = promptComposer
@@ -802,10 +803,12 @@ struct SusurrusApp: App {
                     // Deterministic corrections only; the user edits the rest
                     // by hand in the panel. Even empty text opens the editor
                     // (so the panel never gets stuck in the recording phase).
-                    let panelOutcome = text.isEmpty
-                        ? CorrectionOutcome(text: "", changes: [])
-                        : corrector.correct(text, vocabulary: vocab.entries(), rules: corrections.activeRules())
-                    let corrected = panelOutcome.text
+                    let panelOutcome = await finalizer.finalize(
+                        text,
+                        vocabulary: vocab.entries(),
+                        rules: corrections.activeRules()
+                    )
+                    let corrected = panelOutcome.corrected
                     if !panelOutcome.changes.isEmpty {
                         let summary = panelOutcome.changes
                             .map { "\($0.original)→\($0.corrected)" }
@@ -862,13 +865,28 @@ struct SusurrusApp: App {
                         }
                     }
                 } else if !text.isEmpty {
-                    // Layer 1: deterministic corrections — learned rules,
-                    // fuzzy vocabulary matches, casing. Always on, ~0ms.
+                    // Layer 1 (deterministic corrections — learned rules,
+                    // fuzzy vocabulary, casing; always on, ~0ms), then the
+                    // optional guarded LLM pass. TranscriptFinalizer is the
+                    // same code the eval harness scores.
                     let correctStart = Date()
-                    let outcome = corrector.correct(
+                    var llmStage: TranscriptFinalizer.LLMStage?
+                    if shouldLLM {
+                        traceApp("stopStreamingSession: starting LLM processing")
+                        let base = prefs.llmSystemPrompt()
+                        llmStage = TranscriptFinalizer.LLMStage(processor: llm) { corrected in
+                            composer.compose(
+                                base: base,
+                                vocabularyContext: vocab.llmContextString(relevantTo: corrected),
+                                correctionExamples: corrections.fewShotString(for: corrected, limit: 5)
+                            )
+                        }
+                    }
+                    let outcome = await finalizer.finalize(
                         text,
                         vocabulary: vocab.entries(),
-                        rules: corrections.activeRules()
+                        rules: corrections.activeRules(),
+                        llm: llmStage
                     )
                     if !outcome.changes.isEmpty {
                         let summary = outcome.changes
@@ -876,46 +894,29 @@ struct SusurrusApp: App {
                             .joined(separator: ", ")
                         traceApp("stopStreamingSession: corrector applied \(outcome.changes.count) fixes in \(Int(Date().timeIntervalSince(correctStart) * 1000))ms: \(summary)")
                     }
-                    // Credit fires here and not after the post-LLM re-correction
-                    // below: that is the same utterance, and counting both would
-                    // make fireCount incomparable between LLM-on and LLM-off runs.
+                    // Credit fires from the first corrector pass only — see
+                    // TranscriptFinalizer.Result.changes.
                     corrections.recordFires(ruleIDs: outcome.changes.compactMap(\.firedRuleID))
                     vocab.recordFixes(ids: outcome.changes.compactMap(\.firedVocabularyID))
-                    var finalText = outcome.text
+                    let finalText = outcome.text
 
-                    if shouldLLM {
-                        traceApp("stopStreamingSession: starting LLM processing")
-                        do {
-                            let prompt = composer.compose(
-                                base: prefs.llmSystemPrompt(),
-                                vocabularyContext: vocab.llmContextString(relevantTo: finalText),
-                                correctionExamples: corrections.fewShotString(for: finalText, limit: 5)
-                            )
-                            let llmText = try await llm.process(text: finalText, systemPrompt: prompt)
-                            if TranscriptGuardrail.accepts(input: finalText, output: llmText) {
-                                // Re-run the deterministic pass on the LLM
-                                // output so vocabulary casing/spelling
-                                // survives any LLM meddling.
-                                finalText = corrector.correct(
-                                    llmText,
-                                    vocabulary: vocab.entries(),
-                                    rules: corrections.activeRules()
-                                ).text
-                                traceApp("stopStreamingSession: LLM done, finalText=\(finalText.prefix(50))")
-                            } else {
-                                traceApp("stopStreamingSession: LLM output rejected by guardrail (drifted from input), keeping corrected text. LLM said: \(llmText.prefix(80))")
-                                notifications.showNotification(
-                                    title: "LLM cleanup skipped",
-                                    body: "The model rewrote the text instead of just cleaning it up, so the corrected transcription was used instead."
-                                )
-                            }
-                        } catch {
-                            traceApp("stopStreamingSession: LLM cleanup failed: \(error.localizedDescription)")
-                            notifications.showNotification(
-                                title: "LLM cleanup failed",
-                                body: "\(error.localizedDescription) Using the raw transcription instead."
-                            )
-                        }
+                    switch outcome.llm {
+                    case .skipped:
+                        break
+                    case .accepted:
+                        traceApp("stopStreamingSession: LLM done, finalText=\(finalText.prefix(50))")
+                    case .rejected(let llmText):
+                        traceApp("stopStreamingSession: LLM output rejected by guardrail (drifted from input), keeping corrected text. LLM said: \(llmText.prefix(80))")
+                        notifications.showNotification(
+                            title: "LLM cleanup skipped",
+                            body: "The model rewrote the text instead of just cleaning it up, so the corrected transcription was used instead."
+                        )
+                    case .failed(let reason):
+                        traceApp("stopStreamingSession: LLM cleanup failed: \(reason)")
+                        notifications.showNotification(
+                            title: "LLM cleanup failed",
+                            body: "\(reason) Using the raw transcription instead."
+                        )
                     }
 
                     // Usage stats drive the prompt-token ranking next session.

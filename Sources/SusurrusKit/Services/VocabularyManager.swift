@@ -6,7 +6,10 @@ import Foundation
 public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     private let defaults: UserDefaults
     private let flatKey = "vocabularyWords"
-    private let entriesKey = "vocabularyEntries"
+    /// UserDefaults key for entries. Public so the eval harness snapshot
+    /// reads the same key without instantiating (and seeding) a manager.
+    public static let entriesStorageKey = "vocabularyEntries"
+    private let entriesKey = VocabularyManager.entriesStorageKey
     private let skipSeed: Bool
 
     /// Serializes load-modify-write on the entries key so the background
