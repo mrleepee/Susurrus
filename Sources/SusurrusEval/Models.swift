@@ -12,17 +12,9 @@ struct ScriptEntry: Codable {
     var isSilence: Bool { silenceSeconds != nil || tags.contains("silence") }
 }
 
-struct ManifestEntry: Codable {
-    var id: String
-    var script: String
-    var audio: String
-    var reference: String
-    var tags: [String]
-    var source: String
-    var voice: String
-    var variant: String
-    var verified: Bool
-}
+/// The manifest line model lives in SusurrusKit so the app can write
+/// captured clips (tier C) in the same format.
+typealias ManifestEntry = EvalManifestEntry
 
 /// `vocabulary.json`: the vocabulary, rules and recent-context terms a run
 /// is scored and prompted with. Written by `snapshot` or by hand.
@@ -94,6 +86,8 @@ struct EvalConfig: Codable, Sendable {
 struct ClipResult: Codable {
     var id: String
     var tags: [String]
+    /// nil in runs written before tier C existed (all verified).
+    var verified: Bool?
     var seconds: Double
     var audioSHA256: String
     var reference: String
@@ -144,8 +138,15 @@ struct RunFile: Codable {
     var modelFolder: String
     var config: EvalConfig
     var corpus: String
+    /// Verified clips only: the headline numbers and what `compare` reads.
     var clips: [ClipResult]
     var summary: RunSummary
+    /// Unverified clips (tier C before `review`) the run skipped.
+    var unverifiedSkipped: Int?
+    /// Unverified clips scored with `--include-unverified`, kept apart so
+    /// they never reach `summary` or the gate.
+    var unverifiedClips: [ClipResult]?
+    var unverifiedSummary: RunSummary?
 }
 
 enum Aggregation {

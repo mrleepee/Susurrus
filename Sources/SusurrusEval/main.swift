@@ -8,6 +8,8 @@ Usage:
   susurrus-eval \(Run.usage)
   susurrus-eval \(Compare.usage)
   susurrus-eval \(Snapshot.usage)
+  susurrus-eval \(Review.usage)
+  susurrus-eval \(Record.usage)
 
 Exit codes: 0 success, 1 failure (or gate failure), 2 usage error.
 """
@@ -31,6 +33,8 @@ func runCLI(_ args: [String]) async -> Int32 {
         case "synth": try Synth.run(rest)
         case "run": try await Run.run(rest)
         case "snapshot": try Snapshot.run(rest)
+        case "review": try Review.run(rest)
+        case "record": try Record.run(rest)
         case "compare": return try Compare.run(rest)
         default: throw UsageError(message: "unknown command '\(command)'")
         }

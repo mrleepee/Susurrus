@@ -19,6 +19,10 @@ struct PreferencesView: View {
     @AppStorage("llmLocalEndpoint") private var llmLocalEndpoint = LLMService.defaultLocalEndpoint
     @AppStorage("llmLocalModel") private var llmLocalModel = ""
     @AppStorage(StreamingTranscriptionService.confidenceLoggingKey) private var confidenceLogging = false
+    @AppStorage(EvalCaptureStore.enabledKey) private var keepRecordings = false
+    @State private var recordingsCount = 0
+    @State private var recordingsSummary = ""
+    @State private var confirmDeleteRecordings = false
     @State private var localTestResult: String?
     @State private var localTestRunning = false
     @State private var entries: [VocabularyEntry] = []
@@ -164,8 +168,61 @@ struct PreferencesView: View {
                 Text("Diagnostics")
             }
 
+            Section {
+                Toggle("Keep recordings for accuracy testing", isOn: $keepRecordings)
+                Text("Saves the audio of each review-panel dictation (Control+Option+Space) you insert or copy, with its text, so speech-model changes can be tested on your own voice. Stays on this Mac; the oldest are removed after \(EvalCaptureStore.defaultMaxClips).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Text(recordingsSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Show in Finder") {
+                        let dir = EvalCaptureStore.defaultDirectory
+                        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                        NSWorkspace.shared.activateFileViewerSelecting([dir])
+                    }
+                    Button("Delete recordings", role: .destructive) {
+                        confirmDeleteRecordings = true
+                    }
+                    .disabled(recordingsCount == 0)
+                }
+            } header: {
+                Text("Accuracy testing")
+            }
+            .confirmationDialog(
+                "Delete all kept recordings?",
+                isPresented: $confirmDeleteRecordings
+            ) {
+                Button("Delete recordings", role: .destructive) {
+                    do {
+                        try EvalCaptureStore().deleteAll()
+                    } catch {
+                        traceApp("evalCapture: delete failed: \(error)")
+                    }
+                    refreshRecordingsSummary()
+                }
+            } message: {
+                Text("This removes the audio and the review status of every kept clip. It can't be undone.")
+            }
+            .onAppear { refreshRecordingsSummary() }
+            .onChange(of: keepRecordings) { _, _ in refreshRecordingsSummary() }
+
         }
         .formStyle(.grouped)
+    }
+
+    private func refreshRecordingsSummary() {
+        let store = EvalCaptureStore()
+        let count = store.clipCount()
+        recordingsCount = count
+        if count == 0 {
+            recordingsSummary = "No recordings kept"
+        } else {
+            let size = ByteCountFormatter.string(fromByteCount: store.audioBytes(), countStyle: .file)
+            recordingsSummary = "\(count) recording\(count == 1 ? "" : "s"), \(size)"
+        }
     }
 
     // MARK: - Vocabulary

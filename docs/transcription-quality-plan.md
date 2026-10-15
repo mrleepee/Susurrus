@@ -1,7 +1,8 @@
 # Transcription quality: review and plan
 
-*2026-10-15. Status: phase 1 (harness MVP) implemented — see
-[eval-harness.md](eval-harness.md) for usage. Phases 2–4 are proposals.*
+*2026-10-15. Status: phases 1 (harness MVP) and 2 (real-voice tiers C and D)
+implemented — see [eval-harness.md](eval-harness.md) for usage. Phases 3–4 are
+proposals.*
 
 ## Summary
 

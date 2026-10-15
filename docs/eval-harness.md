@@ -12,9 +12,11 @@ same call the app makes), and scores both stages with `TranscriptScorer`.
 
 ```
 susurrus-eval synth    --scripts <scripts.jsonl> --out <corpusDir> [--voices "Daniel,Flo"] [--variants clean,paused,noisy]
-susurrus-eval run      --corpus <corpusDir> --config <config.json> --out <run.json> [--limit N] [--tag T]
+susurrus-eval run      --corpus <corpusDir> --config <config.json> --out <run.json> [--limit N] [--tag T] [--include-unverified]
 susurrus-eval compare  <baseline.json> <candidate.json> [--gate]
 susurrus-eval snapshot --out <dir>
+susurrus-eval review   --corpus <corpusDir> [--no-play] [--threshold 0.15]
+susurrus-eval record   --script <prompts.txt|scripts.jsonl> --out <corpusDir>
 ```
 
 Make targets: `make eval-golden` (render the golden set), `make eval`
@@ -135,6 +137,13 @@ Scoring tracks every entry's display term (acronyms uppercased).
 counts) plus `clips`, `audioSeconds`, `decodeSeconds` and
 `rtf = decodeSeconds / audioSeconds`. Decode time excludes the preview decode.
 
+Optional fields, absent from older runs: `clips[].verified` (`false` only
+on unverified clips, which appear in `unverifiedClips`); `unverifiedSkipped`
+(count of unverified clips not scored, omitted with `--include-unverified`);
+`unverifiedClips` (with `--include-unverified`, possibly empty);
+`unverifiedSummary` (same shape as `summary`, present only when there are
+unverified clips to score).
+
 ### Regression gate (`compare --gate`)
 
 The gate exits non-zero when the candidate, compared with the baseline on
@@ -148,6 +157,107 @@ The gate exits non-zero when the candidate, compared with the baseline on
 It warns, without failing, when any clip's `audioSHA256` differs. That
 usually means a macOS update changed a `say` voice, and the baseline needs
 regenerating.
+
+## Real-voice tiers
+
+Tiers C and D use your own voice. Their audio and manifests stay on this Mac
+and are never committed to the repo.
+
+### Tier C — captured dictations
+
+Opt-in: Preferences → Accuracy testing → "Keep recordings for accuracy
+testing" (`keepRecordingsForEval`, off by default).
+
+- **Trigger:** a review-panel dictation (Control+Option+Space) that you insert
+  or copy. Other dictations are never kept. The clip is the whole streaming
+  session buffer, 16 kHz mono.
+- **Location:** `~/Library/Application Support/Susurrus/eval/captured/`, with
+  `clips/<id>.wav` and `manifest.jsonl`. The app saves off the main thread. A
+  failed save is written to `~/susurrus_debug.log`, not shown.
+- **Ids:** `cap-<yyyyMMdd-HHmmss>-<4 hex>`. The time is local; `capturedAt`
+  is UTC.
+- **Manifest line** (the approved text is only a candidate reference until
+  reviewed):
+
+```json
+{"audio": "clips/cap-20261015-201502-3fa1.wav", "capturedAt": "2026-10-15T19:15:02Z",
+ "corrected": "Ask Balvinder to move the MarkLogic job to dev-full.", "id": "cap-20261015-201502-3fa1",
+ "model": "openai_whisper-small", "promptTerms": ["Balvinder", "MarkLogic"],
+ "raw": "Ask Balvinder to move the Markland job to dev-full.",
+ "reference": "Ask Balvinder to move the MarkLogic job to dev-full.", "script": "cap-20261015-201502-3fa1",
+ "seconds": 6.42, "source": "captured", "tags": ["captured", "short"], "variant": "captured",
+ "verified": false, "voice": "user"}
+```
+
+  `raw`, `corrected`, `promptTerms`, `model`, `seconds` and `capturedAt` are
+  the optional fields. `raw` is the stop-time ASR output, `corrected` the
+  corrector's output.
+- **Cap:** 500 clips. Over the cap, the oldest unverified clip is evicted
+  first, and verified clips only once no unverified clip remains. Eviction
+  deletes the WAV too.
+- **Delete recordings** (Preferences) removes every clip, the manifest and
+  the review verdicts after a confirmation. The panel shows the count, the
+  size, and a Show in Finder button.
+
+### Review — `susurrus-eval review`
+
+Walks the unverified clips, oldest first. Each shows its id, length, model,
+the approved text, the raw ASR and a diff (`[raw → approved]`). If the raw
+and approved text differ by more than the threshold (normalized WER 0.15 by
+default, `--threshold`), a "probable rewrite" warning appears: you may have
+reworded the dictation rather than fixed a recognition error, so check the
+approved text is what you said. Name fixes inflate it: "bell vinder
+→ Balvinder" plus "mark logic → MarkLogic" in a 10-word dictation is 40%, so
+expect the warning on jargon-heavy clips that are not rewrites.
+
+| Key | Effect |
+|---|---|
+| `a` | accept: the approved text becomes the reference; verified |
+| `e` | edit in `$VISUAL`, then `$EDITOR`, then `vi`; a saved edit becomes the reference and the clip is verified; an empty result cancels and the clip stays unverified |
+| `r` | reject: removes the manifest line and the WAV |
+| `s` | skip: stays unverified |
+| `p` | play again |
+| `q` | quit |
+
+Each verdict is written at once under the corpus lock, so quitting loses
+nothing and the app can keep capturing while a review is open. Keys are read
+without Return. A pipe drives the same path, for example
+`printf 'as' | susurrus-eval review --corpus <dir> --no-play`.
+
+### Tier D — recorded prompts
+
+`susurrus-eval record --script <prompts.txt|scripts.jsonl> --out <corpusDir>`
+
+- **Prompts file:** one prompt per line. Blank lines, `#` comments and
+  duplicates are skipped. Ids are `read-<8 hex>`, hashed from the text, so
+  reordering is safe; editing a prompt makes it a new prompt.
+- **`scripts.jsonl`:** the `synth` format. Ids and tags are kept and silence
+  entries skipped, so the golden scripts can be read in your voice.
+- **Clip ids:** `<scriptId>.user.read`. The manifest has `source: "read"`,
+  `voice: "user"`, `variant: "read"` and `verified: true`, because the prompt
+  text is the reference. Tags are the script's tags plus `read`, and
+  `short` or `long` by length.
+- **Keys:** Enter starts a take, Enter stops it. Then Enter keeps, `r` redoes,
+  `p` plays back, `s` skips and `q` quits. A near-silent take gets a warning.
+- **Resume:** rerun with the same script and output directory; prompts that
+  already have a clip are skipped.
+- **Vocabulary:** a `vocabulary.json` beside the script file is copied into
+  the corpus if the corpus has none. Otherwise create one before `run`:
+  `susurrus-eval snapshot --out <corpusDir>` writes `vocabulary.json` (the
+  app's vocabulary, rules and recent-context terms, read-only) and
+  `history-texts.jsonl`.
+- **Microphone:** macOS attributes `record`'s microphone use to the terminal
+  app. Grant it under System Settings → Privacy & Security → Microphone.
+- **Testing the app's own capture (tier C):** use `make install` and
+  `make launch`. The ad-hoc signed `make dev` binary gets a new code hash on
+  every rebuild, and macOS revokes its microphone grant each time.
+
+### Running with unverified clips
+
+`run` scores verified clips only and notes how many unverified clips it
+skipped. `--include-unverified` scores them too, in `unverifiedClips` and
+`unverifiedSummary`. The headline `summary`, `compare` and the gate never
+include them. Review a corpus before quoting its numbers.
 
 ## Baseline — 2026-10-15
 

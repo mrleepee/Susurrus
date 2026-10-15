@@ -791,15 +791,20 @@ struct SusurrusApp: App {
         let composer = promptComposer
         let overlay = overlayWindow
         let panel = reviewPanel
+        // Opt-in accuracy-testing capture (tier C): only panel dictations,
+        // because only they end in a reviewed, approved text.
+        let keepRecording = toPanel && UserDefaults.standard.bool(forKey: EvalCaptureStore.enabledKey)
 
         Task {
             do {
                 let stopStart = Date()
                 traceApp("stopStreamingSession: calling stopStreamTranscription")
+                await streaming.setRetainSessionAudio(keepRecording)
                 let text = try await streaming.stopStreamTranscription()
                 traceApp("stopStreamingSession: got text in \(Int(Date().timeIntervalSince(stopStart) * 1000))ms (\(text.count) chars): \(text.prefix(100))")
 
                 if toPanel {
+                    let retained = await streaming.takeRetainedSession()
                     // Deterministic corrections only; the user edits the rest
                     // by hand in the panel. Even empty text opens the editor
                     // (so the panel never gets stuck in the recording phase).
@@ -844,6 +849,22 @@ struct SusurrusApp: App {
                             vocab.recordUsage(in: final)
                             history.add(final, rawText: rawASR)
                             clip.writeText(final)
+                            if let retained {
+                                let capture = EvalCaptureStore.Capture(
+                                    samples: retained.samples, approved: final, raw: rawASR,
+                                    corrected: corrected, promptTerms: retained.promptTerms,
+                                    model: retained.model
+                                )
+                                Task.detached(priority: .utility) {
+                                    do {
+                                        if let entry = try EvalCaptureStore().save(capture) {
+                                            traceApp("evalCapture: kept \(entry.id) (\(entry.seconds ?? 0)s)")
+                                        }
+                                    } catch {
+                                        traceApp("evalCapture: save failed: \(error)")
+                                    }
+                                }
+                            }
                             guard shouldPaste else {
                                 traceApp("reviewCopy: copied \(final.count) chars, target untouched")
                                 return

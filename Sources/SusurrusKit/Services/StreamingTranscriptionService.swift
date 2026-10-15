@@ -106,6 +106,26 @@ public actor StreamingTranscriptionService {
     /// decode pass instead of racing it for the ANE.
     private var sessionTask: Task<Void, Error>?
 
+    /// Folder name of the loaded model, recorded with captured clips.
+    private var loadedModelName = ""
+
+    /// When set, the next stop keeps a copy of the session audio for
+    /// `takeRetainedSession()` (the opt-in accuracy-testing capture).
+    private var retainSessionAudio = false
+    private var retainedSession: RetainedSession?
+
+    /// A stopped session's audio and what the stop-time decode made of it,
+    /// handed out before the session buffer is purged.
+    public struct RetainedSession: Sendable {
+        /// The whole 16 kHz mono session buffer.
+        public let samples: [Float]
+        /// The text `stopStreamTranscription` returned (raw ASR).
+        public let rawText: String
+        /// Bias terms packed into the final decode's prompt.
+        public let promptTerms: [String]
+        public let model: String
+    }
+
     // MARK: - Init
 
     public init() {}
@@ -172,6 +192,7 @@ public actor StreamingTranscriptionService {
         trace("setupModel: '\(modelName)' prewarmed in \(msSince(warmStart))ms")
 
         self.whisperKit = kit
+        loadedModelName = modelName
         modelReady = true
     }
 
@@ -233,6 +254,21 @@ public actor StreamingTranscriptionService {
     }
 
     /// Enable or disable debug-log tracing (eval harness turns it off).
+    /// Whether the next `stopStreamTranscription` keeps the session audio
+    /// for `takeRetainedSession()`. Off unless the user opted in to keeping
+    /// recordings; the app sets it before every stop.
+    public func setRetainSessionAudio(_ enabled: Bool) {
+        retainSessionAudio = enabled
+        if !enabled { retainedSession = nil }
+    }
+
+    /// The last stopped session's audio, if it was retained. Hands it out
+    /// once: a second call returns nil.
+    public func takeRetainedSession() -> RetainedSession? {
+        defer { retainedSession = nil }
+        return retainedSession
+    }
+
     public func setTracing(_ enabled: Bool) {
         tracingEnabled = enabled
     }
@@ -352,6 +388,7 @@ public actor StreamingTranscriptionService {
         }
 
         let stopStart = Date()
+        retainedSession = nil
 
         // Stop audio capture; the realtime loop exits after its in-flight pass.
         await transcriber.stopStreamTranscription()
@@ -373,16 +410,20 @@ public actor StreamingTranscriptionService {
         // Final flush over the session buffer: one whole-buffer decode with
         // the prompt-token budget spent on terms ranked against the preview.
         let flushStart = Date()
-        if let processor, let baseOptions = activeDecodingOptions {
+        let samples = processor.map { Array($0.audioSamples) } ?? []
+        var promptTerms: [String] = []
+        if processor != nil, let baseOptions = activeDecodingOptions {
             let preview = state.map { Self.extractFinalText(from: $0) } ?? ""
             let final = await finalDecode(
-                samples: Array(processor.audioSamples),
+                samples: samples,
                 previewText: preview,
                 baseOptions: baseOptions
             )
+            promptTerms = final.promptTerms
             if final.outcome == .decoded {
                 trace("stop: flush done in \(msSince(flushStart))ms, total \(msSince(stopStart))ms")
-                processor.purgeAudioSamples(keepingLast: 0)
+                processor?.purgeAudioSamples(keepingLast: 0)
+                retain(samples: samples, text: final.text, promptTerms: promptTerms)
                 return final.text
             }
         }
@@ -402,7 +443,15 @@ public actor StreamingTranscriptionService {
             throw TranscriptionError.noSpeechDetected
         }
 
+        retain(samples: samples, text: cleaned, promptTerms: promptTerms)
         return cleaned
+    }
+
+    private func retain(samples: [Float], text: String, promptTerms: [String]) {
+        guard retainSessionAudio, !samples.isEmpty else { return }
+        retainedSession = RetainedSession(
+            samples: samples, rawText: text, promptTerms: promptTerms, model: loadedModelName
+        )
     }
 
     /// Streaming (preview) options: NO vocabulary prompt. Prompt tokens are
@@ -522,6 +571,7 @@ public actor StreamingTranscriptionService {
         await streamTranscriber?.stopStreamTranscription()
         try? await sessionTask?.value
         activeProcessor?.purgeAudioSamples(keepingLast: 0)
+        retainedSession = nil
         streamTranscriber = nil
         interimCallback = nil
         lastTranscriberState = nil

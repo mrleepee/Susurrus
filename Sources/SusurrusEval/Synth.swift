@@ -1,4 +1,5 @@
 import Foundation
+import SusurrusKit
 
 enum Synth {
     static let usage = "synth --scripts <scripts.jsonl> --out <corpusDir> [--voices \"Daniel,Flo\"] [--variants clean,paused,noisy]"

@@ -3,7 +3,7 @@ import SusurrusKit
 @preconcurrency import WhisperKit
 
 enum Run {
-    static let usage = "run --corpus <corpusDir> --config <config.json> --out <run.json> [--limit N] [--tag T]"
+    static let usage = "run --corpus <corpusDir> --config <config.json> --out <run.json> [--limit N] [--tag T] [--include-unverified]"
 
     static let modelAliases: [String: String] = [
         "small": "openai_whisper-small",
@@ -31,7 +31,10 @@ enum Run {
     }
 
     static func run(_ args: [String]) async throws {
-        let parsed = try ParsedArgs.parse(args, valueOptions: ["corpus", "config", "out", "limit", "tag"])
+        let parsed = try ParsedArgs.parse(
+            args, valueOptions: ["corpus", "config", "out", "limit", "tag"], flagOptions: ["include-unverified"]
+        )
+        let includeUnverified = parsed.flags.contains("include-unverified")
         guard parsed.positionals.isEmpty else { throw UsageError(message: "unexpected argument \(parsed.positionals[0])") }
         let corpusDir = expandPath(try parsed.require("corpus"))
         let configURL = expandPath(try parsed.require("config"))
@@ -50,6 +53,18 @@ enum Run {
         if let tagFilter { manifest = manifest.filter { $0.tags.contains(tagFilter) } }
         if let limit { manifest = Array(manifest.prefix(limit)) }
         guard !manifest.isEmpty else { throw ToolError("no clips selected from \(corpusDir.path)") }
+        // Unverified references (tier C before review) may be rewordings, so
+        // they never count toward the headline numbers.
+        let unverifiedCount = manifest.filter { !$0.verified }.count
+        if !includeUnverified {
+            manifest = manifest.filter(\.verified)
+            if unverifiedCount > 0 {
+                printErr("note: skipping \(unverifiedCount) unverified clip(s); run `review` on the corpus, or pass --include-unverified to score them separately")
+            }
+            guard !manifest.isEmpty else {
+                throw ToolError("no verified clips in \(corpusDir.path) (\(unverifiedCount) unverified)")
+            }
+        }
 
         let vocabURL = corpusDir.appendingPathComponent("vocabulary.json")
         let vocab = FileManager.default.fileExists(atPath: vocabURL.path)
@@ -122,7 +137,7 @@ enum Run {
             let scoreFinal = TranscriptScorer.score(reference: entry.reference, hypothesis: final, terms: terms)
 
             results.append(ClipResult(
-                id: entry.id, tags: entry.tags, seconds: seconds, audioSHA256: sha, reference: entry.reference,
+                id: entry.id, tags: entry.tags, verified: entry.verified, seconds: seconds, audioSHA256: sha, reference: entry.reference,
                 previewText: previewText, previewMs: previewMs,
                 promptTerms: transcript.promptTerms, promptTokenCount: transcript.promptTokenCount,
                 outcome: transcript.outcome.rawValue, decodeMs: transcript.decodeMs, failure: transcript.failure,
@@ -136,14 +151,30 @@ enum Run {
             ))
         }
 
+        let verified = results.filter { $0.verified != false }
+        let unverified = results.filter { $0.verified == false }
         let run = RunFile(
             name: config.name, createdAt: Date(), gitCommit: gitCommit(), osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-            modelFolder: modelFolder, config: config, corpus: corpusDir.path, clips: results,
-            summary: Aggregation.summary(results)
+            modelFolder: modelFolder, config: config, corpus: corpusDir.path, clips: verified,
+            summary: Aggregation.summary(verified),
+            unverifiedSkipped: includeUnverified ? nil : unverifiedCount,
+            unverifiedClips: includeUnverified ? unverified : nil,
+            unverifiedSummary: includeUnverified && !unverified.isEmpty ? Aggregation.summary(unverified) : nil
         )
         try JSON.write(run, to: outURL)
         printErr("wrote \(outURL.path)")
-        printOut(summaryTable(run.summary))
+        if verified.isEmpty {
+            printOut("No verified clips.")
+        } else {
+            if unverifiedCount > 0 { printOut("Verified clips:") }
+            printOut(summaryTable(run.summary))
+        }
+        if let unverifiedSummary = run.unverifiedSummary {
+            printOut("\nUnverified clips (references not yet reviewed; not in the headline numbers):")
+            printOut(summaryTable(unverifiedSummary))
+        } else if unverifiedCount > 0 && !includeUnverified {
+            printOut("\n\(unverifiedCount) unverified clip(s) not scored.")
+        }
     }
 
     static func gitCommit() -> String? {
