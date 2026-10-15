@@ -17,6 +17,7 @@ susurrus-eval compare  <baseline.json> <candidate.json> [--gate]
 susurrus-eval snapshot --out <dir>
 susurrus-eval review   --corpus <corpusDir> [--no-play] [--threshold 0.15]
 susurrus-eval record   --script <prompts.txt|scripts.jsonl> --out <corpusDir>
+susurrus-eval segment  --audio <file> --out <corpusDir> [--reference-model large-v3] [--raw-model small] [--min 4] [--max 28] [--limit N]
 ```
 
 Make targets: `make eval-golden` (render the golden set), `make eval`
@@ -251,6 +252,42 @@ without Return. A pipe drives the same path, for example
 - **Testing the app's own capture (tier C):** use `make install` and
   `make launch`. The ad-hoc signed `make dev` binary gets a new code hash on
   every rebuild, and macOS revokes its microphone grant each time.
+
+**Ready-made scripts:** `Tests/Fixtures/eval/golden/read-scripts.jsonl` has 25
+scripts (16 short, 9 over 30 s, about 11 minutes of reading) written in your
+dictation register. They cover every golden vocabulary term, the sound-alikes
+from the error table, numbers, mid-sentence pauses and lowercase nouns after
+jargon. Reading them from that path also brings the golden `vocabulary.json`:
+
+```
+susurrus-eval record --script Tests/Fixtures/eval/golden/read-scripts.jsonl \
+  --out ~/Library/Application\ Support/Susurrus/eval/read
+```
+
+The same scripts can be dictated through the review panel with capture on,
+which exercises the app's live path as tier C.
+
+### Long recordings — `susurrus-eval segment`
+
+Turns one long recording (a meeting; mp3, m4a, wav or anything else AVFoundation reads) into
+unverified clips. It cuts at pauses into segments of `--min` to `--max`
+seconds. The cut is the longest pause in that window, which in a meeting is
+usually a turn change, with a hard cut at `--max` only when there is no
+pause. Silence is relative to the recording's own level distribution
+(30 ms frames, p10/p90). The `reference` is a promptless decode by
+`--reference-model`, the strongest local model, and `raw` is the same decode
+by `--raw-model`, the production model. `review` then shows where the two
+disagree, which is where to listen.
+
+- Clip ids are `<file-slug>-NNN`; `source: "conversation"`, `voice: "unknown"`,
+  `verified: false`, tags `conversation` plus `short`/`long`.
+- Each clip is written as soon as its reference is decoded, and the raw pass
+  fills in `raw` afterwards, so an interrupted run resumes where it stopped.
+- Until reviewed, references are a large model's output, so an unreviewed
+  conversation corpus favours that model. `run` keeps it out of the headline
+  numbers until clips are verified.
+- Recordings of other people are private: keep the corpus under Application
+  Support, as with tier C.
 
 ### Running with unverified clips
 
