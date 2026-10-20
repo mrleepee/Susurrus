@@ -11,6 +11,7 @@ Usage:
   susurrus-eval \(Review.usage)
   susurrus-eval \(Record.usage)
   susurrus-eval \(Segment.usage)
+  susurrus-eval \(Download.usage)
 
 Exit codes: 0 success, 1 failure (or gate failure), 2 usage error.
 """
@@ -37,6 +38,7 @@ func runCLI(_ args: [String]) async -> Int32 {
         case "review": try Review.run(rest)
         case "record": try Record.run(rest)
         case "segment": try await Segment.run(rest)
+        case "download": try await Download.run(rest)
         case "compare": return try Compare.run(rest)
         default: throw UsageError(message: "unknown command '\(command)'")
         }
