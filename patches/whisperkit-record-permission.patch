@@ -1,0 +1,19 @@
+--- a/Sources/WhisperKit/Core/Audio/AudioProcessor.swift	2026-10-20 16:48:46
++++ b/Sources/WhisperKit/Core/Audio/AudioProcessor.swift	2026-10-20 16:48:46
+@@ -779,6 +779,16 @@
+ 
+     public static func requestRecordPermission() async -> Bool {
+         if #available(macOS 14, iOS 17, *) {
++            // Susurrus patch: answer from the cached status when it is already
++            // decided. The async AVAudioApplication.requestRecordPermission()
++            // resumes its CheckedContinuation from the TCC server queue, and on
++            // macOS 26 that is a use-after-free (SIGBUS in swift_retain) on
++            // every dictation start. Only a first-ever prompt still goes async.
++            switch AVAudioApplication.shared.recordPermission {
++            case .granted: return true
++            case .denied: return false
++            default: break
++            }
+             return await AVAudioApplication.requestRecordPermission()
+         } else {
+             #if os(watchOS)

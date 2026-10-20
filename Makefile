@@ -11,9 +11,26 @@ SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null \
 	| grep -E -o '"(Apple Development|Developer ID Application|Susurrus)[^"]*"' \
 	| head -1 | tr -d '"')
 
-.PHONY: test build clean perf release bundle install uninstall launch eval-build eval-golden eval eval-baseline eval-compare
+.PHONY: test build clean perf release bundle install uninstall launch eval-build eval-golden eval eval-baseline eval-compare deps
 
-build:
+# Resolve packages, then apply our patches to them (patches/*.patch, each
+# against the dependency's package root). Idempotent. Every build target runs
+# this: a plain `swift build` in a fresh checkout or worktree builds
+# WhisperKit unpatched, and that build crashes on the first dictation.
+WHISPERKIT := .build/checkouts/WhisperKit
+deps:
+	@swift package resolve
+	@for p in patches/whisperkit-*.patch; do \
+		files=$$(grep '^+++ b/' $$p | sed 's|^+++ b/||; s|\t.*||'); \
+		for f in $$files; do chmod u+w "$(WHISPERKIT)/$$f"; done; \
+		if patch -p1 -R -s -f --dry-run -d $(WHISPERKIT) < $$p >/dev/null 2>&1; then \
+			echo "patch already applied: $$p"; \
+		else \
+			patch -p1 -s -f -d $(WHISPERKIT) < $$p && echo "patch applied: $$p" || { echo "FAILED to apply $$p"; exit 1; }; \
+		fi; \
+	done
+
+build: deps
 	swift build
 
 # Run debug binary directly — stdout/stderr visible in terminal, no install needed
@@ -22,7 +39,7 @@ dev: build
 	@echo "Running from .build/debug/$(APP_NAME) — Ctrl+C to quit"
 	.build/debug/$(APP_NAME)
 
-release:
+release: deps
 	swift build -c release
 
 bundle: release
@@ -65,7 +82,7 @@ uninstall:
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
 	@echo "Uninstalled $(APP_NAME)"
 
-test:
+test: deps
 	swift build --build-tests \
 		-Xswiftc -F -Xswiftc $(FRAMEWORK_DIR) \
 		-Xlinker -rpath -Xlinker $(FRAMEWORK_DIR)
@@ -87,7 +104,7 @@ EVAL := .build/release/susurrus-eval
 EVAL_CONFIG ?= $(GOLDEN)/config.production.json
 EVAL_OUT ?= eval-runs/$(shell date +%Y%m%d-%H%M%S).json
 
-eval-build:
+eval-build: deps
 	swift build -c release --product susurrus-eval
 
 # Render the golden scripts to audio (regenerate after a macOS update changes voices).
