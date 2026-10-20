@@ -18,6 +18,7 @@ susurrus-eval snapshot --out <dir>
 susurrus-eval review   --corpus <corpusDir> [--no-play] [--threshold 0.15]
 susurrus-eval record   --script <prompts.txt|scripts.jsonl> --out <corpusDir>
 susurrus-eval segment  --audio <file> --out <corpusDir> [--reference-model large-v3] [--raw-model small] [--min 4] [--max 28] [--limit N]
+susurrus-eval download --model <variant> [--list]
 ```
 
 Make targets: `make eval-golden` (render the golden set), `make eval`
@@ -296,6 +297,35 @@ skipped. `--include-unverified` scores them too, in `unverifiedClips` and
 `unverifiedSummary`. The headline `summary`, `compare` and the gate never
 include them. Review a corpus before quoting its numbers.
 
+## Model comparison — 2026-10-20
+
+Each model with and without the vocabulary prompt, on the golden set (86
+TTS clips) and the user's read-aloud set (25 clips, 11 min, real voice).
+WER is after the corrector. Decode time is the median for 15–30 s clips on
+the read set, M2 Pro with the app idle in the background.
+
+| Model, prompt | Golden WER | Read WER | Read terms | Read dropped / inserted | Read extra breaks | Decode 15–30 s |
+|---|---|---|---|---|---|---|
+| small, prompt (production) | 6.4% | 7.8% | 55/71 | 1 / 4 | 33 | 1.3 s |
+| small, none | 8.1% | 7.7% | 41/71 | 0 / 2 | 26 | 0.8 s |
+| large-v3, prompt | 7.5% | 8.4% | 48/71 | 4 / 2 | 13 | 7.2 s |
+| large-v3, none | 3.9% | 4.6% | 45/71 | 1 / 1 | 10 | 4.3 s |
+| large-v3-v20240930_turbo, prompt | 45.4% | 77.0% | 20/71 | 23 / 1 | 3 | 1.4 s |
+| large-v3-v20240930_turbo, none | 4.9% | 9.4% | 44/71 | 5 / 2 | 11 | 1.0 s |
+| …_turbo_632MB, none | 6.1% | 11.3% | 39/71 | 4 / 5 | 22 | 1.0 s |
+
+- The prompt helps `small` and hurts the large-v3 family. With the prompt,
+  large-v3 drops phrases and OpenAI's 4-layer turbo decodes whole segments
+  to empty text. The app therefore decodes the large-v3 family with no
+  prompt (`FinalDecodeConfig.production(forModel:)`); the corrector still
+  applies vocabulary afterwards.
+- No model replaces `small` as the default. large-v3 without the prompt has
+  about 40% fewer errors on the user's voice but takes about 3× as long to
+  finish. Turbo is fast and looked good on TTS, but on the real voice it is
+  worse than `small` and drops phrases.
+- `susurrus-eval download --model <variant>` fetches a WhisperKit model into
+  the app's model folder (`--list` shows what is there).
+
 ## Baseline — 2026-10-15
 
 Production config (`small`, VAD chunking, ranker prompt, corrector on). 86
@@ -304,6 +334,10 @@ clips, 38 min of audio, Daniel and Flo voices, M2 Pro with the app running.
 | Group | Clips | WER raw → final | Formatted err | Terms hit | Dropped / inserted runs | Extra breaks |
 |---|---|---|---|---|---|---|
 | overall | 86 | 6.4% → 6.4% | 8.9% | 230/324 | 1 / 2 | 88 |
+
+*Re-baselined 2026-10-20 after the corrector fix ("says"→SAAS and "CTS
+query"→"CTS XQuery" no longer fire): overall 6.4% → 6.3% final, 8.8%
+formatted, terms unchanged. The table above is the original.*
 | clean | 28 | 4.8% → 4.8% | 5.8% | 79/108 | 0 / 0 | 8 |
 | paused | 28 | 5.3% → 5.3% | 10.2% | 79/108 | 1 / 0 | 59 |
 | noisy | 28 | 9.1% → 9.1% | 10.8% | 72/108 | 0 / 2 | 21 |

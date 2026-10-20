@@ -47,4 +47,15 @@ struct FinalTranscriberTests {
         #expect(config.concurrentWorkerCount == 4)
         #expect(config.decodingOptions(language: "en").chunkingStrategy == nil)
     }
+
+    @Test("Large-v3 family ships promptless; other models keep the 48-token prompt")
+    func perModelPromptPolicy() {
+        for model in ["openai_whisper-large-v3", "openai_whisper-large-v3_turbo",
+                      "openai_whisper-large-v3-v20240930_turbo", "openai_whisper-large-v3-v20240930_turbo_632MB"] {
+            #expect(FinalDecodeConfig.production(forModel: model).maxPromptTokens == 0)
+        }
+        for model in ["openai_whisper-small", "openai_whisper-base", "openai_whisper-medium", "distil-whisper_distil-large-v3"] {
+            #expect(FinalDecodeConfig.production(forModel: model) == .production)
+        }
+    }
 }

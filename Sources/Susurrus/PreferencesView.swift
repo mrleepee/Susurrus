@@ -43,11 +43,11 @@ struct PreferencesView: View {
 
     private let modelOptions: [(id: String, label: String, detail: String)] = [
         ("base", "Base", "Fastest • ~140MB"),
-        ("small", "Small", "Good balance • ~464MB"),
-        ("medium", "Medium", "More accurate • ~770MB"),
-        ("large-v3", "Large v3", "Most accurate • ~2.9GB"),
-        ("large-v3_turbo", "Large v3 Turbo", "Fast & accurate • ~3.0GB"),
-        ("distil-large-v3", "Distil Large v3", "Compact & fast • ~594MB"),
+        ("small", "Small", "Recommended: fast, good with your vocabulary • ~464MB"),
+        ("medium", "Medium", "Slower • ~770MB"),
+        ("large-v3", "Large v3", "Most accurate, about 3× slower to finish • ~2.9GB"),
+        ("large-v3_turbo", "Large v3 (Argmax build)", "Large v3 decoder, not OpenAI's turbo • ~3.0GB"),
+        ("distil-large-v3", "Distil Large v3", "Weaker than Small on names • ~594MB"),
     ]
 
     var body: some View {

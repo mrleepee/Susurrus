@@ -193,6 +193,10 @@ public actor StreamingTranscriptionService {
 
         self.whisperKit = kit
         loadedModelName = modelName
+        // Per-model stop-time settings; the eval harness overrides this
+        // afterwards with setFinalDecodeConfig.
+        finalConfig = .production(forModel: modelName)
+        trace("setupModel: final decode prompt budget \(finalConfig.maxPromptTokens) tokens")
         modelReady = true
     }
 
@@ -473,7 +477,8 @@ public actor StreamingTranscriptionService {
         var options = finalConfig.decodingOptions(language: languageCode)
         if vocabularySelector == nil, !vocabularyPrompt.isEmpty {
             let tokens = tokenizer.encode(text: vocabularyPrompt)
-            options.promptTokens = Array(tokens.prefix(finalConfig.maxPromptTokens))
+            let kept = Array(tokens.prefix(finalConfig.maxPromptTokens))
+            options.promptTokens = kept.isEmpty ? nil : kept
             if tokens.count > finalConfig.maxPromptTokens {
                 trace("vocab prompt capped: \(tokens.count) -> \(finalConfig.maxPromptTokens) tokens")
             }

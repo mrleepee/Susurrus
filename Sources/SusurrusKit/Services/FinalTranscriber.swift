@@ -21,6 +21,24 @@ public struct FinalDecodeConfig: Codable, Equatable, Sendable {
 
     public static let production = FinalDecodeConfig()
 
+    /// What the app ships for a given model folder. The large-v3 family
+    /// (large-v3, large-v3_turbo, the 2024-09-30 "turbo" builds) decodes
+    /// with no vocabulary prompt: on the eval sets the prompt made large-v3
+    /// drop whole phrases (8.4% vs 4.6% WER on the user's voice) and made
+    /// the 4-layer turbo return empty segments. The corrector still applies
+    /// vocabulary casing afterwards. Other models keep the prompt, which
+    /// helps `small` (7.5% vs 8.8% raw WER, 55 vs 41 of 71 terms).
+    public static func production(forModel modelFolderName: String) -> FinalDecodeConfig {
+        var config = production
+        if promptHurts(modelFolderName) { config.maxPromptTokens = 0 }
+        return config
+    }
+
+    static func promptHurts(_ modelFolderName: String) -> Bool {
+        let name = modelFolderName.lowercased()
+        return name.contains("large-v3") && !name.contains("distil")
+    }
+
     public init(chunking: Chunking = .vad, concurrentWorkerCount: Int = 4, maxPromptTokens: Int = 48) {
         self.chunking = chunking
         self.concurrentWorkerCount = concurrentWorkerCount

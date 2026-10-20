@@ -2,11 +2,11 @@
   "clips" : [
     {
       "audioSHA256" : "bf878d994b50cba06d6d0d11b3f34e4e5f5cd9c55bac907b8e3b733d7eed8a08",
-      "decodeMs" : 1266,
+      "decodeMs" : 1056,
       "final" : "Ask Balvinder to move the MarkLogic job onto dev-full before Thursday, and copy Rodney into the thread so he can see the timings.",
       "id" : "short-names-01.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 672,
+      "previewMs" : 574,
       "previewText" : "Ask Balvinda to move the Mark Logic job onto DevFull before Thursday, and copy Rodney into the thread so he can see the timings.",
       "promptTerms" : [
         "MarkLogic",
@@ -76,15 +76,16 @@
         "jargon",
         "short",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "bf878d994b50cba06d6d0d11b3f34e4e5f5cd9c55bac907b8e3b733d7eed8a08",
-      "decodeMs" : 1245,
+      "decodeMs" : 1063,
       "final" : "Ask Balvinder to move the MarkLogic job onto dev-full before Thursday, and copy Rodney into the thread so he can see the timings.",
       "id" : "short-names-01.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 627,
+      "previewMs" : 540,
       "previewText" : "Ask Balvinda to move the Mark Logic job onto DevFull before Thursday, and copy Rodney into the thread so he can see the timings.",
       "promptTerms" : [
         "MarkLogic",
@@ -154,15 +155,16 @@
         "jargon",
         "short",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "14e7d5c6ca183ba40591663ce3e69d86d01f62a06400371b11423c9aa6ddc833",
-      "decodeMs" : 1251,
+      "decodeMs" : 1094,
       "final" : "Ask Balvinder to move the MarkLogic job onto dev-full before Thursday, and copy Rodney into the thread so he can see the timings.",
       "id" : "short-names-01.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 632,
+      "previewMs" : 545,
       "previewText" : "Ask Balvinda to move the Mark Logic job onto DevFull before Thursday, and copy Rodney into the thread so he can see the timings.",
       "promptTerms" : [
         "MarkLogic",
@@ -232,15 +234,16 @@
         "jargon",
         "short",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "e36021280ee628c04c0174f3faa34da9a11779a8633301329e01225e63a4c20a",
-      "decodeMs" : 1253,
+      "decodeMs" : 1090,
       "final" : "Ask Balvinder to move the MarkLogic job onto dev-full before Thursday, and copy Rodney into the thread so he can see the timings.",
       "id" : "short-names-01.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 593,
+      "previewMs" : 521,
       "previewText" : "Ask Belvinder to move the logic job onto DevFall before Thursday, and copy Rodney into the threat so he can see the timings.",
       "promptTerms" : [
         "Rodney",
@@ -310,15 +313,16 @@
         "jargon",
         "short",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "e36021280ee628c04c0174f3faa34da9a11779a8633301329e01225e63a4c20a",
-      "decodeMs" : 1240,
+      "decodeMs" : 1092,
       "final" : "Ask Balvinder to move the MarkLogic job onto dev-full before Thursday, and copy Rodney into the thread so he can see the timings.",
       "id" : "short-names-01.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 593,
+      "previewMs" : 515,
       "previewText" : "Ask Belvinder to move the logic job onto DevFall before Thursday, and copy Rodney into the threat so he can see the timings.",
       "promptTerms" : [
         "Rodney",
@@ -388,15 +392,16 @@
         "jargon",
         "short",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "416276762dab67780438f7ba1761bd17809af469f43b96324ec9bf78dffc27b6",
-      "decodeMs" : 1225,
+      "decodeMs" : 1096,
       "final" : "Ask Balvinder to move the MarkLogic job from the dev-full before Thursday, and copy Rodney into the threat so he can see the timings.",
       "id" : "short-names-01.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 621,
+      "previewMs" : 535,
       "previewText" : "Ask Valwind at the Moon the Mug Logic job on the Dev4 before Thursday, and copy Rodney into the threat so he can see the timings.",
       "promptTerms" : [
         "Rodney",
@@ -466,15 +471,16 @@
         "jargon",
         "short",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "7a0e193ffb73dde7089e8b69749ab8385d2a4a34a886a249c78447887778abc2",
-      "decodeMs" : 1458,
+      "decodeMs" : 1270,
       "final" : "DeVIA has already signed off the schema, so Harnadh can start the migration this afternoon. Abhishek will review the rollback plan once it is written up, and Jayendra will check the counts.",
       "id" : "short-names-02.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 814,
+      "previewMs" : 696,
       "previewText" : "DeVilla has already signed off the schema, so Hanad can start the migration this afternoon. Abhishek will review the rollback plan once it is written up, and Jayendra will check the counts.",
       "promptTerms" : [
         "Jayendra",
@@ -554,15 +560,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "2a598774469ac690635acdd44dfd5c61c24af67d761ca139fe9cffd73e9e9f89",
-      "decodeMs" : 1466,
+      "decodeMs" : 1272,
       "final" : "DeVIA has already signed off the schema, so Harnadh can start the migration this afternoon. Abhishek will review the rollback plan once it is written up. And Jayendra will check the counts.",
       "id" : "short-names-02.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 815,
+      "previewMs" : 727,
       "previewText" : "DeVilla has already signed off the schema, so Hanad can start the migration this afternoon. Abhishek will review the rollback plan once it is written up. And Jendra will check the counts.",
       "promptTerms" : [
         "Abhishek",
@@ -651,15 +658,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "134d36059153326989962e4d0c7d6a930fb012452df5271348968f1c719ef8bb",
-      "decodeMs" : 1466,
+      "decodeMs" : 1287,
       "final" : "DeVea has already signed off the steamer, so Harnadh can start the migration this afternoon. Abhishek will review the rollback plan once it is written up, and Jayendra will check the counts.",
       "id" : "short-names-02.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 829,
+      "previewMs" : 729,
       "previewText" : "DeVilla has already signed off the steamer, so Harnad can start the migration this afternoon. Abhishek will review the rollback plan once it is written up, and Jendra will check the counts.",
       "promptTerms" : [
         "Abhishek",
@@ -738,15 +746,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "29c7c045d2ffce460c52945d609c66ac9750df72d71ecf74edaad98384cf9f7b",
-      "decodeMs" : 1414,
+      "decodeMs" : 1217,
       "final" : "Divya has already signed off the schema, so Harnick can start the migration this afternoon. Abhishek will review the rollback plan once it is written up, and Jayendra will check the counts.",
       "id" : "short-names-02.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 812,
+      "previewMs" : 740,
       "previewText" : "Divya has already signed off the schema, so Harnick can start the migration this afternoon. Abhishek will review the rollback plan once it is written up, and Jayendra will check the counts.",
       "promptTerms" : [
         "Jayendra",
@@ -816,15 +825,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "7d1a0b2e2b3a8c87a33fa3216f29410c87701efb53a4fb8a85ba675f4fb750dc",
-      "decodeMs" : 1402,
+      "decodeMs" : 1261,
       "final" : "Divya has already signed off the schema, so Harnick can start the migration this afternoon. Abhishek will review the rollback plan once it is written up. And Jayendra will check the accounts.",
       "id" : "short-names-02.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 846,
+      "previewMs" : 724,
       "previewText" : "Divya has already signed off the schema, so Harnat can start the migration this afternoon. Abhishek will review the rollback plan once it is written up. And Jayendra will check the accounts.",
       "promptTerms" : [
         "Jayendra",
@@ -912,15 +922,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "e7048d640c9645556813ddfa0a0594706611410e11ff27457ff9bce517c58c73",
-      "decodeMs" : 1458,
+      "decodeMs" : 1272,
       "final" : "Vybdybya has already signed off the schema, so Arnav can start the migration this afternoon. After check we'll review the rollback plan once it is written up, and Jayendra will check the counts.",
       "id" : "short-names-02.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 797,
+      "previewMs" : 678,
       "previewText" : "The bacteria has already signed off the schema, so all of them start to migration this afternoon. After check we'll review the rollback plan once it is written up, and J. Andrew will check the counts.",
       "promptTerms" : [
         "Rodney",
@@ -1003,15 +1014,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "710ff1ed3dee5306079f7666039b0a06c27f75a51c98bf76700beff6f00543de",
-      "decodeMs" : 1198,
+      "decodeMs" : 1034,
       "final" : "The XQuery module reads the root element first, then passes each record to the CoRB batch, which keeps the URIs in order.",
       "id" : "short-jargon-01.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 564,
+      "previewMs" : 504,
       "previewText" : "The xQuery module reads the root element first, then passes each record to the chord batch, which keeps the yuris in order.",
       "promptTerms" : [
         "XQuery",
@@ -1082,15 +1094,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "4bceb1d060fa385e19af47a8731778ce89f643e2fc6ee0900e5afbd400e21d7d",
-      "decodeMs" : 1180,
+      "decodeMs" : 1034,
       "final" : "The XQuery module reads the root element first, then passes each record to the CoRB batch, which keeps the URIs in order.",
       "id" : "short-jargon-01.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 570,
+      "previewMs" : 499,
       "previewText" : "The xQuery module reads the root element first, then passes each record to the chord batch, which keeps the yuris in order.",
       "promptTerms" : [
         "XQuery",
@@ -1161,15 +1174,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "82b3a18cc31777467217448ebaccd1564b08dd262b316fb89ad86084bb777c08",
-      "decodeMs" : 1183,
+      "decodeMs" : 1014,
       "final" : "The XQuery module reads the root element first, then passes each record to the corg batch, which keeps the URIs in order.",
       "id" : "short-jargon-01.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 591,
+      "previewMs" : 509,
       "previewText" : "The xQuery module reads the root element first, then passes each record to the corg batch, which keeps the yuris in order.",
       "promptTerms" : [
         "XQuery",
@@ -1240,15 +1254,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "d084a09d9514db31ea91e8f4a6b0a3b7110aa40244f0ef814bce4c49dae3b8c4",
-      "decodeMs" : 1155,
+      "decodeMs" : 1011,
       "final" : "The Squery module reads the root element first, then passes each record to the core batch, which keeps the URIs in order.",
       "id" : "short-jargon-01.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 566,
+      "previewMs" : 490,
       "previewText" : "The squerry module reads the root element first, then passes each record to the core batch, which keeps the urus in order.",
       "promptTerms" : [
         "URIs",
@@ -1321,15 +1336,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "ff09435a6fc699aff471f2850e12714adbfcf6a01d02b7db6d7e67601dfb03ea",
-      "decodeMs" : 1173,
+      "decodeMs" : 1004,
       "final" : "The Squery module reads the root element first, then passes each record to the core batch, which keeps the URIs in order.",
       "id" : "short-jargon-01.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 557,
+      "previewMs" : 498,
       "previewText" : "The squerry module reads the root element first, then passes each record to the core batch, which keeps the Eurus in order.",
       "promptTerms" : [
         "Rodney",
@@ -1402,15 +1418,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "59fa3108305087d88a6157b1ce93aebecaab2d576f030c088efa26bd272ce2cf",
-      "decodeMs" : 1165,
+      "decodeMs" : 995,
       "final" : "The Squery module reads the root element first, then RCS records the core patch, which keeps the URIs in order.",
       "id" : "short-jargon-01.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 584,
+      "previewMs" : 508,
       "previewText" : "The square remodule reads the root element first, then R-CZ records the core patch, which keeps the URICI in order.",
       "promptTerms" : [
         "Rodney",
@@ -1483,15 +1500,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "d4d2d1f8e8fd20c91a014ebcc1f1411d0297d4d43ea076733c5c5073edc4f373",
-      "decodeMs" : 1176,
+      "decodeMs" : 1044,
       "final" : "Wrangler is still on the old SPARQL endpoint, so the triple counts will not match until the new XDBC connection is live.",
       "id" : "short-jargon-02.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 608,
+      "previewMs" : 507,
       "previewText" : "Wrangler is still on the old SPARQL endpoint, so the triple counts will not match until the new XDBC connection is live.",
       "promptTerms" : [
         "SPARQL",
@@ -1562,15 +1580,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "d4d2d1f8e8fd20c91a014ebcc1f1411d0297d4d43ea076733c5c5073edc4f373",
-      "decodeMs" : 1180,
+      "decodeMs" : 1040,
       "final" : "Wrangler is still on the old SPARQL endpoint, so the triple counts will not match until the new XDBC connection is live.",
       "id" : "short-jargon-02.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 593,
+      "previewMs" : 514,
       "previewText" : "Wrangler is still on the old SPARQL endpoint, so the triple counts will not match until the new XDBC connection is live.",
       "promptTerms" : [
         "SPARQL",
@@ -1641,15 +1660,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "3567cd05a4093b517d6d93d8c7d756b46e09fc3e607138e6d7d84e6785d95cc2",
-      "decodeMs" : 1228,
+      "decodeMs" : 1041,
       "final" : "Wrangler is still on the old SPARQL endpoint, so the triple counts will not match until the new XDBC connection is lived.",
       "id" : "short-jargon-02.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 596,
+      "previewMs" : 506,
       "previewText" : "Wrangler is still on the old SPARQL endpoint, so the triple counts will not match until the new XDBC connection is lived.",
       "promptTerms" : [
         "SPARQL",
@@ -1720,15 +1740,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "d3044a6daf164ec9713a052a30945758276e5c3e77d8215f9984e93b73523a25",
-      "decodeMs" : 1224,
+      "decodeMs" : 1032,
       "final" : "Rangor is still on the oldest SPARQL endpoint, so the triple counts will not match until the new XTBC connection is live.",
       "id" : "short-jargon-02.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 602,
+      "previewMs" : 524,
       "previewText" : "Rangor is still on the oldest PAQL endpoint, so the triple counts will not match until the new XTBC connection is live.",
       "promptTerms" : [
         "Rodney",
@@ -1800,15 +1821,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "d3044a6daf164ec9713a052a30945758276e5c3e77d8215f9984e93b73523a25",
-      "decodeMs" : 1191,
+      "decodeMs" : 1087,
       "final" : "Rangor is still on the oldest SPARQL endpoint, so the triple counts will not match until the new XTBC connection is live.",
       "id" : "short-jargon-02.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 597,
+      "previewMs" : 526,
       "previewText" : "Rangor is still on the oldest PAQL endpoint, so the triple counts will not match until the new XTBC connection is live.",
       "promptTerms" : [
         "Rodney",
@@ -1880,15 +1902,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "003b70f4836086d534835de27b5e1f2788a51ca96e750a691332ce59c6d4a170",
-      "decodeMs" : 1206,
+      "decodeMs" : 1027,
       "final" : "Wrangler is still on the old SPARQL endpoint, so the triple counts will not match and for the new XTBC connection is live.",
       "id" : "short-jargon-02.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 749,
+      "previewMs" : 650,
       "previewText" : "The Wrangler is still on the old S-T-A-R-Q-L endpoint, so the triple council will not match him for the new XTBC connection is live.",
       "promptTerms" : [
         "Wrangler",
@@ -1958,15 +1981,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "043f132544b032267ec97c370437bb5c9841bc40ed351f6e6c8a5cc158a41835",
-      "decodeMs" : 1298,
-      "final" : "Our QA team SAAS the SAAS dashboard is fine now, but the CTS queries still run slowly for the bigger accounts, so I would like them looked at before the demo.",
+      "decodeMs" : 1130,
+      "final" : "Our QA team says the SAAS dashboard is fine now, but the CTS queries still run slowly for the bigger accounts, so I would like them looked at before the demo.",
       "id" : "short-jargon-03.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 686,
+      "previewMs" : 589,
       "previewText" : "Our QA team says the SAS dashboard is fine now, but the CTS queries still run slowly for the bigger accounts, so I would like them looked at before the demo.",
       "promptTerms" : [
         "QA",
@@ -1990,7 +2014,7 @@
         "deletions" : 0,
         "droppedRuns" : 0,
         "extraSentenceBreaks" : 0,
-        "formattedErrors" : 1,
+        "formattedErrors" : 0,
         "formattedTokens" : 34,
         "insertedRuns" : 0,
         "insertions" : 0,
@@ -1998,8 +2022,8 @@
 
         ],
         "referenceWords" : 31,
-        "substitutions" : 1,
-        "termFalseFires" : 1,
+        "substitutions" : 0,
+        "termFalseFires" : 0,
         "termsExpected" : 3,
         "termsHit" : 3
       },
@@ -2038,15 +2062,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "df30172d479a894c692615e149f1462b9b5384c53d2ed7180cd81f7b9466976a",
-      "decodeMs" : 1361,
-      "final" : "Our QA team SAAS the SAAS dashboard is fine now, but the CTS queries still run slowly for the bigger accounts. So I would like them looked at before the demo.",
+      "decodeMs" : 1150,
+      "final" : "Our QA team says the SAAS dashboard is fine now, but the CTS queries still run slowly for the bigger accounts. So I would like them looked at before the demo.",
       "id" : "short-jargon-03.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 709,
+      "previewMs" : 617,
       "previewText" : "Our QA team says the SAS dashboard is fine now, but the CTS queries still run slowly for the bigger accounts. So I would like them looked at before the demo.",
       "promptTerms" : [
         "QA",
@@ -2070,7 +2095,7 @@
         "deletions" : 0,
         "droppedRuns" : 0,
         "extraSentenceBreaks" : 1,
-        "formattedErrors" : 3,
+        "formattedErrors" : 2,
         "formattedTokens" : 34,
         "insertedRuns" : 0,
         "insertions" : 0,
@@ -2078,8 +2103,8 @@
 
         ],
         "referenceWords" : 31,
-        "substitutions" : 1,
-        "termFalseFires" : 1,
+        "substitutions" : 0,
+        "termFalseFires" : 0,
         "termsExpected" : 3,
         "termsHit" : 3
       },
@@ -2127,15 +2152,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "fedd4bcc07445e1e8b47702a9abeaa0ffc3d24e30a4de0b808f3d9915b6a2abf",
-      "decodeMs" : 1339,
-      "final" : "Our QA team SAAS the SAAS dashboard is fine now, but the CTS queries still run slowly for the bigger accounts, so I would like them looked at before the dev-o.",
+      "decodeMs" : 1145,
+      "final" : "Our QA team says the SAAS dashboard is fine now, but the CTS queries still run slowly for the bigger accounts, so I would like them looked at before the dev-o.",
       "id" : "short-jargon-03.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 673,
+      "previewMs" : 577,
       "previewText" : "Our QA team says the SAS dashboard is fine now, but the CTS queries still run slowly for the bigger accounts, so I would like them looked at before the devos.",
       "promptTerms" : [
         "QA",
@@ -2159,7 +2185,7 @@
         "deletions" : 0,
         "droppedRuns" : 0,
         "extraSentenceBreaks" : 0,
-        "formattedErrors" : 2,
+        "formattedErrors" : 1,
         "formattedTokens" : 34,
         "insertedRuns" : 0,
         "insertions" : 1,
@@ -2167,8 +2193,8 @@
 
         ],
         "referenceWords" : 31,
-        "substitutions" : 2,
-        "termFalseFires" : 1,
+        "substitutions" : 1,
+        "termFalseFires" : 0,
         "termsExpected" : 3,
         "termsHit" : 3
       },
@@ -2207,15 +2233,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "948c1494e5a83a0fff9f35605dfea584a29cbdde96d42700a62787332d00d563",
-      "decodeMs" : 1317,
-      "final" : "Rcard team SAAS the SAAS dashboard is fine now, but the CTS XQuery still runs slowly for the bigger accounts, so I would like them looked at before the demo.",
+      "decodeMs" : 1114,
+      "final" : "Rcard team says the SAAS dashboard is fine now, but the CTS query still runs slowly for the bigger accounts, so I would like them looked at before the demo.",
       "id" : "short-jargon-03.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 658,
+      "previewMs" : 553,
       "previewText" : "Our card team says the SARS dashboard is fine now, but the CTS query still runs slowly for the bigger accounts, so I would like them looked at before the demo.",
       "promptTerms" : [
         "CTS",
@@ -2239,7 +2266,7 @@
         "deletions" : 1,
         "droppedRuns" : 0,
         "extraSentenceBreaks" : 0,
-        "formattedErrors" : 5,
+        "formattedErrors" : 4,
         "formattedTokens" : 34,
         "insertedRuns" : 0,
         "insertions" : 0,
@@ -2247,8 +2274,8 @@
           "QA"
         ],
         "referenceWords" : 31,
-        "substitutions" : 4,
-        "termFalseFires" : 2,
+        "substitutions" : 3,
+        "termFalseFires" : 0,
         "termsExpected" : 3,
         "termsHit" : 2
       },
@@ -2287,15 +2314,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "2501fe66819333a3d9bebf18b0e93c5cdb867949ae74e99394627d7230bbc59a",
-      "decodeMs" : 1333,
-      "final" : "Rcard team SAAS the SAAS dashboard is fine now, but the CTS XQuery still runs slowly for the bigger accounts. So I would like them looked at before the demo.",
+      "decodeMs" : 1166,
+      "final" : "Rcard team says the SAAS dashboard is fine now, but the CTS query still runs slowly for the bigger accounts. So I would like them looked at before the demo.",
       "id" : "short-jargon-03.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 669,
+      "previewMs" : 585,
       "previewText" : "Our code team says the SARS dashboard is fine now, but the CTS query still runs slowly for the bigger accounts. So I would like them looked at before the demo.",
       "promptTerms" : [
         "CTS",
@@ -2319,7 +2347,7 @@
         "deletions" : 1,
         "droppedRuns" : 0,
         "extraSentenceBreaks" : 1,
-        "formattedErrors" : 7,
+        "formattedErrors" : 6,
         "formattedTokens" : 34,
         "insertedRuns" : 0,
         "insertions" : 0,
@@ -2327,8 +2355,8 @@
           "QA"
         ],
         "referenceWords" : 31,
-        "substitutions" : 4,
-        "termFalseFires" : 2,
+        "substitutions" : 3,
+        "termFalseFires" : 0,
         "termsExpected" : 3,
         "termsHit" : 2
       },
@@ -2376,15 +2404,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "db92de7cd8892a7fe59beb568a9b7c6656266786346226e519225b80c724baaa",
-      "decodeMs" : 1325,
-      "final" : "Our car team SAAS the SAAS dashboard is fine now, but the CTS XQuery still runs slowly for the bigger accounts, so I would like them looked at before the demo.",
+      "decodeMs" : 1138,
+      "final" : "Our car team says the SAAS dashboard is fine now, but the CTS query still runs slowly for the bigger accounts, so I would like them looked at before the demo.",
       "id" : "short-jargon-03.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 716,
+      "previewMs" : 624,
       "previewText" : "Our car team says the SARS-Gasphal is fine now, but the CTS query still runs slowly for the bigger accounts, so I would like them looked at before the demo.",
       "promptTerms" : [
         "CTS",
@@ -2408,7 +2437,7 @@
         "deletions" : 0,
         "droppedRuns" : 0,
         "extraSentenceBreaks" : 0,
-        "formattedErrors" : 4,
+        "formattedErrors" : 3,
         "formattedTokens" : 34,
         "insertedRuns" : 0,
         "insertions" : 0,
@@ -2416,8 +2445,8 @@
           "QA"
         ],
         "referenceWords" : 31,
-        "substitutions" : 4,
-        "termFalseFires" : 2,
+        "substitutions" : 3,
+        "termFalseFires" : 0,
         "termsExpected" : 3,
         "termsHit" : 2
       },
@@ -2456,15 +2485,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "bcf9e0492f96487c1d332149052b261bdff1a6ec82166f46092b50879b7d744a",
-      "decodeMs" : 1378,
+      "decodeMs" : 1149,
       "final" : "The Frankendoc export failed on the C-Finder records, so I have asked Datavid to take a look before the weekend, because the client expects the file first thing on Monday.",
       "id" : "short-jargon-04.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 768,
+      "previewMs" : 657,
       "previewText" : "The Frankendoc export failed on the C-Finder records, so I have asked DaTavid to take a look before the weekend, because the client expects the file first thing on Monday.",
       "promptTerms" : [
         "Datavid",
@@ -2534,15 +2564,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "7569d4b00b3e921cbd4ca10944e23b79f51a7034fe6aa06227642b80728a7945",
-      "decodeMs" : 1199,
+      "decodeMs" : 1024,
       "final" : "The Frankendoc export failed on the C-Finder records, so I have asked Datavid to take a look before the weekend.",
       "id" : "short-jargon-04.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 797,
+      "previewMs" : 682,
       "previewText" : "The Frankendoc export failed on the C-Finder records, so I have asked Dottavid to take a look before the weekend. Because the client expects the file first thing on Monday.",
       "promptTerms" : [
         "Frankendoc",
@@ -2612,15 +2643,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "d5e77f0d7832be7e39c0bb757e71c2631f91fbc344ad5617c1b14c1348139a13",
-      "decodeMs" : 1380,
+      "decodeMs" : 1153,
       "final" : "The Frankendoc export failed on the CFinder records, so I have asked Datavid to take a look before the weekend, because the client expects the file first thing on Monday.",
       "id" : "short-jargon-04.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 797,
+      "previewMs" : 662,
       "previewText" : "the Frankendoc export failed on the C-Finder records, so I have asked the Tavid to take a look before the weekend, because the client expects the file first thing on Monday.",
       "promptTerms" : [
         "Frankendoc",
@@ -2691,15 +2723,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "0193c1a59bdefa0877487f2fb3108e334d6c422ad9d104dba3a1157526d1a505",
-      "decodeMs" : 1361,
+      "decodeMs" : 1182,
       "final" : "The Frankendoc export failed on the Cypher and the Records, so I have asked DataVita to take a look before the weekend, because the client expects the file first thing on Monday.",
       "id" : "short-jargon-04.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 804,
+      "previewMs" : 690,
       "previewText" : "The Frank Endo KickSport failed on the sci-fi and the records, so I have asked DataVita to take a look before the weekend, because the client expects the file first thing on Monday.",
       "promptTerms" : [
         "Rodney",
@@ -2772,15 +2805,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "e0a251e86614faa30462a94e37d6dacd7002c333286ee4a64376b5e3301d72ec",
-      "decodeMs" : 1403,
+      "decodeMs" : 1202,
       "final" : "Frankendoc export failed on the Cypher and the records, so I have asked DataVita to take a look before the weekend. Because the client expects the file first thing on Monday.",
       "id" : "short-jargon-04.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 784,
+      "previewMs" : 673,
       "previewText" : "The Frank Hendoek export failed on the Cypher and the records, so I have asked DataVita to take a look before the weekend. Because the client expects the file first thing on Monday.",
       "promptTerms" : [
         "Cypher",
@@ -2861,15 +2895,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "24313d491a60bc34679052add03b993855b5ccd2fdf2232bf3fc6256979f8cf4",
-      "decodeMs" : 1461,
+      "decodeMs" : 1284,
       "final" : "The plank and the x-ball failed on the Cypher and the Red Horses, so I had to ask Tator with the Taker to look for the weekend, because the client expects the file first thing on Monday.",
       "id" : "short-jargon-04.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 758,
+      "previewMs" : 677,
       "previewText" : "The plan can not export fails on the Cypher and the Red Horses, so I have asked Data with the Taker look before the weekend, because the client expects the file first thing on Monday.",
       "promptTerms" : [
         "Cypher",
@@ -2943,15 +2978,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "52e6772fb7a0343204b137d5eee0432c5d563e539adc8d325432a7e57aa52020",
-      "decodeMs" : 1230,
+      "decodeMs" : 1018,
       "final" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty, because the sum of the counts is off.",
       "id" : "short-titlecase-01.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 571,
+      "previewMs" : 490,
       "previewText" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty, because the sum of the counts is off.",
       "promptTerms" : [
         "Rodney",
@@ -3022,15 +3058,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "07bb0f0e36c5bb8ebe1f864306497c24e9b51da24d9c2c725f9c2c090eb9a1ed",
-      "decodeMs" : 1251,
+      "decodeMs" : 1018,
       "final" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty. Because the sum of the counts is off.",
       "id" : "short-titlecase-01.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 613,
+      "previewMs" : 502,
       "previewText" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty. Because the sum of the counts is off.",
       "promptTerms" : [
         "Rodney",
@@ -3101,15 +3138,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "1b986885cb587f3d78c4dc824b4d75a89fad3eff29f5eec3aa05d7c3aff3463b",
-      "decodeMs" : 1235,
+      "decodeMs" : 1011,
       "final" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty, because the sum of the counts is off.",
       "id" : "short-titlecase-01.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 605,
+      "previewMs" : 506,
       "previewText" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty, because the sum of the counts is off.",
       "promptTerms" : [
         "Rodney",
@@ -3180,15 +3218,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "ad380af31e61eee708207b0396cedd10a0fac843c42ea270197cb79499a9722c",
-      "decodeMs" : 1164,
+      "decodeMs" : 996,
       "final" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty because the sum of the counts is off.",
       "id" : "short-titlecase-01.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 590,
+      "previewMs" : 492,
       "previewText" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty because the sum of the counts is off.",
       "promptTerms" : [
         "Rodney",
@@ -3259,15 +3298,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "5da649ae8edf9ed64eddc587986b5747ae8aeeea45a09783ba15f6bc63f3a0ab",
-      "decodeMs" : 1238,
+      "decodeMs" : 1015,
       "final" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty. Because the sum of the counts is off.",
       "id" : "short-titlecase-01.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 618,
+      "previewMs" : 502,
       "previewText" : "Before we start, put the ingestion pipeline on hold and make sure the staging database is empty. Because the sum of the counts is off.",
       "promptTerms" : [
         "Rodney",
@@ -3338,15 +3378,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "2fce26ebab3cc8983c1f2ff141048cd9992268163c802f42f0556a7c9611a18c",
-      "decodeMs" : 1171,
+      "decodeMs" : 1009,
       "final" : "Before we start, put the ingestion pipeline on board and make sure the staging database is empty because the sum of the counts is off.",
       "id" : "short-titlecase-01.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 539,
+      "previewMs" : 468,
       "previewText" : "Before we start, put the ingestion pipeline on board and make sure the staging database is empty because the sum of the counts is off.",
       "promptTerms" : [
         "Rodney",
@@ -3417,15 +3458,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "085a60a96d3f2989cdc278ea29047f05d178daa8c2da59f2f82dd63dde058745",
-      "decodeMs" : 1192,
+      "decodeMs" : 985,
       "final" : "Leads from the conference are fine to keep, but the duplicates need to be removed before we parse the file again.",
       "id" : "short-soundalike-01.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 564,
+      "previewMs" : 465,
       "previewText" : "Leads from the conference are fine to keep, but the duplicates need to be removed before we parse the file again.",
       "promptTerms" : [
         "Rodney",
@@ -3495,15 +3537,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "085a60a96d3f2989cdc278ea29047f05d178daa8c2da59f2f82dd63dde058745",
-      "decodeMs" : 1180,
+      "decodeMs" : 963,
       "final" : "Leads from the conference are fine to keep, but the duplicates need to be removed before we parse the file again.",
       "id" : "short-soundalike-01.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 545,
+      "previewMs" : 458,
       "previewText" : "Leads from the conference are fine to keep, but the duplicates need to be removed before we parse the file again.",
       "promptTerms" : [
         "Rodney",
@@ -3573,15 +3616,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "5338f46bf87f22e4d50b0ae6b899bfc784ff065155a437831621012e52540597",
-      "decodeMs" : 1170,
+      "decodeMs" : 964,
       "final" : "Leads from the conference are fine to keep, but the duplicates need to be removed before we parse the file again.",
       "id" : "short-soundalike-01.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 551,
+      "previewMs" : 454,
       "previewText" : "Leads from the conference are fine to keep, but the duplicates need to be removed before we parse the file again.",
       "promptTerms" : [
         "Rodney",
@@ -3651,15 +3695,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "95e56e35d929f3e15dd6b5febad3caa8bf90fe1f8804449282d43bed1b78e27c",
-      "decodeMs" : 1119,
+      "decodeMs" : 960,
       "final" : "tweets from the conference are fine to keep, but the duplicates need to be removed before we parse the file again.",
       "id" : "short-soundalike-01.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 510,
+      "previewMs" : 433,
       "previewText" : "The leads from the conference are fine to keep, but the duplicates need to be removed before we pass the file again.",
       "promptTerms" : [
         "Rodney",
@@ -3729,15 +3774,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "95e56e35d929f3e15dd6b5febad3caa8bf90fe1f8804449282d43bed1b78e27c",
-      "decodeMs" : 1173,
+      "decodeMs" : 960,
       "final" : "tweets from the conference are fine to keep, but the duplicates need to be removed before we parse the file again.",
       "id" : "short-soundalike-01.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 502,
+      "previewMs" : 431,
       "previewText" : "The leads from the conference are fine to keep, but the duplicates need to be removed before we pass the file again.",
       "promptTerms" : [
         "Rodney",
@@ -3807,15 +3853,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "bb0d974de7cdc4caed08ce4b28a552ff6a05398e9e1745601ea7d28eec6f3f90",
-      "decodeMs" : 1127,
+      "decodeMs" : 962,
       "final" : "The leads from the conference are blind to keep, but the duplicates need to be removed before we pass the file again.",
       "id" : "short-soundalike-01.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 514,
+      "previewMs" : 430,
       "previewText" : "The leads from the conference are bind to keep, but the duplicates need to be removed before we pass the file again.",
       "promptTerms" : [
         "Rodney",
@@ -3885,15 +3932,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "fe2918f7961c05a6e5fde860e14e35f6a1733ac62845cd993ad4f2d59c87d990",
-      "decodeMs" : 1235,
+      "decodeMs" : 1013,
       "final" : "The disc on the build box is full, so the nightly merge will stall, and I would rather we sort it before ingestion starts.",
       "id" : "short-soundalike-02.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 563,
+      "previewMs" : 480,
       "previewText" : "The disk on the build box is full, so the nightly merge will stall, and I would rather we sort it before ingestion starts.",
       "promptTerms" : [
         "Rodney",
@@ -3963,15 +4011,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "a24346fc0de10bcef1c12384ef9df409033a5e3f6f766eea947653e8d8f815ce",
-      "decodeMs" : 1221,
+      "decodeMs" : 1037,
       "final" : "The disc on the build box is full, so the nightly merge will stall. And I would rather we sort it before ingestion starts.",
       "id" : "short-soundalike-02.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 608,
+      "previewMs" : 505,
       "previewText" : "The disk on the build box is full, so the nightly merge will stall. And I would rather we sort it before ingestion starts.",
       "promptTerms" : [
         "Rodney",
@@ -4041,15 +4090,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "a18af7a6feba705c50566415d4aeac2a56938a8e5c67e2cb4d4ad1350b9706b0",
-      "decodeMs" : 1197,
+      "decodeMs" : 1026,
       "final" : "The disc on the build box is full, so the nightly merge will stall, and I would rather we sort it before ingestion starts.",
       "id" : "short-soundalike-02.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 568,
+      "previewMs" : 492,
       "previewText" : "The disc on the build box is full, so the nightly merge will stall, and I would rather we sort it before ingestion starts.",
       "promptTerms" : [
         "Rodney",
@@ -4119,15 +4169,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "6ebc3cb778b267c378f69ad1bb4ccc061ca0ccb1aef663e7a8a93ae25826f43e",
-      "decodeMs" : 1224,
+      "decodeMs" : 1019,
       "final" : "The disc on the build box is full, so the night the emerge will stall, and I would rather we sort it before ingestion starts.",
       "id" : "short-soundalike-02.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 604,
+      "previewMs" : 505,
       "previewText" : "The disk on the build box is full, so the night the emerge will stall, and I would rather we sort it before ingestion starts.",
       "promptTerms" : [
         "Rodney",
@@ -4197,15 +4248,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "a28db06c485f36fedf57672ed9cd292a572ce734dcadb471913fc44f01379ca1",
-      "decodeMs" : 1228,
+      "decodeMs" : 1012,
       "final" : "The disk on the build box is full, so the night the emerge will stall. And I would rather we sort it before ingestion starts.",
       "id" : "short-soundalike-02.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 580,
+      "previewMs" : 503,
       "previewText" : "The disk on the build box is full, so the night the emerge will stall. And I would rather we sort it before ingestion starts.",
       "promptTerms" : [
         "Rodney",
@@ -4275,15 +4327,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "6c538cad56b13c1ca01dc9899e086c6d37eecebf626769ab8b098386c0fded96",
-      "decodeMs" : 1244,
+      "decodeMs" : 1032,
       "final" : "The disc on the field box is full, so the nightly merge will stall, and I would rather we sort it for 4 ingestion starts.",
       "id" : "short-soundalike-02.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 631,
+      "previewMs" : 532,
       "previewText" : "the disk on the field boxes fall, so the nitro-emerge will stall, and I would rather we sort it for foreign gestion starts.",
       "promptTerms" : [
         "Rodney",
@@ -4353,15 +4406,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "a9dbe84708236bd7a7edba20a67fc381f51ab5d03c36f907f1545308c6376136",
-      "decodeMs" : 1384,
+      "decodeMs" : 1135,
       "final" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the 15th of February run.",
       "id" : "short-numbers-01.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 742,
+      "previewMs" : 648,
       "previewText" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the 15th of February run.",
       "promptTerms" : [
         "Rodney",
@@ -4431,15 +4485,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "28a6509ddbfbff3e20aae2d08ae9dd726f1598e1e6ad5355b1dfa49a44c71f36",
-      "decodeMs" : 1404,
+      "decodeMs" : 1153,
       "final" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the 15th of February run.",
       "id" : "short-numbers-01.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 779,
+      "previewMs" : 650,
       "previewText" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the 15th of February run.",
       "promptTerms" : [
         "Rodney",
@@ -4518,15 +4573,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "85dda2c30afc0d575941dd44ea072268a6e9f7069e388f4f9a34ecdf5eb28168",
-      "decodeMs" : 1385,
+      "decodeMs" : 1163,
       "final" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the 15th of February runs.",
       "id" : "short-numbers-01.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 798,
+      "previewMs" : 662,
       "previewText" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the 15th of February runs.",
       "promptTerms" : [
         "Rodney",
@@ -4596,15 +4652,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "be44076dcb8be704564a764d4ffb12959045207f289a3281866d768abbcd8440",
-      "decodeMs" : 1316,
+      "decodeMs" : 1139,
       "final" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the February the 15th run.",
       "id" : "short-numbers-01.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 787,
+      "previewMs" : 659,
       "previewText" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the February the 15th run.",
       "promptTerms" : [
         "Rodney",
@@ -4674,15 +4731,16 @@
         "short",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "651c785683ec17fc87357bc97803ea719eeb57af9bab97f5168d12a266e1edcf",
-      "decodeMs" : 1417,
+      "decodeMs" : 1204,
       "final" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the February the 15th run.",
       "id" : "short-numbers-01.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 785,
+      "previewMs" : 652,
       "previewText" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the February the 15th run.",
       "promptTerms" : [
         "Rodney",
@@ -4761,15 +4819,16 @@
         "short",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "47182f859d38d06d9ccdbceb69a41d83304da015cd05d0220a876f38e9234a6f",
-      "decodeMs" : 1346,
+      "decodeMs" : 1119,
       "final" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the February 15th run.",
       "id" : "short-numbers-01.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 721,
+      "previewMs" : 628,
       "previewText" : "It took 30 minutes to load 10,000 documents, and the index now holds 1.2 billion triples across 3 hosts. We need 2 more hosts before the February the 15th run.",
       "promptTerms" : [
         "Rodney",
@@ -4839,15 +4898,16 @@
         "short",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "3d47637a50dee15531987bfd717aaaa9d899fc5030abcb1bb052003fb29ed7fd",
-      "decodeMs" : 3972,
+      "decodeMs" : 3965,
       "final" : "Ok so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring, and the old notes are now misleading. Balvinder rewrote the front end last month, so incoming files land in a staging area, and then a scheduled XQuery module picks them up in batches of 500, which keeps each transaction the sensible size. Each batch goes through the content update module, which decides whether a document is new. Changed or identical, so only the changed ones are written back to MarkLogic. The URIs are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems, and otherwise the QAT ends up chasing duplicates by hand. And, once the content update module has finished, the CoRB job rebuilds the derived fields for the touched URIs, which used to take most of the night but now finishes well before the morning stand up. If anything fails, the record goes into the review queue, and nobody should delete it from there without checking with Balvinder first, because he wrote the XQuery retry logic and knows which failures are safe to replay.",
       "id" : "long-pipeline-01.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 2856,
+      "previewMs" : 2824,
       "previewText" : "Okay so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring, and the old notes are now misleading. Balvindari wrote the front end last month, so incoming files land in a staging area, and then a scheduled xquery module picks them up in batches of 500, which keeps each transaction the sensible size. Each batch goes through the content update module, which decides whether a document is changed or identical, so only the changed ones are written back to mark logic. The yuris are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems, and otherwise the QAT ends up chasing duplicates by hand. Once the content update module has finished, the corb job rebuilds the derived fields for the touched yuris, which used to take most of the night but now finishes well before the morning stand up. If anything fails, the record goes into the review queue, and nobody should delete it from there without checking with Balvinda first, because he wrote the XQuery retry logic and knows which failures are safe to replay.",
       "promptTerms" : [
         "MarkLogic",
@@ -4983,15 +5043,16 @@
         "soundalike",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "bd25d15ecb8bbc1615d6072617b6a696d2af29a6056d91b62c75d0eabcbda332",
-      "decodeMs" : 5305,
+      "decodeMs" : 5131,
       "final" : "OK so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring. And the old notes are now misleading. Balvinder rewrote the front end last month, so incoming files land in a staging area. and then a scheduled XQuery module picks them up in batches of 500, which keeps each transaction a sensible size. Each batch goes through the content update module, which decides whether a document is new, changed or identical. So only the changed ones are written back to MarkLogic. The URIs are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems. And otherwise the QAT ends up chasing duplicates by hand. Once the content update module has finished, the CoRB job rebuilds the derived fields for the touched URIs. which used to take most of the night but now finishes well before the morning stand-up. If anything fails, the record goes into the review queue. And nobody should delete it from there without checking with Balvinder first, because he wrote the XQuery retry logic and knows which failures are safe to replay.",
       "id" : "long-pipeline-01.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 2962,
+      "previewMs" : 2923,
       "previewText" : "Okay so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring. And the old notes are now misleading. Balvinda rewrote the front end last month, so incoming files land in a staging area. and then a scheduled xquery module picks them up in batches of 500, which keeps each transaction a sensible size. Each batch goes through the content update module, which decides whether a document is new, changed or identical. So only the changed ones are written back to mark logic. The Yuris are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems. And otherwise the QAT ends up chasing duplicates by hand. Once the content update module has finished, the corg job rebuilds the derived fields for the touched Yuris. which used to take most of the night but now finishes well before the morning stand-up. If anything fails, the record goes into the review queue and nobody should delete it from there without checking with Balvinda first because he wrote the X query retry logic and knows which failures are safe to replay.",
       "promptTerms" : [
         "MarkLogic",
@@ -5127,15 +5188,16 @@
         "soundalike",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "86ece593eee3d833672d13b7b88525b8a25f3a597118a414744c953fffd199f1",
-      "decodeMs" : 3872,
+      "decodeMs" : 3830,
       "final" : "Okay so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring, and the old notes are now misleading. Balvinder rewrote the front end last month. So incoming files land in a staging area, and then a scheduled XQuery module picks them up in batches of 500, which keeps each transaction the sensible size. Each batch goes through the content update module, which decides whether a document is new. Changed or identical, so only the changed ones are written back to MarkLogic. The URIs are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems, and otherwise the QAT ends up chasing duplicates by hand. Once the content update module has finished, the core job rebuilds the derived fields for the touched URIs, which used to take most of the night but now finishes well before the morning stand up. If anything fails, the record goes into the review queue, and nobody should delete it from there without checking with Balvinder first, because he wrote the XQuery retry logic and knows which failures are safe to replay.",
       "id" : "long-pipeline-01.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 2894,
+      "previewMs" : 2827,
       "previewText" : "Okay so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring, and the old notes are now misleading. Balvinder rewrote the front end last month. So incoming files land in a staging area, and then a scheduled xquery module picks them up in batches of 500, which keeps each transaction the sensible size. Each batch goes through the content update module, which decides whether a document is new. changed or identical, so only the changed ones are written back to mart logic. The yuris are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems, and otherwise the QAT ends up chasing duplicates by hand. Once the content update module has finished, the court job rebuilds the derived fields for the touched yuris, which used to take most of the night but now finishes well before the morning stand up. If anything fails, the record goes into the review queue, and nobody should delete it from there without checking with Balvinda first, because he wrote the ex query retry logic and knows which failures are safe to replay.",
       "promptTerms" : [
         "XQuery",
@@ -5228,15 +5290,16 @@
         "soundalike",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "c30adbe96fa698b0d00d05afa14e0785458124b72db1a94d2a37e23de5df3540",
-      "decodeMs" : 3926,
+      "decodeMs" : 3845,
       "final" : "Okay, so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring, and the old notes are now misleading. Balvinder rewrote the front end last month, so incoming files land in the staging area, and then a schedule \"SquareEmodule\" picks them up in batches of 500, which keeps each transaction a sensible size. Each batch goes through the Content Update module, which decides whether a document is new, changed or identical, so only the changed ones are returned back to MarkLogic. The URIs are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems, and otherwise the card team ends up chasing duplicates by hand. Once the content update module has finished, the co-op job rebuilds the derived fields for the Touch Neuris, which used to take most of the night but now finishes well before the morning stand-up. If anything fails, the record goes into the review queue, and nobody should delete it from there without checking with Balvinder first, because he wrote the XQuery retry logic and knows which failures are safe to replay.",
       "id" : "long-pipeline-01.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 2778,
+      "previewMs" : 2710,
       "previewText" : "Okay so the thing to understand first is how the ingestion pipeline actually flows because it has changed quite a lot since the spring and the old notes are now misleading. Belvindary wrote the front end last month so incoming files land in the staging area and then a schedule square module picks them up in batches of 500 which keeps each transaction a sensible size. Each batch goes through the Content Update module, which decides whether a document is new, changed or identical, so only the changed ones are returned back to Mark logic. The errors are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems, and otherwise the card team ends up chasing duplicates by hand. Once the content update module has finished, the corp job rebuilds the derived fields for the Touch Neuris, which used to take most of the night but now finishes well before the morning stand-up. If anything fails, the record goes into the review queue, and nobody should delete it from there without checking with Belvind I, because he wrote the squirery trial logic and knows which failures are safe to replay.",
       "promptTerms" : [
         "MarkLogic",
@@ -5344,15 +5407,16 @@
         "soundalike",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "7c69da3fbbaef521c77c0eecbcff7ed1eab29fdd4a9a8616ae69e5f9937c1f2c",
-      "decodeMs" : 4598,
+      "decodeMs" : 4540,
       "final" : "Okay, so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring. And the old notes are now misleading. Balvinder rewrote the front-end last month, so incoming files land in the staging area. And then a schedule, sqeery module picks them up in batches of 500, which keeps each transaction a sensible size. Each batch goes through the Content Update module, which decides whether a document is new, changed or identical. So only the changed ones are returned back to MarkLogic. The URIs are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems. And otherwise the carty ends up chasing duplicates by hand. Once the content update module has finished, the co-op job rebuilds the derived fields for the Touch URIs. We just had fake most of the night but now finishes well before the morning stand-up. If anything fails, the record goes into the review queue. And nobody should delete it from there without checking with Balvinder first, because he wrote the XQuery, retry logic and knows which failures are safe to replay.",
       "id" : "long-pipeline-01.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 2943,
+      "previewMs" : 2910,
       "previewText" : "Okay, so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring. And the old notes are now misleading. Belvindary wrote the front end last month, so incoming files land in the staging area. And then a schedule \"square module\" picks them up in batches of 500, which keeps each transaction a sensible size. Each batch goes through the \"content update module\", which decides whether a document is new, changed or identical. So only the changed ones are returned back to Mark logic. The URIS are normalized before anything else, because the same file can arrive twice with different casing from two upstream systems. And otherwise the carty ends up chasing duplicates by hand. Once the Content Update module has finished, the corp job rebuilds the derived fields for the Touch URIS. which used to take most of the night but now finishes well before the morning stand-up. If anything fails, the record goes into the review queue. And nobody should delete it from there without checking with Belvinder first, because he wrote the squirery retry logic and knows which failures are safe to replay.",
       "promptTerms" : [
         "MarkLogic",
@@ -5511,15 +5575,16 @@
         "soundalike",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "e7c4328870db0cf276ebbaae9f92c2613c710b419015e51033179aebca27a507",
-      "decodeMs" : 3831,
+      "decodeMs" : 3785,
       "final" : "Ok, so the thing to understand first is how the ingestion pipeline actually flows, because it has changed quite a lot since the spring, and the org notes are now misleading. Balvinder rewrote the front end last month, so incoming files land in the staging area, and then the schedule \"Square module hits the muffin batches of 500\", which keeps each transaction a sensible size. Each patch goes through the Content Update module, which decides whether a document is new, changed or identical, so only the changed ones are written back for MarkLogic. The URIs are normalized before anything else, because the same file can arrive twice with different casing from true upstream systems, and otherwise the card he ends up chasing due credits by hand. Once the content update module was finished, the fourth job revealed that arrived fields for the Touchfurys, which used to take most of the night but now finishes well before the morning stand-up. If anything fails, the record goes into the review queue, and nobody should delete it from there without checking with Balvinder first, because he wrote the XQuery retry logic and knows which failures are safe for replay.",
       "id" : "long-pipeline-01.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 2662,
+      "previewMs" : 2604,
       "previewText" : "Okay so the thing to understand first is how the ingestion pipeline actually blows, because it has changed quite a lot since the spring, and the old notes are now misleading. Balwintery wrote the front end last month, so incoming files land in the staging area, and then the schedule \"Square module hits the muffin batches of 500\", which keeps each transaction a sensible size. Each patch goes through the Content Update module, which decides whether a document is new, changed or identical, so only the changed ones are written back from our logic. The urus are normalized before anything else, because the same file can arrive twice with different casing from true upstream systems, and otherwise the card he ends up chasing due credits by hand. Once the content update module was finished, the fourth job revealed that arrived fields for the Touch Fioris, which used to take most of the night but now finishes well before the morning stand-up. If anything fails, the record goes into the review queue and nobody should delete it from there without checking with Melvin the first, because he wrote the squirery retry logic and knows which failures are safe for replay.",
       "promptTerms" : [
         "URIs",
@@ -5618,15 +5683,16 @@
         "soundalike",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "0ea9903a3ac43af7dfb39c4681b7a236853cf1f4bbd5f4323ef73aec92e7d569",
-      "decodeMs" : 3933,
+      "decodeMs" : 3813,
       "final" : "Jayendra has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh, because a few things will catch you out. The Frankendoc export changed the document route, so any X path that starts from the route returns nothing. Which is why the first dry run looked empty and gave everybody a fright. We removed the legacy wrapper entirely, so do not try to pause it out. Just read the child elements directly. The sum of the record counts matched on both sides, but the duplicate check flagged a few hundred entries, mostly leads that came in twice from the marketing feed. Jayendra thinks a merge on the contact key will fix most of them. Although I am less sure, because two people can share an address on a shared mailbox. The disk on the staging host is full, so the ingestion step will stall until someone clears the old exports, and I have asked Hanad to do that this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an XQuery job that does not need anybody watching the logs.",
       "id" : "long-migration-02.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 2771,
+      "previewMs" : 2695,
       "previewText" : "Jendra has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh, because a few things will catch you out. The Frankendoc export changed the document route, so any x path that starts from the route returns nothing. Which is why the first dry run looked empty and gave everybody a fright. We removed the legacy wrapper entirely So do not try to pause it out. Just read the child elements directly The sum of the record counts matched on both sides, but the duplicate check flagged a few hundred entries Mostly leads that came in twice from the marketing feed Jayendra thinks emerge on the contact key will fix most of them Although I am less sure because two people can share an address on a shared mailbox The disk on the staging host is full, so the ingestion step will stall until someone clears the old exports, and I have asked Hanad to do that this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an xQuery job that does not need anybody watching the logs.",
       "promptTerms" : [
         "XQuery",
@@ -5716,15 +5782,16 @@
         "soundalike",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "67e24a218d94713bb614b883a5e2b430cfc84b7040f4acbb841991313bc821df",
-      "decodeMs" : 5196,
+      "decodeMs" : 5068,
       "final" : "Jayendra has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh. Because a few things will catch you out. The Frankendoc export changed the document route, so any X path that starts from the route returns nothing. Which is why the first dry run looked empty and gave everybody a fright. We removed the legacy wrapper entirely, so do not try to parse it out. Just read the child elements directly. The sum of the record counts matched on both sides, but the duplicate check flagged a few hundred entries. mostly leads that came in twice from the marketing feed. Jayendra thinks a merge on the contact key will fix most of them, although I am less sure. Because two people can share an address on a shared mailbox. The disk on the staging host is full, so the ingestion step will stall until someone clears the old exports. Sportz. And I have asked Hanad to do that this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an XQuery job that does not need anybody watching the logs.",
       "id" : "long-migration-02.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 2853,
+      "previewMs" : 2824,
       "previewText" : "Jendra has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh. Because a few things will catch you out. The Frankendoc export changed the document route, so any x path that starts from the route returns nothing. which is why the first dry run looked empty and gave everybody a fright. We removed the legacy wrapper entirely, so do not try to parse it out. Just read the child elements directly. The sum of the record counts matched on both sides, but the duplicate check flagged a few hundred entries. Mostly leads that came in twice from the marketing feed. Jayendra thinks a merge on the contact key will fix most of them, although I am less sure. Because two people can share an address on a shared mailbox. The disk on the staging host is full, so the ingestion step will stall until someone clears the old exports. And I have asked Hanad to do that this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an xQuery job that does not need anybody watching the logs.",
       "promptTerms" : [
         "XQuery",
@@ -5859,15 +5926,16 @@
         "soundalike",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "a6a7ab0c35b9f107cc99cd07f9b92247717c026dc530ee8c4b5572e73477a0be",
-      "decodeMs" : 3828,
+      "decodeMs" : 3875,
       "final" : "Jayendra has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh. Because a few things will catch you out. The Frankendoc export changed the document route, so any X path that starts from the route returns nothing. Which is why the first dry run looked empty and gave everybody a fright. We removed the legacy wrapper entirely, so do not try to parse it out. Just read the child elements directly. The sum of the record counts matched on both sides. But the duplicate check flagged a few hundred entries. Mostly leads that came in twice from the marketing feed. Jayendra thinks a merge on the contact key will fix most of them. Although I am less sure. Because two people can share an address on a shared mailbox. The disc on the staging host is full, so the ingestion step will stall until someone clears the old exports. And I have asked Hanad to do that this afternoon. Once that is done the second run should be fine. And then we can process the full dataset overnight with an XQuery job that does not need anybody watching the logs.",
       "id" : "long-migration-02.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 2867,
+      "previewMs" : 2804,
       "previewText" : "Jendra has been doing the steamer migration for the reference data, and I want to get the notes down while they are fresh, because a few things will catch you out. The Frankendoc export changed the document route, so any x path that starts from the route returns nothing, which is why the first dry run looked empty and gave everybody a fright. We removed the legacy wrapper entirely, so do not try to parse it out. Just read the child elements directly. The sum of the record counts matched on both sides. But the duplicate check flagged a few hundred entries. Mostly leads that came in twice from the marketing feed. Jayendra thinks emerge on the contact key will fix most of them. Although I am less sure. Because two people can share an address on a shared mailbox. The disc on the staging host is full, so the ingestion step will stall until someone clears the old exports, and I have asked Hanad to do that this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an ex-query job that does not need anybody watching the logs.",
       "promptTerms" : [
         "Jayendra",
@@ -5957,15 +6025,16 @@
         "soundalike",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "df0a807cc503595056cb13b4c5443065abf40b160c4cdac79cb67aa2ef48b1c0",
-      "decodeMs" : 3882,
+      "decodeMs" : 3820,
       "final" : "Jayendra has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh, because a few things will catch you out. The Frankendoc export changed the document route, so any spot that starts from the route returns nothing, which is why the first dry run looked empty and gave everybody a fright. We removed the legacy wrapper entirely, so do not try to parse it out, just read the child elements directly. The sum of the record counts matched on both sides, but the duplicate chick flagged a few hundred entries, mostly leads that came in twice from the marketing feed. Jayendra thinks a merge on the contact key will fix most of them, although I am less sure, because two people can share an address on the shared mailbox. The disk on the staging host is full, so the ingestion step will stall until someone clears the old exports, and I have asked Tana to do that this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an squerry job that does not need anybody watching the logs.",
       "id" : "long-migration-02.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 2857,
+      "previewMs" : 2803,
       "previewText" : "J.E.N.TRA has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh, because a few things will catch you out. The Frankendoc export changed the document route, so any spot that starts from the route returns nothing, which is why the first dry run looked empty and gave everybody a fright. We removed the legacy wrapper entirely, so do not try to parse it out, just read the child elements directly. The sum of the record counts matched on both sides, but the duplicate chick flagged a few hundred entries, mostly leads that came in twice from the marketing feed. Jendra thinks a merge on the contact key will fix most of them, although I am less sure, because two people can share an address on the shared mailbox. The disk on the staging host is full, so the ingestion step will stall until someone clears the old exports, and I have asked Tana to do that this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an squary job that does not need anybody watching the logs.",
       "promptTerms" : [
         "Frankendoc",
@@ -6066,15 +6135,16 @@
         "soundalike",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "45b7c0f1403c96d436de08de4c0eec064ed27a37cc9109ff8c5b37b248022d2a",
-      "decodeMs" : 4382,
+      "decodeMs" : 4341,
       "final" : "Jayendra has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh. Because a few things will catch you out. The Frankendoc export changed the document route, so any spot that starts from the root returns nothing. Which is why the first dry run looked empty and gave everybody a fright. We removed the Legacy wrapper entirely, so do not try to parse it out. Just read the child elements directly. The sum of the record counts matched on both sides, but the duplicate check flagged a few hundred entries. Most of the leads that came in twice from the marketing feed. Jayendra thinks a merge on the contact key will fix most of them, although I am less sure. Because two people can share an address on the shared mailbox. The disk on the staging host is full, so the ingestion step will stall until someone clears the old exports. And I have asked Arnaud to do that this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an squerry job that does not need anybody watching the logs.",
       "id" : "long-migration-02.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 2907,
+      "previewMs" : 2846,
       "previewText" : "J.E.N.TRA has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh. Because a few things will catch you out. The Frankendoc export changed the document route, so any spot that starts from the root returns nothing. Which is why the first dry run looked empty and gave everybody a fright. We removed the Legacy wrapper entirely, so do not try to parse it out. Just read the child elements directly. The sum of the record counts matched on both sides, but the duplicate check flagged a few hundred entries. Mostly leads that came in twice from the marketing feed. JNDRA thinks a merge on the contact key will fix most of them, although I am less sure. Because two people can share an address on the shared mailbox. The disk on the staging host is full, so the ingestion step will stall until someone clears the old exports. And I have asked Arnaud to do that this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with a squerry job that does not need anybody watching the logs.",
       "promptTerms" : [
         "Frankendoc",
@@ -6220,15 +6290,16 @@
         "soundalike",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "40504a22bee5633e00016d76bfedc9b1f3b32c75f32cfd98e65c82e9ebd60070",
-      "decodeMs" : 4003,
+      "decodeMs" : 3908,
       "final" : "Jayendra has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh, because a few things will catch you out. The PlanKendo text will change the document route, so any start that starts from the route returns nothing, which is why the first dry run looked empty and gave everybody a flight. We removed the legacy wrapper entirely, so do not try to toss it out, just read the child elements directly. The sum of the record counts match on both sides, but the duplicated chick flag of the few hundred entries, mostly leads that Jay mined twice from the marketing feed. Jayendra thinks a merge on the contact key will fix most of them, although I am less sure, because two people can share an address on the shared mailbox. The disk on the staging post is full, so the ingestion step will stall and for someone clears the old exports. Am I a rust? I'm not the doodled this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an squerry job that does not need anybody watching the logs.",
       "id" : "long-migration-02.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 2965,
+      "previewMs" : 2909,
       "previewText" : "JNDrap has been doing the schema migration for the reference data, and I want to get the notes down while they are fresh, because a few things will catch you out. The Plan K.D. will change the document route, so any start that starts from the route returns nothing, which is why the first try run looked empty and gave everybody a flight. We remove the legacy wrapper entirely, so do not try to parse it out, just read the child elements directly. The sum of the record counts match on both sides, but the duplicated check flag of the 100 entries, mostly leads that came in twice from the marketing feed. Jendra thinks a merge on the contact key will fix most of them, although I am less sure, because two people can share an address on the shared mailbox. The disk on the staging post is full, so the ingestion step will stall and for someone clears the old exports. Am I a rust? I'm not the doodled this afternoon. Once that is done the second run should be fine, and then we can process the full dataset overnight with an squerry job that does not need anybody watching the logs.",
       "promptTerms" : [
         "Jayendra",
@@ -6322,15 +6393,16 @@
         "soundalike",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "cb5d6e461fc2e93ae0a528cf80d15bf4ef791da5e4973f47225d90a0463f150d",
-      "decodeMs" : 3830,
+      "decodeMs" : 3767,
       "final" : "When you set up the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before, because those notes caused a lot of confusion about who owns the triples. Abhishek drafted the first version, and it is reasonable, although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL side should only be reachable from the reasoning agent, and the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The XDBC connections need a short time out, and the pool should be sized for a memory-intensive setting, because the larger batch jobs will otherwise swap on the smaller hosts. Harnadh has the ops view of the hosts, so he can confirm the memory numbers, and I would trust his figures over mine. Since mine came from a laptop test, please check the matrix against the current XQuery service list before you change anything. And if a service is missing, flag it rather than inventing a name for it.",
       "id" : "long-agents-03.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 2737,
+      "previewMs" : 2672,
       "previewText" : "When you set up the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before, because those notes caused a lot of confusion about who owns the triples. Abyshek drafted the first version, and it is reasonable, although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL side should only be reachable from the reasoning agent, and the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The Xdbc connections need a short timeout, and the pool should be sized for a memory-intensive setting, because the larger batch jobs will otherwise swap on the smaller hosts. Harnad has the ops view of the hosts, so he can confirm the memory numbers, and I would trust his figures over mine. Since mine came from a laptop test, please check the matrix against the current xQuery service list before you change anything, and if a service is missing, flag it rather than inventing a name for it.",
       "promptTerms" : [
         "XQuery",
@@ -6429,15 +6501,16 @@
         "titlecase",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "e2d98c1940731608293be92ffb32f58d923c72518178bb9858a184636f4883e9",
-      "decodeMs" : 4458,
+      "decodeMs" : 4404,
       "final" : "When you set up the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before. Because those notes caused a lot of confusion about who owns the triples. Abhishek drafted the first version, and it is reasonable. Although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL side should only be reachable from the reasoning agent. And the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The XDBC connections need a short timeout. and the pool should be sized for a memory intensive setting, because the larger batch jobs will otherwise swap on the smaller hosts. Harnadh has the ops view of the hosts, so he can confirm the memory numbers, and I would trust his figures over mine. Since mine came from a laptop test, please check the matrix against the current XQuery service list before you change anything, and if a service is missing. Flag it rather than inventing a name for it.",
       "id" : "long-agents-03.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 2789,
+      "previewMs" : 2723,
       "previewText" : "When you set up the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before. Because those notes caused a lot of confusion about who owns the triples. Abyshek drafted the first version, and it is reasonable. Although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL side should only be reachable from the reasoning agent. And the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The XDBC connections need a short timeout. and the pool should be sized for a memory intensive setting because the larger batch jobs will otherwise swap on the smaller hosts. Harnad has the ops view of the hosts, so he can confirm the memory numbers, and I would trust his figures over mine. Since mine came from a laptop test, please check the matrix against the current XQuery service list before you change anything. And if a service is missing, flag it rather than inventing a name for it.",
       "promptTerms" : [
         "XQuery",
@@ -6572,15 +6645,16 @@
         "titlecase",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "e6c7647eb90a35bdb3ca03ae273b927ab87d7d88ee59466042515b5d336b7fbc",
-      "decodeMs" : 3809,
+      "decodeMs" : 3748,
       "final" : "When you set up the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before. Because those notes caused a lot of confusion about who owns the triples. Abhishek drafted the first version, and it is reasonable. Although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL side should only be reachable from the reasoning agent, and the Wrangler agent should be the only thing that rides to the store, so that the audit trail stays clean. The XDBC connections need a short time out, and the pool should be sized for a memory intensive setting. Because the larger batch jobs will otherwise swat on the smaller hosts. Harnadh has the ops view of the hosts. So he can confirm the memory numbers, and I would trust his figures over mine. Since mine came from a laptop test, please check the matrix against the current XQuery service list before you change anything. And if a service is missing, flag it rather than inventing a name for it.",
       "id" : "long-agents-03.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 2741,
+      "previewMs" : 2724,
       "previewText" : "When you set up the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before. Because those notes caused a lot of confusion about who owns the triples. Abyshek drafted the first version, and it is reasonable, although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL side should only be reachable from the reasoning agent, and the Wrangler agent should be the only thing that rides to the store, so that the audit trail stays clean, the XDBC connections need a short timeout, and the pool should be sized for a memory-intensive setting. because the larger batch jobs will otherwise swat on the smaller hosts. Harnad has the ops view of the hosts, so he can confirm the memory numbers, and I would trust his figures over mine. Since mine came from a laptop test, please check the matrix against the current XQWERY service list before you change anything, and if a service is missing, flag it rather than inventing a name for it.",
       "promptTerms" : [
         "SPARQL",
@@ -6670,15 +6744,16 @@
         "titlecase",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "369861f5ca700eac19b16437535d76ab33810cecb52f4fff971fc739fe982fd1",
-      "decodeMs" : 3814,
+      "decodeMs" : 3767,
       "final" : "When you setup the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before, because those notes caused a lot of confusion about who owns the triples. Abhishek drafted the first version, and it is reasonable, although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL site should only be reachable from the reasoning agent, and the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The XTBC connections need a short timeout, and the pool should be sized for a memory-intensive setting, because the larger batch jobs will otherwise swap on the smaller hosts. Harnet has the Ops View of the hosts, so he can confirm the memory numbers, and I would trust his figures over mine, since mine came from a laptop test. Please check the matrix against the current squerry service list before you change anything, and if a service is missing, flag it rather than inventing a name for it.",
       "id" : "long-agents-03.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 2563,
+      "previewMs" : 2544,
       "previewText" : "When you setup the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before, because those notes caused a lot of confusion about who owns the triples. Abhishek drafted the first version, and it is reasonable, although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL site should only be reachable from the reasoning agent, and the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The XTBC connections need a short timeout, and the pool should be sized for a memory-intensive setting, because the larger batch jobs will otherwise swap on the smaller hosts. Harnet has the Observer of the Hosts, so he can confirm the memory numbers, and I would trust his figures over mine, since mine came from a laptop test. Please check the matrix against the current squerry service list before you change anything, and if a service is missing, flag it rather than inventing a name for it.",
       "promptTerms" : [
         "SPARQL",
@@ -6790,15 +6865,16 @@
         "titlecase",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "3d9b633527b960682c2aab145c8dea05787a3f12fd8673e73748dd9efdf3f19b",
-      "decodeMs" : 5044,
+      "decodeMs" : 4970,
       "final" : "When you set up the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before. Because those notes caused a lot of confusion about who owns the triples. Apeshik dropped it the first version, and it is reasonable. Although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL site should only be reachable from the reasoning agent. And the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The XTBC connections need a short timeout. And the pool should be sized for a memory intensive setting, because the larger batch jobs will otherwise swap on the smaller hosts. Harnet has the Ops view of the hosts. So he can confirm the memory numbers, and I would trust his figures over mine. Since mine came from a laptop test, please check the matrix against the current Squery service list before you change anything, and if a service is missing, flag it rather than inventing a name for it.",
       "id" : "long-agents-03.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 2803,
+      "previewMs" : 2747,
       "previewText" : "When you set up the agents for the next sprint, I would like you to start from an agent communication matrix rather than the free text notes we used before. Because those notes caused a lot of confusion about who owns the triples. Amphyshek drafted the first version, and it is reasonable. Although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL site should only be reachable from the reasoning agent. And the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The XTBC connections need a short timeout. And the pool should be sized for a memory intensive setting, because the larger batch jobs will otherwise swap on the smaller hosts. Hanat has the Ops view of the hosts. So he can confirm the memory numbers, and I would trust his figures over mine. Since mine came from a laptop test, please check the matrix against the current squary service list before you change anything, and if a service is missing, flag it rather than inventing the name for it.",
       "promptTerms" : [
         "SPARQL",
@@ -6957,15 +7033,16 @@
         "titlecase",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "d5078ed6f8c75c99927d0e4e42910bb9f36c93bcab1e18ea3ff89d920d1f0193",
-      "decodeMs" : 3897,
+      "decodeMs" : 3818,
       "final" : "When you set up the agents for the next sprint, I would like you to start from an agent-communication matrix rather than the pretext notes we used before, because those notes cause a lot of confusion about who owns the triples. Abtishek's loft is the first version, and it is reasonable, although it assumes every agent can talk to every other agent, which is not what we want in practice. The SPARQL side should only be reachable from the reasoning agents, and the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The XTPC connections need a short timeout, and the pool should be sized for a memory-intensive setting, because the larger-flash jobs will otherwise swap on the smaller hosts. Harmut has the Ops View of the hosts, so he can confirm the memory numbers, and I will trust his speakers over mine, since mine came from a laptop test. Please check the matrix against the current squary service list before you change anything, and if a service is missing, flag it rather than inventing the name for it.",
       "id" : "long-agents-03.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 2644,
+      "previewMs" : 2593,
       "previewText" : "When you set up the agents for the next sprint, I would like you to start from an agent-communication matrix rather than the pretext notes we used before, because those notes cause a lot of confusion about who owns the triples. Abtishek dropped in the first version, and it is reasonable, although it assumes every agent can talk to every other agent, which is not what we want in practice. The STARQL side should only be reachable from the reasoning agents, and the Wrangler agent should be the only thing that writes to the store, so that the audit trail stays clean. The XTPC connections need a short timeout, and the pool should be sized for a memory-intensive setting, because the larger-flash jobs will otherwise swap on the smaller hosts. Thomas has the Observer of the Hosts, so he can confirm the memory numbers, and I will trust his speakers over mine, since mine came from a laptop test. Please check the Matrix against the current Squery service list before you change anything, and if a service is missing, flag it rather than inventing the name for it.",
       "promptTerms" : [
         "Wrangler",
@@ -7088,15 +7165,16 @@
         "titlecase",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "6d57b01b45d17991f79c9593c98b1795214b6926ef4f39d573999692ba358d4f",
-      "decodeMs" : 4152,
+      "decodeMs" : 4009,
       "final" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The nightly re-index job runs against the full corpus, and it rebuilds the CTS indexes first, then it pushes the flat and rows across to StarRocks, where the analysts run their queries. The C-finder export feeds into the same path. Although it arrives in a different shape, which is why DeVIA had to add a mapping layer last quarter, the Datavid connector worries me most, because it holds a connection open for the whole run, and on a busy night that can starve the other XQuery jobs. DeVIA ran the numbers on dev-full, and the re-index took just under 2 hours, which is fine for now, though it would be a problem if the volume doubled. The sasd dashboard reads from StarRocks. So any lag shows up there first, and the QA team has already raised two tickets about stale totals. Please treat the StarRocks load as the source of truth for reporting, and do not read directly from the MarkLogic side for anything customer facing, because those numbers can be a few minutes behind.",
       "id" : "long-search-04.daniel.clean",
       "outcome" : "decoded",
-      "previewMs" : 3120,
+      "previewMs" : 2980,
       "previewText" : "Rodney asked me to write this down for the search side. So here is the picture as I understand it. The nightly re-index job runs against the full corpus, and it rebuilds the CTS indexes first. Then it pushes the flat and rows across to star rocks, where the analysts run their queries. The C finder export feeds into the same path. Although it arrives in a different shape, which is why Devia had to add a mapping layer last quarter. The DeTavid connector worries me most, because it holds a connection open for the whole run, and on a busy night that can starve the other xQuery jobs. Devia ran the numbers on DevFull, and the re-index took just under 2 hours, which is fine for now. Though it would be a problem if the volume doubled. The SAST dashboard reads from Starrocks. so any lag shows up there first, and the QA team has already raised two tickets about stale totals. Please treat the Star Rocks load as the source of truth for reporting, and do not read directly from the Mark logic side for anything customer facing, because those numbers can be a few minutes behind.",
       "promptTerms" : [
         "MarkLogic",
@@ -7202,15 +7280,16 @@
         "soundalike",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "9eb07ab7ea723ccdc86204ec047a66b8201912637b97e35b459ae0900c0c10a4",
-      "decodeMs" : 4593,
+      "decodeMs" : 4509,
       "final" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The nightly re-index job runs against the full corpus. And it rebuilds the CTS indexes first, then it pushes the flat and rows across to StarRocks. Where the analysts run their queries. The C-finder export feeds into the same path, although it arrives in a different shape. Which is why DeVIA had to add a mapping layer last quarter. The Datavid connector worries me most, because it holds a connection open for the whole run. and on a busy night that can starve the other XQuery jobs. Devia ran the numbers on dev-full, and the re-index took just under 2 hours. Which is fine for now, though it would be a problem if the volume doubled. The Sars dashboard reads from StarRocks. So any lag shows up there first, and the QA team has already raised two tickets about stale totals. Please treat the StarRocks load as the source of truth for reporting. And do not read directly from the MarkLogic side for anything customer facing, because those numbers can be a few minutes behind.",
       "id" : "long-search-04.daniel.paused",
       "outcome" : "decoded",
-      "previewMs" : 3053,
+      "previewMs" : 2981,
       "previewText" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The nightly re-index job runs against the full corpus. And it rebuilds the CTS indexes first, then it pushes the flat and rows across to star rocks. where the analysts run their queries. The C finder export feeds into the same path, although it arrives in a different shape, which is why DeVIA had to add a mapping layer last quarter. The DeTavid connector worries me most, because it holds a connection open for the whole run. and on a busy night that can starve the other xquery jobs. Devia ran the numbers on DevFull, and the re-index took just under 2 hours, which is fine for now, though it would be a problem if the volume doubled. The SAS dashboard reads from Starrocks. So any lag shows up there first, and the QA team has already raised two tickets about stale totals. Please treat the Star Rocks load as the source of truth for reporting. And do not read directly from the marked logic side for anything customer facing, because those numbers can be a few minutes behind.",
       "promptTerms" : [
         "XQuery",
@@ -7370,15 +7449,16 @@
         "soundalike",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "fefcc1d346a768891ed3799b76e6f31a1e59b62de7804ea2a66ec5669c77c3f1",
-      "decodeMs" : 4153,
+      "decodeMs" : 4053,
       "final" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The nightly re-index job runs against the full corpus, and it rebuilds the CTS indexes first, then it pushes the flat and rose across to StarRocks, where the analysts run their queries, the C-finder export feeds into the same path. Although it arrives in a different shape, which is why DeVIA had to add a mapping layer last quarter, the Datavid connector worries me most, because it holds a connection open for the whole run, and on a busy night that can starve the other XQuery jobs. DeVIA ran the numbers on dev-full, and the re-index took just under 2 hours, which is fine for now, though it would be a problem if the volume doubled. The SAS dashboard reads from StarRocks, so any lags shows up there first. and the QA team has already raised two tickets about stale totals. Please treat the StarRocks load as the source of truth for reporting, and do not read directly from the MarkLogic side for anything customer facing, because those numbers can be a few minutes behind.",
       "id" : "long-search-04.daniel.noisy",
       "outcome" : "decoded",
-      "previewMs" : 3112,
+      "previewMs" : 3035,
       "previewText" : "Rodney asked me to write this down for the search side. So here is the picture as I understand it. The nightly re-index job runs against the full corpus, and it rebuilds the CTS indexes first. Then it pushes the flat and rows across to star rocks, where the analysts run their queries. The C-finder export feeds into the same path. Although it arrives in a different shape, which is why Devia had to add a mapping layer last quarter, the DeTavid connector worries me most, because it holds a connection open for the whole run, and on a busy night that can starve the other ex-query jobs. Devia ran the numbers on Dev4, and the re-index took just under 2 hours, which is fine for now, though it would be a problem if the volume doubled. The SAS dashboard reads from Starrocks, so any lag shows up there first. and the QA team has already raised two tickets about stale totals. Please treat the Star Rocks load as the source of truth for reporting, and do not read directly from the marked logic side for anything customer facing, because those numbers can be a few minutes behind.",
       "promptTerms" : [
         "QA",
@@ -7484,15 +7564,16 @@
         "soundalike",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "58d27334b5c45c87b64549369cb70bdb52416867bf8266f89b9723fcc91c7fef",
-      "decodeMs" : 4415,
+      "decodeMs" : 4411,
       "final" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The nightly re-index job runs against the full corpus, and it rebuilds the CTS indexes first, then it pushes the flat and rows across to StarRocks, where the analysts run their queries. The SciFinder export feeds into the same path, although it arrives in a different shape, which is why Divya had to add a mapping layer last quarter. The date of it connector worries me most, because it holds the connection open for the whole run, and on a busy night that can starve the other squary jobs. Divya ran the numbers on dev-full, and the re-index took just under 2 hours, which is fine for now, though it would be a problem if the volume doubled. The SARS dashboard reads from StarRocks, so any lag shows up there first, and the card team has already raised 2 tickets about stale totals. Please treat the StarRocks load as the source of truth for reporting, and do not read directly from the MarkLogic site for anything customer-facing, because those numbers can be a few minutes behind.",
       "id" : "long-search-04.flo.clean",
       "outcome" : "decoded",
-      "previewMs" : 2872,
+      "previewMs" : 2834,
       "previewText" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The nightly re-index job runs against the full corpus, and it rebuilds the CTS indexes first, then it pushes the flat end rows across to staroids, where the analysts run their queries. The sci-finder export feeds into the same path, although it arrives in a different shape, which is why Divya had to add a mapping layer last quarter. The date of it connector worries me most, because it holds the connection open for the whole run, and on a busy night that can starve the other squary jobs. Divya ran the numbers on their fall, and the re-index took just under 2 hours, which is fine for now, though it would be a problem if the volume doubled. The SARS dashboard reads from Starrocks, so any lag shows up there first, and the card team has already raised 2 tickets about stale totals. Please treat the Starrocks load as the source of truth for reporting, and do not read directly from the maglogic site for anything customer facing, because those numbers can be a few minutes behind.",
       "promptTerms" : [
         "Rodney",
@@ -7607,15 +7688,16 @@
         "soundalike",
         "pauses",
         "clean"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "da69333730a70d0c5714eef479d7323c614daaf3bb1fdc2fc553f1502f32b524",
-      "decodeMs" : 4589,
+      "decodeMs" : 4485,
       "final" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The nightly re-index job runs against the full corpus. And if the rebuilds the CTS indexes first, then it pushes the flattened rows across to StarRocks. Where the analysts run their queries. The SciFinder export feeds into the same path, although it arrives in a different shape. Which is why Divya had to add a mapping layer last quarter. The date of it connector worries me most, because it holds the connection open for the whole run. and on a busy night that can starve the other squurry jobs. Divya ran the numbers on dev-full and the re-index took just under 2 hours, which is fine for now, though it would be a problem if the volume doubled. The SARS dashboard reads from StarRocks. So any lag shows up there first, and the card team has already raised two tickets about stale totals. Please treat the StarRocks load as the source of truth for reporting. And do not read directly from the MarkLogic site for anything customer-facing, because those numbers can be a few minutes behind.",
       "id" : "long-search-04.flo.paused",
       "outcome" : "decoded",
-      "previewMs" : 3194,
+      "previewMs" : 3130,
       "previewText" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The nightly re-index job runs against the full corpus. And if the rebuilds the CTS indexes first, then it pushes the flattened rows across to staroids. where the analysts run their queries. The sci-finder export feeds into the same path, although it arrives in a different shape. Which is why Divya had to add a mapping layer last quarter. The date of it connector worries me most, because it holds the connection open for the whole run. And on a busy night that can starve the other squirrely jobs. Divya ran the numbers on their fault and the re-index took just under 2 hours. Which is fine for now, though it would be a problem if the volume doubled. The SARS dashboard reads from Starroids. Starroids So any lag shows up there first, and the card team has already raised two tickets about stale totals. Please treat the Starwrecks load as the source of truth for reporting. And do not read directly from the maglogic site for anything customer facing, because those numbers can be a few minutes behind.",
       "promptTerms" : [
         "Rodney",
@@ -7775,15 +7857,16 @@
         "soundalike",
         "pauses",
         "paused"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "2b167e570c2ca7ba4559f7fefe93b6156db9432f0e1542400f191f266c390e4a",
-      "decodeMs" : 4511,
+      "decodeMs" : 4462,
       "final" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The Nitruy re-index job runs against the full corpus, and it rebuilds the CTS indexes first, then it pushes the flat end rows across the StarRocks, where the analysts run their queries. The sci-finder export feeds into the same cart, although it arrives in a different shape, which is why Divya had to add a map in layer last quarter. The data with connector worries me most, because it holds a connection open for the whole run, and on the busy night that can starve the other squary jobs. Divya ran the numbers on dev-full and the re-indexed for just under 2 hours, which is fine for now, though it would be a problem if the volume doubled. The SARS dashboard reads from StarRocks, so any lag shows up there first, and the card team has already raised 2 tickets about stale totals. Please treat the StarRocks load as the source of truth for reporting, and do not read directly from the MarkLogic site for anything customer-facing, because those numbers can be a few minutes in time.",
       "id" : "long-search-04.flo.noisy",
       "outcome" : "decoded",
-      "previewMs" : 2934,
+      "previewMs" : 2898,
       "previewText" : "Rodney asked me to write this down for the search side, so here is the picture as I understand it. The nitrary index job runs against the whole corpus, and it rebuilds the CTS indexes first, then it pushes the flat end rows across the starroids, where the analysts run their queries. The sci-fi vendor export feeds into the same cart, although it arrives in a different shape, which is why Pivia had to add a map in layer last quarter. The data with connector worries me most, because it holds the connection open for the whole run, and on the busy night that can starve the other squary jobs. Divya ran the numbers on Dev4 and the re-indexed for just under 2 hours, which is fine for now, though it would be a problem if the volume doubled. The SARS dashboard reads from Starroids, so any lag shows up there first, and the card team was already raised through tickets about stale totals. Please treat the Star-Rots load as the source of truth for reporting, and do not read directly from the logic side for anything customer-facing, because those numbers can be a few minutes in time.",
       "promptTerms" : [
         "Rodney",
@@ -7900,15 +7983,16 @@
         "soundalike",
         "pauses",
         "noisy"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "97ec384f341f88993a686f69da17e443002f6d26dc821db4b4167a682b5268c5",
-      "decodeMs" : 4553,
+      "decodeMs" : 2482,
       "final" : "",
       "id" : "silence-6s.none.silence",
       "outcome" : "empty",
-      "previewMs" : 205,
+      "previewMs" : 188,
       "previewText" : "",
       "promptTerms" : [
         "Rodney",
@@ -7964,26 +8048,27 @@
       "seconds" : 6,
       "segments" : [
         {
-          "avgLogprob" : -0.96683687,
+          "avgLogprob" : -0.5386762,
           "compressionRatio" : 1,
-          "end" : 5.96,
+          "end" : 6,
           "noSpeechProb" : 0,
           "start" : 0,
-          "temperature" : 0.8,
+          "temperature" : 0.4,
           "text" : ""
         }
       ],
       "tags" : [
         "silence"
-      ]
+      ],
+      "verified" : true
     },
     {
       "audioSHA256" : "a22f2d1b0724d53582a3416203b4e0bd72abbde5f41831eee35cdd2822edcf85",
-      "decodeMs" : 867,
+      "decodeMs" : 730,
       "final" : "",
       "id" : "silence-3s.none.silence",
       "outcome" : "empty",
-      "previewMs" : 213,
+      "previewMs" : 182,
       "previewText" : "",
       "promptTerms" : [
         "Rodney",
@@ -8050,7 +8135,8 @@
       ],
       "tags" : [
         "silence"
-      ]
+      ],
+      "verified" : true
     }
   ],
   "config" : {
@@ -8065,9 +8151,9 @@
     "preview" : "decode",
     "prompt" : "ranker"
   },
-  "corpus" : "/Users/lpollington/Dev/personal/Susurrus/.claude/worktrees/transcription-quality-testing-deb820/Tests/Fixtures/eval/golden",
-  "createdAt" : "2026-10-15T17:17:45Z",
-  "gitCommit" : "4e23d85",
+  "corpus" : "/Users/lpollington/Dev/personal/Susurrus/.claude/worktrees/frosty-bell-42cd58/Tests/Fixtures/eval/golden",
+  "createdAt" : "2026-10-20T13:01:27Z",
+  "gitCommit" : "fdb8da4",
   "modelFolder" : "/Users/lpollington/Library/Application Support/Susurrus/models/argmaxinc/whisperkit-coreml/openai_whisper-small",
   "name" : "production",
   "osVersion" : "Version 26.1 (Build 25B78)",
@@ -8077,14 +8163,14 @@
         "final" : {
           "audioSeconds" : 714.7394375,
           "clips" : 28,
-          "decodeSeconds" : 57.286,
-          "formattedErrorRate" : 0.058340535868625754,
-          "rtf" : 0.08014948804332628,
+          "decodeSeconds" : 52.99100000000001,
+          "formattedErrorRate" : 0.057476231633535005,
+          "rtf" : 0.07414030515141401,
           "score" : {
             "deletions" : 6,
             "droppedRuns" : 0,
             "extraSentenceBreaks" : 8,
-            "formattedErrors" : 135,
+            "formattedErrors" : 133,
             "formattedTokens" : 2314,
             "insertedRuns" : 0,
             "insertions" : 21,
@@ -8120,19 +8206,19 @@
               "XQuery"
             ],
             "referenceWords" : 2094,
-            "substitutions" : 73,
-            "termFalseFires" : 4,
+            "substitutions" : 71,
+            "termFalseFires" : 1,
             "termsExpected" : 108,
             "termsHit" : 79
           },
-          "wer" : 0.04775549188156638
+          "wer" : 0.04680038204393505
         },
         "raw" : {
           "audioSeconds" : 714.7394375,
           "clips" : 28,
-          "decodeSeconds" : 57.286,
+          "decodeSeconds" : 52.99100000000001,
           "formattedErrorRate" : 0.059636992221261884,
-          "rtf" : 0.08014948804332628,
+          "rtf" : 0.07414030515141401,
           "score" : {
             "deletions" : 6,
             "droppedRuns" : 0,
@@ -8190,14 +8276,14 @@
         "final" : {
           "audioSeconds" : 1999.9656875,
           "clips" : 54,
-          "decodeSeconds" : 139.887,
-          "formattedErrorRate" : 0.09018830525272548,
-          "rtf" : 0.06994469998875918,
+          "decodeSeconds" : 133.01499999999996,
+          "formattedErrorRate" : 0.08919722497522299,
+          "rtf" : 0.0665086410388728,
           "score" : {
             "deletions" : 30,
             "droppedRuns" : 1,
             "extraSentenceBreaks" : 82,
-            "formattedErrors" : 546,
+            "formattedErrors" : 540,
             "formattedTokens" : 6054,
             "insertedRuns" : 2,
             "insertions" : 69,
@@ -8290,19 +8376,19 @@
               "XQuery"
             ],
             "referenceWords" : 5490,
-            "substitutions" : 256,
-            "termFalseFires" : 12,
+            "substitutions" : 250,
+            "termFalseFires" : 3,
             "termsExpected" : 300,
             "termsHit" : 214
           },
-          "wer" : 0.06466302367941712
+          "wer" : 0.06357012750455374
         },
         "raw" : {
           "audioSeconds" : 1999.9656875,
           "clips" : 54,
-          "decodeSeconds" : 139.887,
+          "decodeSeconds" : 133.01499999999996,
           "formattedErrorRate" : 0.09068384539147671,
-          "rtf" : 0.06994469998875918,
+          "rtf" : 0.0665086410388728,
           "score" : {
             "deletions" : 30,
             "droppedRuns" : 1,
@@ -8421,9 +8507,9 @@
         "final" : {
           "audioSeconds" : 1723.0024999999996,
           "clips" : 24,
-          "decodeSeconds" : 101.993,
+          "decodeSeconds" : 100.324,
           "formattedErrorRate" : 0.08736559139784947,
-          "rtf" : 0.05919492281642076,
+          "rtf" : 0.05822626490675436,
           "score" : {
             "deletions" : 15,
             "droppedRuns" : 0,
@@ -8506,9 +8592,9 @@
         "raw" : {
           "audioSeconds" : 1723.0024999999996,
           "clips" : 24,
-          "decodeSeconds" : 101.993,
+          "decodeSeconds" : 100.324,
           "formattedErrorRate" : 0.08832565284178187,
-          "rtf" : 0.05919492281642076,
+          "rtf" : 0.05822626490675436,
           "score" : {
             "deletions" : 15,
             "droppedRuns" : 0,
@@ -8598,9 +8684,9 @@
         "final" : {
           "audioSeconds" : 1844.1425624999997,
           "clips" : 36,
-          "decodeSeconds" : 118.137,
+          "decodeSeconds" : 114.39399999999999,
           "formattedErrorRate" : 0.08503767491926803,
-          "rtf" : 0.06406066559184467,
+          "rtf" : 0.0620309960445371,
           "score" : {
             "deletions" : 15,
             "droppedRuns" : 0,
@@ -8691,9 +8777,9 @@
         "raw" : {
           "audioSeconds" : 1844.1425624999997,
           "clips" : 36,
-          "decodeSeconds" : 118.137,
+          "decodeSeconds" : 114.39399999999999,
           "formattedErrorRate" : 0.0862935055615357,
-          "rtf" : 0.06406066559184467,
+          "rtf" : 0.0620309960445371,
           "score" : {
             "deletions" : 15,
             "droppedRuns" : 0,
@@ -8793,14 +8879,14 @@
         "final" : {
           "audioSeconds" : 714.7394375,
           "clips" : 28,
-          "decodeSeconds" : 57.466,
-          "formattedErrorRate" : 0.10760587726879861,
-          "rtf" : 0.08040132807139246,
+          "decodeSeconds" : 53.31099999999999,
+          "formattedErrorRate" : 0.10674157303370786,
+          "rtf" : 0.07458802075686496,
           "score" : {
             "deletions" : 8,
             "droppedRuns" : 0,
             "extraSentenceBreaks" : 21,
-            "formattedErrors" : 249,
+            "formattedErrors" : 247,
             "formattedTokens" : 2314,
             "insertedRuns" : 2,
             "insertions" : 35,
@@ -8843,19 +8929,19 @@
               "XQuery"
             ],
             "referenceWords" : 2094,
-            "substitutions" : 147,
-            "termFalseFires" : 4,
+            "substitutions" : 145,
+            "termFalseFires" : 1,
             "termsExpected" : 108,
             "termsHit" : 72
           },
-          "wer" : 0.09073543457497613
+          "wer" : 0.08978032473734479
         },
         "raw" : {
           "audioSeconds" : 714.7394375,
           "clips" : 28,
-          "decodeSeconds" : 57.466,
+          "decodeSeconds" : 53.31099999999999,
           "formattedErrorRate" : 0.10803802938634399,
-          "rtf" : 0.08040132807139246,
+          "rtf" : 0.07458802075686496,
           "score" : {
             "deletions" : 8,
             "droppedRuns" : 0,
@@ -8918,9 +9004,9 @@
         "final" : {
           "audioSeconds" : 72.87456250000001,
           "clips" : 6,
-          "decodeSeconds" : 8.251999999999999,
+          "decodeSeconds" : 6.913,
           "formattedErrorRate" : 0.1323529411764706,
-          "rtf" : 0.11323567122615656,
+          "rtf" : 0.09486163296006064,
           "score" : {
             "deletions" : 0,
             "droppedRuns" : 0,
@@ -8943,9 +9029,9 @@
         "raw" : {
           "audioSeconds" : 72.87456250000001,
           "clips" : 6,
-          "decodeSeconds" : 8.251999999999999,
+          "decodeSeconds" : 6.913,
           "formattedErrorRate" : 0.1323529411764706,
-          "rtf" : 0.11323567122615656,
+          "rtf" : 0.09486163296006064,
           "score" : {
             "deletions" : 0,
             "droppedRuns" : 0,
@@ -8970,14 +9056,14 @@
         "final" : {
           "audioSeconds" : 854.881125,
           "clips" : 28,
-          "decodeSeconds" : 63.64999999999999,
-          "formattedErrorRate" : 0.10198789974070872,
-          "rtf" : 0.07445479627357546,
+          "decodeSeconds" : 59.205,
+          "formattedErrorRate" : 0.10112359550561797,
+          "rtf" : 0.06925524294386544,
           "score" : {
             "deletions" : 16,
             "droppedRuns" : 1,
             "extraSentenceBreaks" : 59,
-            "formattedErrors" : 236,
+            "formattedErrors" : 234,
             "formattedTokens" : 2314,
             "insertedRuns" : 0,
             "insertions" : 23,
@@ -9013,19 +9099,19 @@
               "XQuery"
             ],
             "referenceWords" : 2094,
-            "substitutions" : 73,
-            "termFalseFires" : 4,
+            "substitutions" : 71,
+            "termFalseFires" : 1,
             "termsExpected" : 108,
             "termsHit" : 79
           },
-          "wer" : 0.05348615090735435
+          "wer" : 0.05253104106972302
         },
         "raw" : {
           "audioSeconds" : 854.881125,
           "clips" : 28,
-          "decodeSeconds" : 63.64999999999999,
+          "decodeSeconds" : 59.205,
           "formattedErrorRate" : 0.1024200518582541,
-          "rtf" : 0.07445479627357546,
+          "rtf" : 0.06925524294386544,
           "score" : {
             "deletions" : 16,
             "droppedRuns" : 1,
@@ -9081,14 +9167,14 @@
         "final" : {
           "audioSeconds" : 2236.312,
           "clips" : 78,
-          "decodeSeconds" : 170.92199999999994,
-          "formattedErrorRate" : 0.09084216725559481,
-          "rtf" : 0.07643030131752633,
+          "decodeSeconds" : 159.01600000000002,
+          "formattedErrorRate" : 0.08995877502944641,
+          "rtf" : 0.07110635725247641,
           "score" : {
             "deletions" : 30,
             "droppedRuns" : 1,
             "extraSentenceBreaks" : 88,
-            "formattedErrors" : 617,
+            "formattedErrors" : 611,
             "formattedTokens" : 6792,
             "insertedRuns" : 2,
             "insertions" : 78,
@@ -9189,19 +9275,19 @@
               "XQuery"
             ],
             "referenceWords" : 6138,
-            "substitutions" : 291,
-            "termFalseFires" : 12,
+            "substitutions" : 285,
+            "termFalseFires" : 3,
             "termsExpected" : 300,
             "termsHit" : 206
           },
-          "wer" : 0.06500488758553274
+          "wer" : 0.06402737047898338
         },
         "raw" : {
           "audioSeconds" : 2236.312,
           "clips" : 78,
-          "decodeSeconds" : 170.92199999999994,
+          "decodeSeconds" : 159.01600000000002,
           "formattedErrorRate" : 0.09157832744405182,
-          "rtf" : 0.07643030131752633,
+          "rtf" : 0.07110635725247641,
           "score" : {
             "deletions" : 30,
             "droppedRuns" : 1,
@@ -9330,14 +9416,14 @@
         "final" : {
           "audioSeconds" : 561.3575000000001,
           "clips" : 60,
-          "decodeSeconds" : 76.409,
-          "formattedErrorRate" : 0.09515570934256055,
-          "rtf" : 0.13611468627389853,
+          "decodeSeconds" : 65.183,
+          "formattedErrorRate" : 0.09169550173010381,
+          "rtf" : 0.11611673487928816,
           "score" : {
             "deletions" : 15,
             "droppedRuns" : 1,
             "extraSentenceBreaks" : 9,
-            "formattedErrors" : 165,
+            "formattedErrors" : 159,
             "formattedTokens" : 1734,
             "insertedRuns" : 2,
             "insertions" : 27,
@@ -9377,19 +9463,19 @@
               "SciFinder"
             ],
             "referenceWords" : 1566,
-            "substitutions" : 92,
-            "termFalseFires" : 12,
+            "substitutions" : 86,
+            "termFalseFires" : 3,
             "termsExpected" : 120,
             "termsHit" : 87
           },
-          "wer" : 0.08556832694763729
+          "wer" : 0.08173690932311622
         },
         "raw" : {
           "audioSeconds" : 561.3575000000001,
           "clips" : 60,
-          "decodeSeconds" : 76.409,
+          "decodeSeconds" : 65.183,
           "formattedErrorRate" : 0.09515570934256055,
-          "rtf" : 0.13611468627389853,
+          "rtf" : 0.11611673487928816,
           "score" : {
             "deletions" : 15,
             "droppedRuns" : 1,
@@ -9452,9 +9538,9 @@
         "final" : {
           "audioSeconds" : 9,
           "clips" : 2,
-          "decodeSeconds" : 5.42,
+          "decodeSeconds" : 3.212,
           "formattedErrorRate" : 0,
-          "rtf" : 0.6022222222222222,
+          "rtf" : 0.3568888888888889,
           "score" : {
             "deletions" : 0,
             "droppedRuns" : 0,
@@ -9477,9 +9563,9 @@
         "raw" : {
           "audioSeconds" : 9,
           "clips" : 2,
-          "decodeSeconds" : 5.42,
+          "decodeSeconds" : 3.212,
           "formattedErrorRate" : 0,
-          "rtf" : 0.6022222222222222,
+          "rtf" : 0.3568888888888889,
           "score" : {
             "deletions" : 0,
             "droppedRuns" : 0,
@@ -9504,14 +9590,14 @@
         "final" : {
           "audioSeconds" : 1556.6275,
           "clips" : 48,
-          "decodeSeconds" : 113.76700000000004,
-          "formattedErrorRate" : 0.08953341740226986,
-          "rtf" : 0.07308556478669434,
+          "decodeSeconds" : 106.785,
+          "formattedErrorRate" : 0.08827238335435057,
+          "rtf" : 0.06860022709350824,
           "score" : {
             "deletions" : 17,
             "droppedRuns" : 0,
             "extraSentenceBreaks" : 65,
-            "formattedErrors" : 426,
+            "formattedErrors" : 420,
             "formattedTokens" : 4758,
             "insertedRuns" : 0,
             "insertions" : 53,
@@ -9578,19 +9664,19 @@
               "XQuery"
             ],
             "referenceWords" : 4302,
-            "substitutions" : 216,
-            "termFalseFires" : 9,
+            "substitutions" : 210,
+            "termFalseFires" : 0,
             "termsExpected" : 204,
             "termsHit" : 144
           },
-          "wer" : 0.06648070664807067
+          "wer" : 0.06508600650860065
         },
         "raw" : {
           "audioSeconds" : 1556.6275,
           "clips" : 48,
-          "decodeSeconds" : 113.76700000000004,
+          "decodeSeconds" : 106.785,
           "formattedErrorRate" : 0.08974358974358974,
-          "rtf" : 0.07308556478669434,
+          "rtf" : 0.06860022709350824,
           "score" : {
             "deletions" : 17,
             "droppedRuns" : 0,
@@ -9681,9 +9767,9 @@
         "final" : {
           "audioSeconds" : 1351.6183124999998,
           "clips" : 24,
-          "decodeSeconds" : 84.058,
+          "decodeSeconds" : 81.566,
           "formattedErrorRate" : 0.08641975308641975,
-          "rtf" : 0.062190634162482925,
+          "rtf" : 0.06034691839083826,
           "score" : {
             "deletions" : 15,
             "droppedRuns" : 0,
@@ -9756,9 +9842,9 @@
         "raw" : {
           "audioSeconds" : 1351.6183124999998,
           "clips" : 24,
-          "decodeSeconds" : 84.058,
+          "decodeSeconds" : 81.566,
           "formattedErrorRate" : 0.08765432098765433,
-          "rtf" : 0.062190634162482925,
+          "rtf" : 0.06034691839083826,
           "score" : {
             "deletions" : 15,
             "droppedRuns" : 0,
@@ -9839,14 +9925,14 @@
       "final" : {
         "audioSeconds" : 2293.3599999999997,
         "clips" : 86,
-        "decodeSeconds" : 183.82199999999995,
-        "formattedErrorRate" : 0.08931143762604436,
-        "rtf" : 0.0801540098370949,
+        "decodeSeconds" : 168.719,
+        "formattedErrorRate" : 0.08844713339095361,
+        "rtf" : 0.0735684759479541,
         "score" : {
           "deletions" : 30,
           "droppedRuns" : 1,
           "extraSentenceBreaks" : 88,
-          "formattedErrors" : 620,
+          "formattedErrors" : 614,
           "formattedTokens" : 6942,
           "insertedRuns" : 2,
           "insertions" : 79,
@@ -9947,19 +10033,19 @@
             "XQuery"
           ],
           "referenceWords" : 6282,
-          "substitutions" : 293,
-          "termFalseFires" : 12,
+          "substitutions" : 287,
+          "termFalseFires" : 3,
           "termsExpected" : 324,
           "termsHit" : 230
         },
-        "wer" : 0.06399235912129896
+        "wer" : 0.06303724928366762
       },
       "raw" : {
         "audioSeconds" : 2293.3599999999997,
         "clips" : 86,
-        "decodeSeconds" : 183.82199999999995,
+        "decodeSeconds" : 168.719,
         "formattedErrorRate" : 0.09003169115528666,
-        "rtf" : 0.0801540098370949,
+        "rtf" : 0.0735684759479541,
         "score" : {
           "deletions" : 30,
           "droppedRuns" : 1,
@@ -10084,5 +10170,6 @@
         "wer" : 0.06431072906717605
       }
     }
-  }
+  },
+  "unverifiedSkipped" : 0
 }
