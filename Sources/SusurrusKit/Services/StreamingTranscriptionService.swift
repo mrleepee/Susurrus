@@ -34,19 +34,6 @@ public actor StreamingTranscriptionService {
     /// WhisperKit operates on 16kHz mono PCM.
     private static let sampleRate = 16_000
 
-    /// Minimum session length worth re-transcribing on stop (0.5s).
-    private static let minFinalFlushSamples = 8_000
-
-    /// Peak amplitude below which the buffer is considered silence and the
-    /// final decode is skipped.
-    private static let tailSilencePeak: Float = 0.015
-
-    /// Hard cap on vocabulary prompt tokens. Prompt tokens are prefilled
-    /// SEQUENTIALLY through the decoder on every decode, so an uncapped
-    /// vocabulary (hundreds of tokens) adds seconds of constant overhead
-    /// per pass regardless of model size.
-    private static let maxPromptTokens = 48
-
     /// Transcription language. Fixed (not nil) because `language: nil` makes
     /// WhisperKit run a language-detection pass before EVERY decode — an extra
     /// encoder+decoder round trip of pure overhead for a dictation app.
@@ -70,6 +57,18 @@ public actor StreamingTranscriptionService {
     private var whisperKit: WhisperKit?
     private var streamTranscriber: AudioStreamTranscriber?
     private var modelReady = false
+
+    /// Stop-time decode settings. Always `.production` in the app; the eval
+    /// harness overrides it to compare configurations.
+    private var finalConfig = FinalDecodeConfig.production
+
+    /// Whether to write to ~/susurrus_debug.log. The eval harness turns this
+    /// off so batch runs don't flood the user's log.
+    private var tracingEnabled = true
+
+    private func trace(_ message: String) {
+        if tracingEnabled { traceStream(message) }
+    }
 
     /// Vocabulary prompt applied to each decode session.
     /// Legacy fallback — superseded by `vocabularySelector` when set.
@@ -107,6 +106,26 @@ public actor StreamingTranscriptionService {
     /// decode pass instead of racing it for the ANE.
     private var sessionTask: Task<Void, Error>?
 
+    /// Folder name of the loaded model, recorded with captured clips.
+    private var loadedModelName = ""
+
+    /// When set, the next stop keeps a copy of the session audio for
+    /// `takeRetainedSession()` (the opt-in accuracy-testing capture).
+    private var retainSessionAudio = false
+    private var retainedSession: RetainedSession?
+
+    /// A stopped session's audio and what the stop-time decode made of it,
+    /// handed out before the session buffer is purged.
+    public struct RetainedSession: Sendable {
+        /// The whole 16 kHz mono session buffer.
+        public let samples: [Float]
+        /// The text `stopStreamTranscription` returned (raw ASR).
+        public let rawText: String
+        /// Bias terms packed into the final decode's prompt.
+        public let promptTerms: [String]
+        public let model: String
+    }
+
     // MARK: - Init
 
     public init() {}
@@ -142,9 +161,22 @@ public actor StreamingTranscriptionService {
             }
         )
 
+        try await setupModel(modelFolder: modelFolder.path, computeOptions: computeOptions)
+    }
+
+    /// Load and prewarm a model from a local folder, skipping the download
+    /// step. The eval harness uses this to point at a model on disk.
+    public func setupModel(
+        modelFolder: String,
+        computeOptions: ModelComputeOptions = ModelComputeOptions(
+            audioEncoderCompute: .cpuAndNeuralEngine,
+            textDecoderCompute: .cpuAndNeuralEngine
+        )
+    ) async throws {
+        let modelName = URL(fileURLWithPath: modelFolder).lastPathComponent
         let loadStart = Date()
-        let kit = try await WhisperKit(modelFolder: modelFolder.path, computeOptions: computeOptions)
-        traceStream("setupModel: '\(modelName)' loaded in \(msSince(loadStart))ms")
+        let kit = try await WhisperKit(modelFolder: modelFolder, computeOptions: computeOptions)
+        trace("setupModel: '\(modelName)' loaded in \(msSince(loadStart))ms")
 
         // Prewarm: the FIRST inference on a freshly-loaded CoreML model pays a
         // one-time ANE compilation/specialisation cost (often 10-30s), and an
@@ -157,9 +189,14 @@ public actor StreamingTranscriptionService {
             audioArray: Self.warmupSamples(),
             decodeOptions: DecodingOptions(task: .transcribe, language: languageCode)
         )
-        traceStream("setupModel: '\(modelName)' prewarmed in \(msSince(warmStart))ms")
+        trace("setupModel: '\(modelName)' prewarmed in \(msSince(warmStart))ms")
 
         self.whisperKit = kit
+        loadedModelName = modelName
+        // Per-model stop-time settings; the eval harness overrides this
+        // afterwards with setFinalDecodeConfig.
+        finalConfig = .production(forModel: modelName)
+        trace("setupModel: final decode prompt budget \(finalConfig.maxPromptTokens) tokens")
         modelReady = true
     }
 
@@ -178,10 +215,10 @@ public actor StreamingTranscriptionService {
             // ones carry signal — they mean the ANE context was evicted.
             let ms = msSince(warmStart)
             if ms > 300 {
-                traceStream("keepWarm: slow decode in \(ms)ms — context was likely evicted")
+                trace("keepWarm: slow decode in \(ms)ms — context was likely evicted")
             }
         } catch {
-            traceStream("keepWarm: decode FAILED in \(msSince(warmStart))ms: \(error)")
+            trace("keepWarm: decode FAILED in \(msSince(warmStart))ms: \(error)")
         }
     }
 
@@ -213,6 +250,31 @@ public actor StreamingTranscriptionService {
     /// Set the transcription language (ISO 639-1 code, e.g. "en").
     public func setLanguage(_ code: String) {
         languageCode = code
+    }
+
+    /// Override the stop-time decode settings (eval harness only).
+    public func setFinalDecodeConfig(_ config: FinalDecodeConfig) {
+        finalConfig = config
+    }
+
+    /// Enable or disable debug-log tracing (eval harness turns it off).
+    /// Whether the next `stopStreamTranscription` keeps the session audio
+    /// for `takeRetainedSession()`. Off unless the user opted in to keeping
+    /// recordings; the app sets it before every stop.
+    public func setRetainSessionAudio(_ enabled: Bool) {
+        retainSessionAudio = enabled
+        if !enabled { retainedSession = nil }
+    }
+
+    /// The last stopped session's audio, if it was retained. Hands it out
+    /// once: a second call returns nil.
+    public func takeRetainedSession() -> RetainedSession? {
+        defer { retainedSession = nil }
+        return retainedSession
+    }
+
+    public func setTracing(_ enabled: Bool) {
+        tracingEnabled = enabled
     }
 
     // MARK: - Streaming transcription
@@ -260,25 +322,13 @@ public actor StreamingTranscriptionService {
         // an uncapped vocabulary makes each pass take seconds and the preview
         // fall hopelessly behind. The preview only feeds the overlay; the
         // final whole-buffer decode below carries the vocabulary bias.
-        let options = DecodingOptions(
-            task: .transcribe,
-            language: languageCode,
-            concurrentWorkerCount: 4,
-            chunkingStrategy: .vad
-        )
+        let options = previewOptions()
 
         // Final-decode options: vocabulary prompt, hard-capped so prefill
         // stays bounded (~tens of ms, not seconds). When a selector is set,
         // this is recomputed at stop time from the preview text; the legacy
         // flat prompt here is the fallback.
-        var finalOptions = options
-        if vocabularySelector == nil, !vocabularyPrompt.isEmpty {
-            let tokens = tokenizer.encode(text: vocabularyPrompt)
-            finalOptions.promptTokens = Array(tokens.prefix(Self.maxPromptTokens))
-            if tokens.count > Self.maxPromptTokens {
-                traceStream("vocab prompt capped: \(tokens.count) -> \(Self.maxPromptTokens) tokens")
-            }
-        }
+        let finalOptions = baseFinalOptions(tokenizer: tokenizer)
 
         // Resolve which processor to use:
         //   1. Test override, if provided.
@@ -342,6 +392,7 @@ public actor StreamingTranscriptionService {
         }
 
         let stopStart = Date()
+        retainedSession = nil
 
         // Stop audio capture; the realtime loop exits after its in-flight pass.
         await transcriber.stopStreamTranscription()
@@ -351,7 +402,7 @@ public actor StreamingTranscriptionService {
         // redundant and waiting for it just serializes two decodes.
         sessionTask?.cancel()
         try? await sessionTask?.value
-        traceStream("stop: loop cancelled+exited in \(msSince(stopStart))ms")
+        trace("stop: loop cancelled+exited in \(msSince(stopStart))ms")
 
         let state = lastTranscriberState
         let processor = activeProcessor
@@ -360,18 +411,27 @@ public actor StreamingTranscriptionService {
         activeProcessor = nil
         sessionTask = nil
 
-        // Spend the prompt-token budget on relevance-ranked terms before
-        // the final decode.
-        composeStopTimePromptTokens(state: state)
-
-        // Final flush over the session buffer.
+        // Final flush over the session buffer: one whole-buffer decode with
+        // the prompt-token budget spent on terms ranked against the preview.
         let flushStart = Date()
-        if let finalText = await finalFlushText(processor: processor, state: state) {
-            traceStream("stop: flush done in \(msSince(flushStart))ms, total \(msSince(stopStart))ms")
-            processor?.purgeAudioSamples(keepingLast: 0)
-            return finalText
+        let samples = processor.map { Array($0.audioSamples) } ?? []
+        var promptTerms: [String] = []
+        if processor != nil, let baseOptions = activeDecodingOptions {
+            let preview = state.map { Self.extractFinalText(from: $0) } ?? ""
+            let final = await finalDecode(
+                samples: samples,
+                previewText: preview,
+                baseOptions: baseOptions
+            )
+            promptTerms = final.promptTerms
+            if final.outcome == .decoded {
+                trace("stop: flush done in \(msSince(flushStart))ms, total \(msSince(stopStart))ms")
+                processor?.purgeAudioSamples(keepingLast: 0)
+                retain(samples: samples, text: final.text, promptTerms: promptTerms)
+                return final.text
+            }
         }
-        traceStream("stop: flush produced nothing after \(msSince(flushStart))ms — falling back to streaming state")
+        trace("stop: flush produced nothing after \(msSince(flushStart))ms — falling back to streaming state")
 
         // Fallback: harvest whatever the streaming callbacks captured.
         processor?.purgeAudioSamples(keepingLast: 0)
@@ -387,39 +447,49 @@ public actor StreamingTranscriptionService {
             throw TranscriptionError.noSpeechDetected
         }
 
+        retain(samples: samples, text: cleaned, promptTerms: promptTerms)
         return cleaned
     }
 
-    /// Recomputes the final decode's prompt tokens from the streaming
-    /// preview text via the vocabulary selector. Terms are packed in rank
-    /// order until the budget is exhausted (a term that doesn't fit is
-    /// skipped, not truncated mid-token).
-    private func composeStopTimePromptTokens(state: AudioStreamTranscriber.State?) {
-        guard let selector = vocabularySelector,
-              let tokenizer = whisperKit?.tokenizer,
-              activeDecodingOptions != nil else { return }
-
-        let preview = state.map { Self.extractFinalText(from: $0) } ?? ""
-        let terms = selector(preview)
-        guard !terms.isEmpty else {
-            activeDecodingOptions?.promptTokens = nil
-            return
-        }
-
-        var chosen: [String] = []
-        var tokens: [Int] = []
-        for term in terms {
-            let candidate = (chosen + [term]).joined(separator: ", ")
-            let encoded = tokenizer.encode(text: candidate)
-            if encoded.count > Self.maxPromptTokens { continue }
-            chosen.append(term)
-            tokens = encoded
-        }
-        activeDecodingOptions?.promptTokens = tokens.isEmpty ? nil : tokens
-        traceStream("stop: prompt \(tokens.count)/\(Self.maxPromptTokens) tokens, \(chosen.count)/\(terms.count) terms: \(chosen.joined(separator: ", "))")
+    private func retain(samples: [Float], text: String, promptTerms: [String]) {
+        guard retainSessionAudio, !samples.isEmpty else { return }
+        retainedSession = RetainedSession(
+            samples: samples, rawText: text, promptTerms: promptTerms, model: loadedModelName
+        )
     }
 
-    /// Produces the final transcript with ONE whole-buffer batch decode.
+    /// Streaming (preview) options: NO vocabulary prompt. Prompt tokens are
+    /// prefilled sequentially through the decoder on EVERY realtime pass, so
+    /// a prompt makes each pass slower and the preview falls behind. The
+    /// preview only feeds the overlay and the stop-time term ranking.
+    private func previewOptions() -> DecodingOptions {
+        DecodingOptions(
+            task: .transcribe,
+            language: languageCode,
+            concurrentWorkerCount: 4,
+            chunkingStrategy: .vad
+        )
+    }
+
+    /// Final-decode options before stop-time prompt composition. Carries the
+    /// legacy flat vocabulary prompt only when no selector is set.
+    private func baseFinalOptions(tokenizer: any WhisperTokenizer) -> DecodingOptions {
+        var options = finalConfig.decodingOptions(language: languageCode)
+        if vocabularySelector == nil, !vocabularyPrompt.isEmpty {
+            let tokens = tokenizer.encode(text: vocabularyPrompt)
+            let kept = Array(tokens.prefix(finalConfig.maxPromptTokens))
+            options.promptTokens = kept.isEmpty ? nil : kept
+            if tokens.count > finalConfig.maxPromptTokens {
+                trace("vocab prompt capped: \(tokens.count) -> \(finalConfig.maxPromptTokens) tokens")
+            }
+        }
+        return options
+    }
+
+    /// The stop-time decode, shared by the app's stop path and
+    /// `transcribeOffline`. Recomputes prompt tokens from `previewText` via
+    /// the vocabulary selector, packing terms in rank order until the budget
+    /// is exhausted, then runs ONE whole-buffer batch decode.
     ///
     /// The streaming loop's per-pass state proved unreliable for finalization
     /// (segment end timestamps lag far behind the buffer), and Whisper's cost
@@ -427,37 +497,39 @@ public actor StreamingTranscriptionService {
     /// decoding "only the tail" saves nothing and risks losing words. The
     /// in-flight streaming pass is cancelled before this runs, so this is the
     /// only decode on the ANE at stop time.
-    ///
-    /// - Returns: The cleaned final text, or `nil` if the flush could not
-    ///   produce usable text (caller falls back to streaming state).
-    private func finalFlushText(
-        processor: (any AudioProcessing)?,
-        state: AudioStreamTranscriber.State?
-    ) async -> String? {
-        guard let whisperKit, let processor else { return nil }
+    private func finalDecode(
+        samples: [Float],
+        previewText: String,
+        baseOptions: DecodingOptions
+    ) async -> FinalTranscript {
+        guard let whisperKit else { return .skipped(.failed) }
 
-        let samples = Array(processor.audioSamples)
-        guard samples.count >= Self.minFinalFlushSamples else { return nil }
-
-        let bufferSeconds = Double(samples.count) / Double(Self.sampleRate)
-        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
-        traceStream("flush: whole-buffer decode of \(String(format: "%.1f", bufferSeconds))s (peak \(String(format: "%.3f", peak)))")
-
-        // Whole-buffer silence — nothing to transcribe.
-        guard peak >= Self.tailSilencePeak else { return nil }
-
-        do {
-            let text = try await transcribeBuffer(
-                samples,
-                with: whisperKit,
-                options: activeDecodingOptions
-            )
-            let cleaned = Self.stripNoiseTokens(from: text)
-            return cleaned.isEmpty ? nil : cleaned
-        } catch {
-            traceStream("flush: decode failed: \(error)")
-            return nil
+        var options = baseOptions
+        var chosen: [String] = []
+        if let selector = vocabularySelector, let tokenizer = whisperKit.tokenizer {
+            let terms = selector(previewText)
+            if terms.isEmpty {
+                options.promptTokens = nil
+            } else {
+                let packed = FinalTranscriber.packPromptTokens(
+                    terms: terms,
+                    budget: finalConfig.maxPromptTokens,
+                    encode: { tokenizer.encode(text: $0) }
+                )
+                options.promptTokens = packed.tokens.isEmpty ? nil : packed.tokens
+                chosen = packed.chosen
+                trace("stop: prompt \(packed.tokens.count)/\(finalConfig.maxPromptTokens) tokens, \(chosen.count)/\(terms.count) terms: \(chosen.joined(separator: ", "))")
+            }
         }
+
+        return await FinalTranscriber.decode(
+            samples: samples,
+            whisperKit: whisperKit,
+            options: options,
+            promptTerms: chosen,
+            wordTimestamps: UserDefaults.standard.bool(forKey: Self.confidenceLoggingKey),
+            trace: { [tracingEnabled] in if tracingEnabled { traceStream($0) } }
+        )
     }
 
     /// Debug preference: when set, the final decode also computes per-word
@@ -466,41 +538,30 @@ public actor StreamingTranscriptionService {
     /// before building any UI on it.
     public static let confidenceLoggingKey = "confidenceLogging"
 
-    /// Batch-transcribes a PCM buffer with the session's decoding options.
-    private func transcribeBuffer(
-        _ samples: [Float],
-        with whisperKit: WhisperKit,
-        options: DecodingOptions?
-    ) async throws -> String {
-        guard !samples.isEmpty else { return "" }
+    // MARK: - Offline transcription (eval harness)
 
-        var effectiveOptions = options ?? DecodingOptions(task: .transcribe)
-        let logConfidence = UserDefaults.standard.bool(forKey: Self.confidenceLoggingKey)
-        if logConfidence {
-            effectiveOptions.wordTimestamps = true
+    /// Runs the stop-time decode on a recorded buffer, exactly as
+    /// `stopStreamTranscription` would for a live session whose preview
+    /// produced `previewText`. Never touches an active session's state.
+    public func transcribeOffline(samples: [Float], previewText: String) async throws -> FinalTranscript {
+        guard modelReady, let whisperKit else { throw TranscriptionError.modelNotReady }
+        guard let tokenizer = whisperKit.tokenizer else {
+            throw TranscriptionError.transcriptionFailed("Tokenizer not available")
         }
-
-        let decodeStart = Date()
-        let results = try await whisperKit.transcribe(
-            audioArray: samples,
-            decodeOptions: effectiveOptions
+        return await finalDecode(
+            samples: samples,
+            previewText: previewText,
+            baseOptions: baseFinalOptions(tokenizer: tokenizer)
         )
-        traceStream("decode: \(String(format: "%.1f", Double(samples.count) / Double(Self.sampleRate)))s audio in \(msSince(decodeStart))ms (promptTokens=\(effectiveOptions.promptTokens?.count ?? 0), wordTimestamps=\(logConfidence))")
+    }
 
-        if logConfidence {
-            let words = results.flatMap(\.segments).compactMap(\.words).flatMap { $0 }
-            if !words.isEmpty {
-                let line = words
-                    .map { "[\(String(format: "%.2f", $0.probability))]\($0.word.trimmingCharacters(in: .whitespaces))" }
-                    .joined(separator: " ")
-                let mean = words.map(\.probability).reduce(0, +) / Float(words.count)
-                traceStream("confidence: mean=\(String(format: "%.2f", mean)) \(line)")
-            }
-        }
-
-        return results.map(\.text)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    /// A promptless whole-buffer decode with the streaming preview's options.
+    /// Offline stand-in for the live preview text that feeds term ranking.
+    public func previewTranscript(samples: [Float]) async throws -> String {
+        guard modelReady, let whisperKit else { throw TranscriptionError.modelNotReady }
+        guard samples.count >= FinalTranscriber.minSamples else { return "" }
+        let results = try await whisperKit.transcribe(audioArray: samples, decodeOptions: previewOptions())
+        return Self.stripNoiseTokens(from: results.map(\.text).joined(separator: " "))
     }
 
     /// Abandon the in-flight session with no output: no whole-buffer decode,
@@ -515,6 +576,7 @@ public actor StreamingTranscriptionService {
         await streamTranscriber?.stopStreamTranscription()
         try? await sessionTask?.value
         activeProcessor?.purgeAudioSamples(keepingLast: 0)
+        retainedSession = nil
         streamTranscriber = nil
         interimCallback = nil
         lastTranscriberState = nil

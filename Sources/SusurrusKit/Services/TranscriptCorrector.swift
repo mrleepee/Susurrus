@@ -189,7 +189,8 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                 }
             } else if candidateNorm.count >= Self.minFuzzyLength,
                       !vocabTermsLowercased.contains(original.lowercased()),
-                      !(isSingleWord && CommonWords.contains(candidateNorm)) {
+                      !(isSingleWord && CommonWords.containsOrInflection(candidateNorm)),
+                      !(isSingleWord && Self.followsNameModifier(window, tokens: tokens, in: text)) {
                 // Fuzzy: phonetic key, length, and edit distance must all be close.
                 var best: (candidate: VocabCandidate, distance: Int)?
                 for candidate in fuzzyCandidates where Self.isFuzzyMatch(candidateNorm, candidate.normalized) {
@@ -249,6 +250,7 @@ public struct TranscriptCorrector: TranscriptCorrecting {
         let words: [String]
         let range: Range<String.Index>
         let span: Range<Int>
+        let tokenIndex: Int  // index of the window's first token
     }
 
     private struct Replacement {
@@ -274,6 +276,23 @@ public struct TranscriptCorrector: TranscriptCorrecting {
         }
     }
 
+    /// Whether the word before `window` is a name or acronym modifier ("CTS
+    /// query", "Cypher query"), making the window's word a compound head noun
+    /// rather than a misspelling. Modifier = all-caps (2+ letters, sentence
+    /// start or not), or capitalised and not sentence-initial.
+    private static func followsNameModifier(_ window: Window, tokens: [WordToken], in text: String) -> Bool {
+        guard window.tokenIndex > 0 else { return false }
+        let previous = tokens[window.tokenIndex - 1]
+        let word = previous.word
+        if word.count >= 2, word.contains(where: \.isLetter), word == word.uppercased() {
+            return true
+        }
+        guard word.first?.isUppercase == true else { return false }
+        let before = text[..<previous.range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = before.last else { return false }
+        return !".?!".contains(last)
+    }
+
     /// All n-gram windows, widest first, whose words are separated by
     /// whitespace only (never across punctuation).
     private static func windows(over tokens: [WordToken], in text: String) -> [Window] {
@@ -294,7 +313,8 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                 result.append(Window(
                     words: slice.map(\.word),
                     range: first.range.lowerBound..<last.range.upperBound,
-                    span: first.span.lowerBound..<last.span.upperBound
+                    span: first.span.lowerBound..<last.span.upperBound,
+                    tokenIndex: start
                 ))
             }
         }

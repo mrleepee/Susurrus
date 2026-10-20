@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .executable(name: "Susurrus", targets: ["Susurrus"]),
         .library(name: "SusurrusKit", targets: ["SusurrusKit"]),
+        .executable(name: "susurrus-eval", targets: ["SusurrusEval"]),
     ],
     dependencies: [
         // WhisperKit added for Phase 3 (on-device transcription)
@@ -21,6 +22,14 @@ let package = Package(
             name: "SusurrusKit",
             dependencies: [
                 // WhisperKit linked for Phase 3
+                .product(name: "WhisperKit", package: "WhisperKit"),
+            ]
+        ),
+        // Offline accuracy harness — see docs/transcription-quality-plan.md.
+        .executableTarget(
+            name: "SusurrusEval",
+            dependencies: [
+                "SusurrusKit",
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ]
         ),

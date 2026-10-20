@@ -1,0 +1,31 @@
+{
+  "snapshotDate": "2026-10-15T00:00:00Z",
+  "entries": [
+    {"id": "8B3E8B71-134A-4F2F-AD0D-FA831C3B460E", "term": "MarkLogic", "category": "technical", "useCount": 60, "fixCount": 2},
+    {"id": "BC250968-6099-47E3-BFE9-07ABA398CBB3", "term": "XQuery", "category": "technical", "useCount": 48, "fixCount": 3},
+    {"id": "B6D80357-D0A9-4864-A43A-8FBDC7A6539F", "term": "SPARQL", "category": "technical", "useCount": 22},
+    {"id": "959351AF-74E2-483D-8C48-4AE658E5CE0E", "term": "CoRB", "category": "technical", "useCount": 17, "fixCount": 1},
+    {"id": "E3773620-2FE9-42AC-8DE8-E3B54FBD0D83", "term": "CTS", "category": "acronym", "useCount": 12},
+    {"id": "F626D7A7-5B78-4EBC-A1C3-92C61E767A62", "term": "StarRocks", "category": "technical", "useCount": 9, "fixCount": 1},
+    {"id": "4977E12A-10BF-416C-9264-74B1D699BF4D", "term": "Wrangler", "category": "technical", "useCount": 14},
+    {"id": "2E93E2FB-C2AF-467D-81C8-5BFAFC0E454E", "term": "Frankendoc", "category": "technical", "useCount": 6},
+    {"id": "64A8EA4F-8CD6-45D5-859A-CD8D05231648", "term": "SciFinder", "category": "product", "useCount": 4},
+    {"id": "56CB3F7C-F4D3-4200-ACB9-D2317A56F596", "term": "Datavid", "category": "company", "useCount": 7},
+    {"id": "6C70591A-AC0D-4435-8DB4-68C99D51E363", "term": "URIs", "category": "technical", "useCount": 19, "fixCount": 2},
+    {"id": "EF7C5E5D-43A0-4341-A3B9-F549E30A80A9", "term": "SAAS", "category": "acronym", "useCount": 11},
+    {"id": "BF82E8B7-C37B-402D-90F4-9CC284A734B2", "term": "QA", "category": "acronym", "useCount": 26},
+    {"id": "A8B42A58-67CF-4ECA-AF9F-156468E95D55", "term": "XDBC", "category": "acronym", "useCount": 8},
+    {"id": "5B452773-A4AC-4201-B8DD-66862788391E", "term": "dev-full", "category": "technical", "useCount": 31},
+    {"id": "FEEDD305-2CF3-412F-9A87-01B1D32131F3", "term": "Balvinder", "category": "person", "useCount": 37, "fixCount": 4},
+    {"id": "4B5F57AD-F4B5-4EC5-A83E-ED5A4197688F", "term": "Jayendra", "category": "person", "useCount": 21},
+    {"id": "3740C77D-F27E-4D0C-9054-862854A1C33B", "term": "Harnadh", "category": "person", "useCount": 15},
+    {"id": "2AEFDF9C-BE83-40D0-9A8B-7026411C8A68", "term": "Abhishek", "category": "person", "useCount": 10},
+    {"id": "95312C32-3640-41AD-B091-2F25DE1279B4", "term": "Rodney", "category": "person", "useCount": 13},
+    {"id": "0E81ADA2-0947-4296-8679-34D4E31EFE64", "term": "Divya", "category": "person", "useCount": 3},
+    {"id": "6738BD8D-34B0-4334-9C91-D1402FB80855", "term": "Posthog", "category": "product", "useCount": 2},
+    {"id": "06D2FEFD-9319-4AC0-985B-9D330E63C1E7", "term": "Cypher", "category": "technical", "useCount": 1},
+    {"id": "6442C4A4-0C54-43B2-AA4D-EB23227AF565", "term": "Schengen", "category": "place", "useCount": 1}
+  ],
+  "rules": [],
+  "contextTerms": ["Rodney", "CTS", "StarRocks"]
+}
