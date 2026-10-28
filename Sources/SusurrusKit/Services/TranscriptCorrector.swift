@@ -347,10 +347,9 @@ public struct TranscriptCorrector: TranscriptCorrecting {
 
     /// Compact phonetic key over a normalized (lowercase alnum) string:
     /// maps confusable consonants together, drops vowels after the first
-    /// character and non-rhotic r's, collapses runs. "sparql" and "sparkle"
-    /// both → "spkl"; "balvinder" and "belvinda" both → "blvnd".
+    /// character, collapses runs. "sparql" and "sparkle" both → "sprkl".
     static func phoneticKey(_ normalized: String) -> String {
-        let mapped = droppingNonRhoticR(normalized).replacingOccurrences(of: "ph", with: "f")
+        let mapped = normalized.replacingOccurrences(of: "ph", with: "f")
         let consonantMap: [Character: Character] = ["q": "k", "c": "k", "z": "s", "x": "k"]
         var out: [Character] = []
         for (i, ch) in mapped.enumerated() {
@@ -372,7 +371,9 @@ public struct TranscriptCorrector: TranscriptCorrecting {
     static func isFuzzyMatch(_ a: String, _ b: String) -> Bool {
         guard a.count >= minFuzzyLength, b.count >= minFuzzyLength else { return false }
         guard abs(a.count - b.count) <= maxFuzzyLengthDiff else { return false }
-        guard phoneticKey(a) == phoneticKey(b) else { return false }
+        guard phoneticKey(a) == phoneticKey(b)
+            || phoneticKey(droppingNonRhoticR(a)) == phoneticKey(droppingNonRhoticR(b))
+        else { return false }
         let ratio = Double(fuzzyDistance(a, b)) / Double(max(a.count, b.count))
         return ratio <= maxFuzzyRatio
     }

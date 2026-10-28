@@ -247,8 +247,10 @@ struct TranscriptCorrectorTests {
         #expect(TranscriptCorrector.phoneticKey("sparql") == TranscriptCorrector.phoneticKey("sparkle"))
         #expect(TranscriptCorrector.phoneticKey("susurrus") == TranscriptCorrector.phoneticKey("susurus"))
         #expect(TranscriptCorrector.phoneticKey("marklogic") != TranscriptCorrector.phoneticKey("markdown"))
-        #expect(TranscriptCorrector.phoneticKey("balvinder") == TranscriptCorrector.phoneticKey("belvinda"))
-        #expect(TranscriptCorrector.phoneticKey("harnadh") == TranscriptCorrector.phoneticKey("hanad"))
+        #expect(TranscriptCorrector.isFuzzyMatch("belvinda", "balvinder"))
+        #expect(TranscriptCorrector.isFuzzyMatch("hanad", "harnadh"))
+        // Plain keys still match when only one side has a droppable r.
+        #expect(TranscriptCorrector.isFuzzyMatch("harandh", "harnadh"))
     }
 
     @Test("Non-rhotic r: dropped after a vowel unless a vowel follows")
