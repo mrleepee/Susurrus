@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreML
 import Foundation
 @preconcurrency import WhisperKit
@@ -21,6 +21,12 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     private var inner: any AudioProcessing
     private let preferredDeviceID: DeviceID?
 
+    /// Observer for the live engine's configuration-change notification.
+    /// Guarded by `observerLock` — set on the transcriber's executor, read
+    /// on whatever thread stops recording.
+    private var configObserver: NSObjectProtocol?
+    private let observerLock = NSLock()
+
     /// - Parameters:
     ///   - preferredDeviceID: Device ID to substitute when callers pass `nil`. If `nil`,
     ///     the wrapper is effectively transparent.
@@ -39,6 +45,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     ) throws {
         let resolved = preferredDeviceID ?? inputDeviceID
         try inner.startRecordingLive(inputDeviceID: resolved, callback: callback)
+        observeEngineConfigurationChanges()
     }
 
     func resumeRecordingLive(
@@ -47,6 +54,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     ) throws {
         let resolved = preferredDeviceID ?? inputDeviceID
         try inner.resumeRecordingLive(inputDeviceID: resolved, callback: callback)
+        observeEngineConfigurationChanges()
     }
 
     func startStreamingRecordingLive(
@@ -72,7 +80,48 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     }
 
     func pauseRecording() { inner.pauseRecording() }
-    func stopRecording() { inner.stopRecording() }
+
+    func stopRecording() {
+        removeConfigurationObserver()
+        inner.stopRecording()
+    }
+
+    // MARK: - Route-change recovery
+
+    /// AVAudioEngine stops itself when the audio hardware configuration
+    /// changes — e.g. a Bluetooth speaker connecting or the user switching
+    /// output in the Sound menu mid-dictation. WhisperKit doesn't listen for
+    /// this, so the session silently records nothing from then on. Restart
+    /// the engine: the input device is pinned, so the existing tap and
+    /// converter stay valid.
+    private func observeEngineConfigurationChanges() {
+        guard let engine = (inner as? AudioProcessor)?.audioEngine else { return }
+        removeConfigurationObserver()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak engine] _ in
+            guard let engine, !engine.isRunning else { return }
+            do {
+                try engine.start()
+                traceDeviceProcessor("engine configuration changed — restarted capture")
+            } catch {
+                traceDeviceProcessor("engine configuration changed — restart FAILED: \(error)")
+            }
+        }
+        observerLock.lock()
+        configObserver = observer
+        observerLock.unlock()
+    }
+
+    private func removeConfigurationObserver() {
+        observerLock.lock()
+        let observer = configObserver
+        configObserver = nil
+        observerLock.unlock()
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
 
     func padOrTrim(
         fromArray audioArray: [Float],
@@ -119,5 +168,18 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
             toLength: frameLength,
             saveSegment: saveSegment
         )
+    }
+}
+
+/// Writes to ~/susurrus_debug.log — same sink as traceApp() in the app layer.
+private func traceDeviceProcessor(_ message: String) {
+    let path = NSHomeDirectory() + "/susurrus_debug.log"
+    let line = "\(Date()) [audio] \(message)\n"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(Data(line.utf8))
+        handle.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: Data(line.utf8))
     }
 }

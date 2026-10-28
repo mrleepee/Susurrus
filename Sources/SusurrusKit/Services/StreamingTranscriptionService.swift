@@ -107,6 +107,11 @@ public actor StreamingTranscriptionService {
     /// decode pass instead of racing it for the ANE.
     private var sessionTask: Task<Void, Error>?
 
+    /// Bumped at every session start. State callbacks carry the generation
+    /// they were created under, so a transcriber that outlived its session
+    /// can never write its text into a newer one.
+    private var sessionGeneration = 0
+
     // MARK: - Init
 
     public init() {}
@@ -159,8 +164,32 @@ public actor StreamingTranscriptionService {
         )
         traceStream("setupModel: '\(modelName)' prewarmed in \(msSince(warmStart))ms")
 
+        // A session running on the old kit would keep recording forever
+        // once its reference is replaced — stop it first.
+        await tearDownActiveSession(reason: "model swap")
         self.whisperKit = kit
         modelReady = true
+    }
+
+    /// Stops a still-running session's capture and realtime loop. Dropping
+    /// the `streamTranscriber` reference alone does NOT stop it: the loop
+    /// keeps the microphone open in the background, starves later sessions
+    /// of audio, and keeps feeding its transcript into `lastTranscriberState`.
+    private func tearDownActiveSession(reason: String) async {
+        guard let transcriber = streamTranscriber else { return }
+        traceStream("teardown (\(reason)): stopping orphaned session")
+        sessionGeneration += 1
+        await transcriber.stopStreamTranscription()
+        sessionTask?.cancel()
+        activeProcessor?.stopRecording()
+        activeProcessor?.purgeAudioSamples(keepingLast: 0)
+        streamTranscriber = nil
+        interimCallback = nil
+        lastTranscriberState = nil
+        finalTextEmitted = false
+        activeProcessor = nil
+        activeDecodingOptions = nil
+        sessionTask = nil
     }
 
     /// Run a small inference to keep the model's ANE context resident. Call
@@ -186,8 +215,8 @@ public actor StreamingTranscriptionService {
     }
 
     /// Unload the model and stop any active stream.
-    public func unloadModel() {
-        streamTranscriber = nil
+    public func unloadModel() async {
+        await tearDownActiveSession(reason: "model unload")
         whisperKit = nil
         modelReady = false
         lastTranscriberState = nil
@@ -251,6 +280,10 @@ public actor StreamingTranscriptionService {
             throw TranscriptionError.transcriptionFailed("Tokenizer not available")
         }
 
+        await tearDownActiveSession(reason: "new session started")
+
+        sessionGeneration += 1
+        let generation = sessionGeneration
         self.interimCallback = callback
         self.lastTranscriberState = nil
         self.finalTextEmitted = false
@@ -313,7 +346,7 @@ public actor StreamingTranscriptionService {
             compressionCheckWindow: 60,
             useVAD: true,
             stateChangeCallback: { [weak self] oldState, newState in
-                self?.enqueueStateChange(oldState: oldState, newState: newState)
+                self?.enqueueStateChange(generation: generation, oldState: oldState, newState: newState)
             }
         )
 
@@ -530,18 +563,21 @@ public actor StreamingTranscriptionService {
     /// captures the state, and re-dispatches to this actor for processing.
     /// Named explicitly to clarify it does NOT run on MainActor.
     private nonisolated func enqueueStateChange(
+        generation: Int,
         oldState: AudioStreamTranscriber.State,
         newState: AudioStreamTranscriber.State
     ) {
         Task {
-            await handleStateChange(oldState: oldState, newState: newState)
+            await handleStateChange(generation: generation, oldState: oldState, newState: newState)
         }
     }
 
     private func handleStateChange(
+        generation: Int,
         oldState: AudioStreamTranscriber.State,
         newState: AudioStreamTranscriber.State
     ) {
+        guard generation == sessionGeneration else { return }
         // Always capture the latest state for stopStreamTranscription() to read
         lastTranscriberState = newState
 

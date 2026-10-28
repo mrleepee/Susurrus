@@ -107,4 +107,44 @@ struct AudioDeviceServiceTests {
         #expect(AudioDeviceResolution.unavailable(requestedName: "X") == .unavailable(requestedName: "X"))
         #expect(AudioDeviceResolution.systemDefault != .unavailable(requestedName: "X"))
     }
+
+    // MARK: - sessionDefaultInput
+
+    private func makeRoutingService(defaultID: UInt32?) -> AudioDeviceService {
+        let list = fixtureDevices
+        return AudioDeviceService(
+            devicesProvider: { list },
+            defaultInputProvider: { defaultID },
+            isBluetooth: { $0 == 73 },
+            isBuiltIn: { $0 == 91 }
+        )
+    }
+
+    @Test("sessionDefaultInput returns the system default when it isn't Bluetooth")
+    func sessionDefaultKeepsWiredDefault() {
+        #expect(makeRoutingService(defaultID: 42).sessionDefaultInput()?.id == 42)
+    }
+
+    @Test("sessionDefaultInput skips a Bluetooth default for the built-in mic")
+    func sessionDefaultSkipsBluetooth() {
+        #expect(makeRoutingService(defaultID: 73).sessionDefaultInput()?.id == 91)
+    }
+
+    @Test("sessionDefaultInput keeps a Bluetooth default when there is no built-in mic")
+    func sessionDefaultKeepsBluetoothWithoutBuiltIn() {
+        let list = fixtureDevices.filter { $0.id != 91 }
+        let service = AudioDeviceService(
+            devicesProvider: { list },
+            defaultInputProvider: { 73 },
+            isBluetooth: { $0 == 73 },
+            isBuiltIn: { $0 == 91 }
+        )
+        #expect(service.sessionDefaultInput()?.id == 73)
+    }
+
+    @Test("sessionDefaultInput is nil when the default isn't a listed input")
+    func sessionDefaultNilWhenUnknown() {
+        #expect(makeRoutingService(defaultID: nil).sessionDefaultInput() == nil)
+        #expect(makeRoutingService(defaultID: 999).sessionDefaultInput() == nil)
+    }
 }

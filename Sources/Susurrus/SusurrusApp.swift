@@ -643,7 +643,7 @@ struct SusurrusApp: App {
         // `resolvedDeviceID` is nil and streaming uses the system default.
         let preferredName = preferences.selectedInputDeviceName()
         let resolution = audioDeviceService.resolve(preferredName: preferredName)
-        let resolvedDeviceID: UInt32?
+        var resolvedDeviceID: UInt32?
         switch resolution {
         case .specific(let id, let name):
             traceApp("startStreamingSession: routing to device '\(name)' (id \(id))")
@@ -657,6 +657,16 @@ struct SusurrusApp: App {
                 body: "'\(requestedName)' is unavailable. Using the system default input."
             )
             resolvedDeviceID = nil
+        }
+        // Pin "system default" to a concrete device at session start, so
+        // capture always runs on a fresh processor bound to the device that
+        // is current now, and a Bluetooth mic that hijacked the default is
+        // skipped (see AudioDeviceService.sessionDefaultInput).
+        if resolvedDeviceID == nil, let input = audioDeviceService.sessionDefaultInput() {
+            let systemDefault = AudioDeviceService.systemDefaultInputID()
+            let note = input.id == systemDefault ? "system default" : "skipping Bluetooth default \(systemDefault.map(String.init) ?? "?")"
+            traceApp("startStreamingSession: routing to '\(input.name)' (id \(input.id), \(note))")
+            resolvedDeviceID = input.id
         }
 
         // Capture reference types only for the streaming Task
