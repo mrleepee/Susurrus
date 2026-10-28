@@ -7,11 +7,13 @@ Susurrus is a macOS menu bar app for streaming voice transcription using Whisper
 ## Common Commands
 
 ```bash
-swift build          # Build debug binary
+swift build          # Build debug binary (run `make deps` once first in a fresh checkout or worktree — see below)
+make deps            # Resolve packages and apply patches/*.patch to them (every make build target runs it)
 make dev             # Build and run debug binary directly (shows stdout/stderr in terminal)
 make build           # Build release .app bundle
 make install         # Install to /Applications
 swift test           # Run tests (currently blocked — test files use Swift Testing which isn't in toolchain)
+make eval            # Score the golden audio set against the committed baseline (accuracy gate; see docs/eval-harness.md)
 ```
 
 ## Development Workflow
@@ -22,10 +24,13 @@ swift test           # Run tests (currently blocked — test files use Swift Tes
 3. Run in dev mode: `make dev`
 4. Check debug log: `cat ~/susurrus_debug.log`
 5. Test the fix interactively before moving on
+6. For any change that can affect transcription accuracy (decoding, prompt, chunking, corrector), run `make eval` — it needs no microphone and gates WER, vocabulary hits, dropped/invented phrases and silence hallucinations
 
 The `make dev` target runs the debug binary directly from `.build/debug/` with stdout visible — much faster than building an .app bundle and essential for catching runtime errors.
 
 **TCC permissions caveat:** the bare debug binary is ad-hoc signed, so its code hash changes on every rebuild and macOS silently revokes Accessibility/Microphone/Automation grants each time. To test anything permission-dependent (auto-paste, mic capture, media pause), use `make install` + `make launch` — the bundle is signed with a stable identity (see `SIGN_IDENTITY` in the Makefile) so grants persist across rebuilds.
+
+**Patched dependency:** `patches/whisperkit-record-permission.patch` fixes a WhisperKit crash on macOS 26 (SIGBUS resuming the async mic-permission continuation on every dictation start). `swift package resolve` checks WhisperKit out unpatched, so build through `make` (or run `make deps` after any resolve). `Package.resolved` is committed so every checkout gets the WhisperKit version the patch and the eval baseline were made against.
 
 ## Architecture
 

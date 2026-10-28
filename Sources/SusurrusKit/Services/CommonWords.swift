@@ -10,6 +10,31 @@ enum CommonWords {
         top.contains(normalizedWord) || domainStoplist.contains(normalizedWord)
     }
 
+    /// `contains`, plus regular inflections of `top` words (-s, -es, -ed,
+    /// -ing, -ies→-y): "says"→"say", "asked"→"ask", "tries"→"try". Only the
+    /// corrector's fuzzy pass uses this ("says" must never become "SAAS");
+    /// exact recasing ("ids"→"IDs") and the learning guards keep `contains`.
+    static func containsOrInflection(_ normalizedWord: String) -> Bool {
+        contains(normalizedWord) || isInflectedTopWord(normalizedWord)
+    }
+
+    /// Whether stripping a regular inflection leaves a `top` word. Only
+    /// `top` is consulted for the stem, never `domainStoplist`, and stems
+    /// shorter than 2 characters never count.
+    private static func isInflectedTopWord(_ word: String) -> Bool {
+        inflectionStems(of: word).contains { $0.count >= 2 && top.contains($0) }
+    }
+
+    private static func inflectionStems(of word: String) -> [String] {
+        var stems: [String] = []
+        if word.hasSuffix("ies") { stems.append(String(word.dropLast(3)) + "y") }
+        if word.hasSuffix("es") { stems.append(String(word.dropLast(2))) }
+        if word.hasSuffix("s") { stems.append(String(word.dropLast(1))) }
+        if word.hasSuffix("ed") { stems.append(String(word.dropLast(2))) }
+        if word.hasSuffix("ing") { stems.append(String(word.dropLast(3))) }
+        return stems
+    }
+
     /// Short, common-English fragments of the seed vocabulary's multi-word
     /// terms (MarkLogic, CoRB, SPARQL, Datavid, Trust Signals). Kept separate
     /// from `top` so the frequency list stays a real frequency list: this is
