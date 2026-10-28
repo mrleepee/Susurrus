@@ -326,6 +326,42 @@ the read set, M2 Pro with the app idle in the background.
 - `susurrus-eval download --model <variant>` fetches a WhisperKit model into
   the app's model folder (`--list` shows what is there).
 
+## Parakeet and pause trimming — 2026-10-28
+
+In real use large-v3 added words at pauses ("you", "thank you"). The
+user's dictations run about 100 s for about 100 words, so they're mostly
+thinking pauses, and the read set has almost none. To reproduce this,
+`scripts/asr-bakeoff/make_paused.py` builds a copy of a corpus with up to
+4 natural pauses per clip stretched to 6–8 s of the clip's own room tone.
+On that copy every engine invents words: large-v3 "thank you", small
+"so so so", Parakeet loops ("put it in put it in…").
+
+The fix is to cut long pauses before the model sees them: Silero VAD finds
+the speech, and each gap over 0.6 s is cut to 0.3 s of room tone either
+side (`ParakeetTranscriber.squeezePauses`). Results on the pause-stretched
+read set (`scripts/asr-bakeoff/score.py`; Parakeet through the app's own
+path with `susurrus-eval run`, model `parakeet-v2`):
+
+| Engine | WER | Formatting errors | Terms | Wait for ~1 min of speech |
+|---|---|---|---|---|
+| small, prompt (old default) | 9.6% | 15.8% | 52/72 | 4.1 s |
+| large-v3, no prompt | 5.7% | 12.7% | 49/72 | 13.9 s |
+| Parakeet v2 + VAD squeeze + corrector | 5.0% | 9.2% | 49/71 | 0.3 s |
+
+- On the plain read set, Parakeet scores 4.6% against large-v3's 4.3%.
+- FluidAudio's CTC vocabulary boost for Parakeet gets more terms (64/72)
+  but put a term where it wasn't said 14 times ("stays" → SAAS, "change"
+  → Schengen, "sender" → SciFinder). It's off; the corrector handles
+  vocabulary.
+- Apple's on-device recognizers (macOS 26 `DictationTranscriber` and
+  `SpeechTranscriber`, with or without contextual strings) scored 11–16%
+  WER and 16–30 of 72 terms.
+- `susurrus-eval finalize` runs another engine's transcripts through the
+  app's corrector so bake-off runs compare like for like.
+
+Parakeet is the model picker's "Parakeet v2 (NVIDIA)". Whisper Small still
+records and drives the live preview, and is the fallback if Parakeet fails.
+
 ## large-v3 latency and the unspoken r — 2026-10-28
 
 The user chose accuracy over speed and switched to large-v3 (no prompt).
