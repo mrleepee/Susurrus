@@ -194,7 +194,7 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                 // Fuzzy: phonetic key, length, and edit distance must all be close.
                 var best: (candidate: VocabCandidate, distance: Int)?
                 for candidate in fuzzyCandidates where Self.isFuzzyMatch(candidateNorm, candidate.normalized) {
-                    let distance = Self.damerauLevenshtein(candidateNorm, candidate.normalized)
+                    let distance = Self.fuzzyDistance(candidateNorm, candidate.normalized)
                     if distance < (best?.distance ?? .max) {
                         best = (candidate, distance)
                     }
@@ -347,9 +347,10 @@ public struct TranscriptCorrector: TranscriptCorrecting {
 
     /// Compact phonetic key over a normalized (lowercase alnum) string:
     /// maps confusable consonants together, drops vowels after the first
-    /// character, collapses runs. "sparql" and "sparkle" both → "sprkl".
+    /// character and non-rhotic r's, collapses runs. "sparql" and "sparkle"
+    /// both → "spkl"; "balvinder" and "belvinda" both → "blvnd".
     static func phoneticKey(_ normalized: String) -> String {
-        let mapped = normalized.replacingOccurrences(of: "ph", with: "f")
+        let mapped = droppingNonRhoticR(normalized).replacingOccurrences(of: "ph", with: "f")
         let consonantMap: [Character: Character] = ["q": "k", "c": "k", "z": "s", "x": "k"]
         var out: [Character] = []
         for (i, ch) in mapped.enumerated() {
@@ -372,9 +373,41 @@ public struct TranscriptCorrector: TranscriptCorrecting {
         guard a.count >= minFuzzyLength, b.count >= minFuzzyLength else { return false }
         guard abs(a.count - b.count) <= maxFuzzyLengthDiff else { return false }
         guard phoneticKey(a) == phoneticKey(b) else { return false }
-        let distance = damerauLevenshtein(a, b)
-        let ratio = Double(distance) / Double(max(a.count, b.count))
+        let ratio = Double(fuzzyDistance(a, b)) / Double(max(a.count, b.count))
         return ratio <= maxFuzzyRatio
+    }
+
+    /// Edit distance for fuzzy matching: the smaller of the plain distance
+    /// and the distance with non-rhotic r's dropped from both sides, so an
+    /// unspoken r costs nothing ("hanad" vs "harnadh" is 1, not 2). Short
+    /// words get the plain distance only: "base" is one edit from "bashe"
+    /// ("Basher" without its r) but is never a misheard "Basher".
+    static func fuzzyDistance(_ a: String, _ b: String) -> Int {
+        let plain = damerauLevenshtein(a, b)
+        guard min(a.count, b.count) >= minNonRhoticLength else { return plain }
+        return min(plain, damerauLevenshtein(droppingNonRhoticR(a), droppingNonRhoticR(b)))
+    }
+
+    /// Both strings need at least this many characters before an unspoken
+    /// r is forgiven in `fuzzyDistance`.
+    static let minNonRhoticLength = 5
+
+    /// Drops each "r" that follows a vowel and isn't followed by one. In a
+    /// non-rhotic (e.g. British) accent that r isn't spoken, so Whisper
+    /// writes "Balvinder" as "Belvinda" and "Harnadh" as "Hanad".
+    static func droppingNonRhoticR(_ normalized: String) -> String {
+        let vowels: Set<Character> = ["a", "e", "i", "o", "u", "y"]
+        let chars = Array(normalized)
+        var out: [Character] = []
+        out.reserveCapacity(chars.count)
+        for (i, ch) in chars.enumerated() {
+            if ch == "r", i > 0, vowels.contains(chars[i - 1]),
+               i + 1 == chars.count || !vowels.contains(chars[i + 1]) {
+                continue
+            }
+            out.append(ch)
+        }
+        return String(out)
     }
 
     /// Damerau-Levenshtein (optimal string alignment) distance.
