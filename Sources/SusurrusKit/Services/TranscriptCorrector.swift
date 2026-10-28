@@ -189,11 +189,12 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                 }
             } else if candidateNorm.count >= Self.minFuzzyLength,
                       !vocabTermsLowercased.contains(original.lowercased()),
-                      !(isSingleWord && CommonWords.contains(candidateNorm)) {
+                      !(isSingleWord && CommonWords.containsOrInflection(candidateNorm)),
+                      !(isSingleWord && Self.followsNameModifier(window, tokens: tokens, in: text)) {
                 // Fuzzy: phonetic key, length, and edit distance must all be close.
                 var best: (candidate: VocabCandidate, distance: Int)?
                 for candidate in fuzzyCandidates where Self.isFuzzyMatch(candidateNorm, candidate.normalized) {
-                    let distance = Self.damerauLevenshtein(candidateNorm, candidate.normalized)
+                    let distance = Self.fuzzyDistance(candidateNorm, candidate.normalized)
                     if distance < (best?.distance ?? .max) {
                         best = (candidate, distance)
                     }
@@ -249,6 +250,7 @@ public struct TranscriptCorrector: TranscriptCorrecting {
         let words: [String]
         let range: Range<String.Index>
         let span: Range<Int>
+        let tokenIndex: Int  // index of the window's first token
     }
 
     private struct Replacement {
@@ -274,6 +276,23 @@ public struct TranscriptCorrector: TranscriptCorrecting {
         }
     }
 
+    /// Whether the word before `window` is a name or acronym modifier ("CTS
+    /// query", "Cypher query"), making the window's word a compound head noun
+    /// rather than a misspelling. Modifier = all-caps (2+ letters, sentence
+    /// start or not), or capitalised and not sentence-initial.
+    private static func followsNameModifier(_ window: Window, tokens: [WordToken], in text: String) -> Bool {
+        guard window.tokenIndex > 0 else { return false }
+        let previous = tokens[window.tokenIndex - 1]
+        let word = previous.word
+        if word.count >= 2, word.contains(where: \.isLetter), word == word.uppercased() {
+            return true
+        }
+        guard word.first?.isUppercase == true else { return false }
+        let before = text[..<previous.range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = before.last else { return false }
+        return !".?!".contains(last)
+    }
+
     /// All n-gram windows, widest first, whose words are separated by
     /// whitespace only (never across punctuation).
     private static func windows(over tokens: [WordToken], in text: String) -> [Window] {
@@ -294,7 +313,8 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                 result.append(Window(
                     words: slice.map(\.word),
                     range: first.range.lowerBound..<last.range.upperBound,
-                    span: first.span.lowerBound..<last.span.upperBound
+                    span: first.span.lowerBound..<last.span.upperBound,
+                    tokenIndex: start
                 ))
             }
         }
@@ -351,10 +371,44 @@ public struct TranscriptCorrector: TranscriptCorrecting {
     static func isFuzzyMatch(_ a: String, _ b: String) -> Bool {
         guard a.count >= minFuzzyLength, b.count >= minFuzzyLength else { return false }
         guard abs(a.count - b.count) <= maxFuzzyLengthDiff else { return false }
-        guard phoneticKey(a) == phoneticKey(b) else { return false }
-        let distance = damerauLevenshtein(a, b)
-        let ratio = Double(distance) / Double(max(a.count, b.count))
+        guard phoneticKey(a) == phoneticKey(b)
+            || phoneticKey(droppingNonRhoticR(a)) == phoneticKey(droppingNonRhoticR(b))
+        else { return false }
+        let ratio = Double(fuzzyDistance(a, b)) / Double(max(a.count, b.count))
         return ratio <= maxFuzzyRatio
+    }
+
+    /// Edit distance for fuzzy matching: the smaller of the plain distance
+    /// and the distance with non-rhotic r's dropped from both sides, so an
+    /// unspoken r costs nothing ("hanad" vs "harnadh" is 1, not 2). Short
+    /// words get the plain distance only: "base" is one edit from "bashe"
+    /// ("Basher" without its r) but is never a misheard "Basher".
+    static func fuzzyDistance(_ a: String, _ b: String) -> Int {
+        let plain = damerauLevenshtein(a, b)
+        guard min(a.count, b.count) >= minNonRhoticLength else { return plain }
+        return min(plain, damerauLevenshtein(droppingNonRhoticR(a), droppingNonRhoticR(b)))
+    }
+
+    /// Both strings need at least this many characters before an unspoken
+    /// r is forgiven in `fuzzyDistance`.
+    static let minNonRhoticLength = 5
+
+    /// Drops each "r" that follows a vowel and isn't followed by one. In a
+    /// non-rhotic (e.g. British) accent that r isn't spoken, so Whisper
+    /// writes "Balvinder" as "Belvinda" and "Harnadh" as "Hanad".
+    static func droppingNonRhoticR(_ normalized: String) -> String {
+        let vowels: Set<Character> = ["a", "e", "i", "o", "u", "y"]
+        let chars = Array(normalized)
+        var out: [Character] = []
+        out.reserveCapacity(chars.count)
+        for (i, ch) in chars.enumerated() {
+            if ch == "r", i > 0, vowels.contains(chars[i - 1]),
+               i + 1 == chars.count || !vowels.contains(chars[i + 1]) {
+                continue
+            }
+            out.append(ch)
+        }
+        return String(out)
     }
 
     /// Damerau-Levenshtein (optimal string alignment) distance.

@@ -21,7 +21,9 @@ public struct LearningOutcome: Sendable, Equatable {
 public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sendable {
     private let defaults: UserDefaults
     private static let storageKey = "correctionPairs"
-    private static let rulesKey = "correctionRules"
+    /// UserDefaults key for rules. Public for the eval harness snapshot.
+    public static let rulesStorageKey = "correctionRules"
+    private static let rulesKey = rulesStorageKey
     public static let maxPairs = 50
     public static let maxRules = 200
 

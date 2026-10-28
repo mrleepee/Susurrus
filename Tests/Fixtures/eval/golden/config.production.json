@@ -1,0 +1,8 @@
+{
+  "name": "production",
+  "model": "small",
+  "decode": {"chunking": "vad", "concurrentWorkerCount": 4, "maxPromptTokens": 48},
+  "prompt": "ranker",
+  "preview": "decode",
+  "corrector": true
+}

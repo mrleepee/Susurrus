@@ -103,7 +103,7 @@ public struct VocabularyRanker: Sendable {
             guard norm.count >= TranscriptCorrector.minFuzzyLength else { continue }
             var best = Double.infinity
             for (candidateNorm, _) in previewKeys where TranscriptCorrector.isFuzzyMatch(candidateNorm, norm) {
-                let distance = TranscriptCorrector.damerauLevenshtein(candidateNorm, norm)
+                let distance = TranscriptCorrector.fuzzyDistance(candidateNorm, norm)
                 let ratio = Double(distance) / Double(max(candidateNorm.count, norm.count))
                 best = Swift.min(best, ratio)
             }
