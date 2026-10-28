@@ -247,6 +247,48 @@ struct TranscriptCorrectorTests {
         #expect(TranscriptCorrector.phoneticKey("sparql") == TranscriptCorrector.phoneticKey("sparkle"))
         #expect(TranscriptCorrector.phoneticKey("susurrus") == TranscriptCorrector.phoneticKey("susurus"))
         #expect(TranscriptCorrector.phoneticKey("marklogic") != TranscriptCorrector.phoneticKey("markdown"))
+        #expect(TranscriptCorrector.isFuzzyMatch("belvinda", "balvinder"))
+        #expect(TranscriptCorrector.isFuzzyMatch("hanad", "harnadh"))
+        // Plain keys still match when only one side has a droppable r.
+        #expect(TranscriptCorrector.isFuzzyMatch("harandh", "harnadh"))
+    }
+
+    @Test("Non-rhotic r: dropped after a vowel unless a vowel follows")
+    func nonRhoticR() {
+        #expect(TranscriptCorrector.droppingNonRhoticR("balvinder") == "balvinde")
+        #expect(TranscriptCorrector.droppingNonRhoticR("harnadh") == "hanadh")
+        #expect(TranscriptCorrector.droppingNonRhoticR("very") == "very")
+        #expect(TranscriptCorrector.droppingNonRhoticR("brown") == "brown")
+        #expect(TranscriptCorrector.fuzzyDistance("hanad", "harnadh") == 1)
+    }
+
+    @Test("Names whose r isn't spoken are corrected: Belvinda, Hanad")
+    func nonRhoticNames() {
+        let names = vocab([("Balvinder", .person), ("Harnadh", .person)])
+        #expect(corrector.correct("Belvinda has the ops numbers.", vocabulary: names, rules: []).text
+                == "Balvinder has the ops numbers.")
+        #expect(corrector.correct("so Hanad can start the import", vocabulary: names, rules: []).text
+                == "so Harnadh can start the import")
+    }
+
+    @Test("Ordinary words with r's don't become vocabulary terms")
+    func nonRhoticNoFalseFires() {
+        let terms = vocab([("Balvinder", .person), ("Harnadh", .person), ("Rodney", .person),
+                           ("Wrangler", .technical), ("StarRocks", .technical), ("Posthog", .product),
+                           ("Datavid", .company), ("Schengen", .place), ("Cypher", .technical)])
+        let text = "The water order for the hard drives started later than the border report said."
+        let outcome = corrector.correct(text, vocabulary: terms, rules: [])
+        #expect(outcome.text == text)
+        #expect(outcome.changes.isEmpty)
+    }
+
+    @Test("Short words don't get the unspoken-r allowance: base, rash stay")
+    func nonRhoticShortWords() {
+        let terms = vocab([("Basher", .custom), ("Rasher", .custom)])
+        let text = "review the code base for a rash of errors"
+        #expect(corrector.correct(text, vocabulary: terms, rules: []).text == text)
+        #expect(corrector.correct("so that Rasha works the same", vocabulary: terms, rules: []).text
+                == "so that Rasher works the same")
     }
 
     @Test("Damerau-Levenshtein handles transpositions")

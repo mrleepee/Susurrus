@@ -42,6 +42,8 @@ struct PreferencesView: View {
     @State private var importReplaceExisting = false
 
     private let modelOptions: [(id: String, label: String, detail: String)] = [
+        (ParakeetTranscriber.modelID, "Parakeet v2 (NVIDIA)",
+         "Most accurate on your voice, near-instant to finish; Small runs the live preview • ~480MB + Small"),
         ("base", "Base", "Fastest • ~140MB"),
         ("small", "Small", "Recommended: fast, good with your vocabulary • ~464MB"),
         ("medium", "Medium", "Slower • ~770MB"),
@@ -520,7 +522,7 @@ struct PreferencesView: View {
                     modelRow(option)
                 }
             } header: {
-                Text("Whisper Model")
+                Text("Transcription Model")
             } footer: {
                 if !modelDownloadingName.isEmpty {
                     downloadFooter
@@ -779,11 +781,15 @@ struct PreferencesView: View {
             .appendingPathComponent("argmaxinc")
             .appendingPathComponent("whisperkit-coreml")
 
+        var cached = Set<String>()
+        if ParakeetTranscriber.isCached() {
+            cached.insert(ParakeetTranscriber.modelID)
+        }
         guard let contents = try? fm.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil) else {
+            cachedModels = cached
             return
         }
 
-        var cached = Set<String>()
         for url in contents {
             let name = url.lastPathComponent
             // Pattern: openai_whisper-{modelName} or openai_whisper-{modelName}_...

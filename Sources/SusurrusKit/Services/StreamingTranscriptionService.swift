@@ -56,6 +56,9 @@ public actor StreamingTranscriptionService {
 
     private var whisperKit: WhisperKit?
     private var streamTranscriber: AudioStreamTranscriber?
+    /// When set, the stop-time decode uses Parakeet; Whisper still drives
+    /// capture and the live preview, and is the fallback if Parakeet fails.
+    private var parakeet: ParakeetTranscriber?
     private var modelReady = false
 
     /// Stop-time decode settings. Always `.production` in the app; the eval
@@ -146,13 +149,15 @@ public actor StreamingTranscriptionService {
         ),
         onDownloadProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
+        let usesParakeet = ParakeetTranscriber.isParakeet(modelName)
+        let whisperModel = usesParakeet ? ParakeetTranscriber.previewWhisperModel : modelName
         let downloadBase = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first!.appendingPathComponent("Susurrus")
 
         let modelFolder = try await WhisperKit.download(
-            variant: modelName,
+            variant: whisperModel,
             downloadBase: downloadBase,
             progressCallback: { progress in
                 guard progress.totalUnitCount > 0 else { return }
@@ -162,6 +167,21 @@ public actor StreamingTranscriptionService {
         )
 
         try await setupModel(modelFolder: modelFolder.path, computeOptions: computeOptions)
+        if usesParakeet {
+            try await enableParakeet(onDownloadProgress: onDownloadProgress)
+        }
+    }
+
+    /// Switch the stop-time decode to Parakeet (loads it on first use).
+    /// Call after a Whisper model is set up; the eval harness calls it
+    /// directly after `setupModel(modelFolder:)`.
+    public func enableParakeet(onDownloadProgress: (@Sendable (Double) -> Void)? = nil) async throws {
+        let loadStart = Date()
+        let engine = ParakeetTranscriber()
+        try await engine.load(onDownloadProgress: onDownloadProgress)
+        parakeet = engine
+        loadedModelName = ParakeetTranscriber.modelFolderName
+        trace("setupModel: Parakeet loaded and prewarmed in \(msSince(loadStart))ms; final decode uses Parakeet")
     }
 
     /// Load and prewarm a model from a local folder, skipping the download
@@ -174,6 +194,7 @@ public actor StreamingTranscriptionService {
         )
     ) async throws {
         let modelName = URL(fileURLWithPath: modelFolder).lastPathComponent
+        parakeet = nil
         let loadStart = Date()
         let kit = try await WhisperKit(modelFolder: modelFolder, computeOptions: computeOptions)
         trace("setupModel: '\(modelName)' loaded in \(msSince(loadStart))ms")
@@ -206,6 +227,9 @@ public actor StreamingTranscriptionService {
     public func keepWarm() async {
         guard modelReady, let whisperKit else { return }
         let warmStart = Date()
+        if let parakeet {
+            _ = try? await parakeet.transcribe(samples: Self.warmupSamples())
+        }
         do {
             _ = try await whisperKit.transcribe(
                 audioArray: Self.warmupSamples(),
@@ -226,6 +250,7 @@ public actor StreamingTranscriptionService {
     public func unloadModel() {
         streamTranscriber = nil
         whisperKit = nil
+        parakeet = nil
         modelReady = false
         lastTranscriberState = nil
         finalTextEmitted = false
@@ -504,6 +529,12 @@ public actor StreamingTranscriptionService {
     ) async -> FinalTranscript {
         guard let whisperKit else { return .skipped(.failed) }
 
+        if let parakeet {
+            let result = await parakeetDecode(samples: samples, engine: parakeet)
+            if result.outcome != .failed { return result }
+            trace("stop: Parakeet failed (\(result.failure ?? "?")) — falling back to Whisper")
+        }
+
         var options = baseOptions
         var chosen: [String] = []
         if let selector = vocabularySelector, let tokenizer = whisperKit.tokenizer {
@@ -529,6 +560,38 @@ public actor StreamingTranscriptionService {
             promptTerms: chosen,
             wordTimestamps: UserDefaults.standard.bool(forKey: Self.confidenceLoggingKey),
             trace: { [tracingEnabled] in if tracingEnabled { traceStream($0) } }
+        )
+    }
+
+    /// The Parakeet stop-time decode, with the same too-short and silence
+    /// guards as the Whisper path.
+    private func parakeetDecode(samples: [Float], engine: ParakeetTranscriber) async -> FinalTranscript {
+        guard samples.count >= FinalTranscriber.minSamples else { return .skipped(.tooShort) }
+        let seconds = Double(samples.count) / 16_000
+        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+        trace("flush: Parakeet decode of \(String(format: "%.1f", seconds))s (peak \(String(format: "%.3f", peak)))")
+        guard peak >= FinalTranscriber.silencePeak else { return .skipped(.silent) }
+
+        let start = Date()
+        let text: String
+        do {
+            text = try await engine.transcribe(samples: samples)
+        } catch {
+            var failed = FinalTranscript.skipped(.failed)
+            failed.failure = "\(error)"
+            return failed
+        }
+        let ms = msSince(start)
+        trace("decode: \(String(format: "%.1f", seconds))s audio in \(ms)ms (Parakeet, pauses squeezed)")
+        let cleaned = Self.stripNoiseTokens(from: text)
+        return FinalTranscript(
+            outcome: cleaned.isEmpty ? .empty : .decoded,
+            text: cleaned,
+            promptTerms: [],
+            promptTokenCount: 0,
+            segments: [],
+            decodeMs: ms,
+            failure: nil
         )
     }
 

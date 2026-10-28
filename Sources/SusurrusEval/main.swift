@@ -7,6 +7,7 @@ Usage:
   susurrus-eval \(Synth.usage)
   susurrus-eval \(Run.usage)
   susurrus-eval \(Compare.usage)
+  susurrus-eval \(Finalize.usage)
   susurrus-eval \(Snapshot.usage)
   susurrus-eval \(Review.usage)
   susurrus-eval \(Record.usage)
@@ -39,6 +40,7 @@ func runCLI(_ args: [String]) async -> Int32 {
         case "record": try Record.run(rest)
         case "segment": try await Segment.run(rest)
         case "download": try await Download.run(rest)
+        case "finalize": try await Finalize.run(rest)
         case "compare": return try Compare.run(rest)
         default: throw UsageError(message: "unknown command '\(command)'")
         }

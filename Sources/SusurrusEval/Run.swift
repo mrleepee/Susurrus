@@ -22,7 +22,10 @@ enum Run {
         }
         let base = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Susurrus/models/argmaxinc/whisperkit-coreml")
-        let folderName = modelAliases[model] ?? "openai_whisper-\(model)"
+        // Parakeet runs the final decode; Whisper Small still has to load
+        // (it drives the preview text the app would have).
+        let whisperModel = ParakeetTranscriber.isParakeet(model) ? ParakeetTranscriber.previewWhisperModel : model
+        let folderName = modelAliases[whisperModel] ?? "openai_whisper-\(whisperModel)"
         let folder = base.appendingPathComponent(folderName)
         guard FileManager.default.fileExists(atPath: folder.path) else {
             throw ToolError("model '\(model)' not found at \(folder.path)")
@@ -84,6 +87,9 @@ enum Run {
         printErr("loading model...")
         let loadStart = Date()
         try await service.setupModel(modelFolder: modelFolder)
+        if ParakeetTranscriber.isParakeet(config.model) {
+            try await service.enableParakeet()
+        }
         printErr(String(format: "model ready in %.1fs", Date().timeIntervalSince(loadStart)))
         await service.setLanguage("en")
         await service.setFinalDecodeConfig(config.decode)

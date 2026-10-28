@@ -326,6 +326,82 @@ the read set, M2 Pro with the app idle in the background.
 - `susurrus-eval download --model <variant>` fetches a WhisperKit model into
   the app's model folder (`--list` shows what is there).
 
+## Parakeet and pause trimming — 2026-10-28
+
+In real use large-v3 added words at pauses ("you", "thank you"). The
+user's dictations run about 100 s for about 100 words, so they're mostly
+thinking pauses, and the read set has almost none. To reproduce this,
+`scripts/asr-bakeoff/make_paused.py` builds a copy of a corpus with up to
+4 natural pauses per clip stretched to 6–8 s of the clip's own room tone.
+On that copy every engine invents words: large-v3 "thank you", small
+"so so so", Parakeet loops ("put it in put it in…").
+
+The fix is to cut long pauses before the model sees them: Silero VAD finds
+the speech, and each gap over 0.6 s is cut to 0.3 s of room tone either
+side (`ParakeetTranscriber.squeezePauses`). Results on the pause-stretched
+read set (`scripts/asr-bakeoff/score.py`; Parakeet through the app's own
+path with `susurrus-eval run`, model `parakeet-v2`):
+
+| Engine | WER | Formatting errors | Terms | Wait for ~1 min of speech |
+|---|---|---|---|---|
+| small, prompt (old default) | 9.6% | 15.8% | 52/72 | 4.1 s |
+| large-v3, no prompt | 5.7% | 12.7% | 49/72 | 13.9 s |
+| Parakeet v2 + VAD squeeze + corrector | 5.0% | 9.2% | 49/71 | 0.3 s |
+
+- On the plain read set, Parakeet scores 4.6% against large-v3's 4.3%.
+- FluidAudio's CTC vocabulary boost for Parakeet gets more terms (64/72)
+  but put a term where it wasn't said 14 times ("stays" → SAAS, "change"
+  → Schengen, "sender" → SciFinder). It's off; the corrector handles
+  vocabulary.
+- Apple's on-device recognizers (macOS 26 `DictationTranscriber` and
+  `SpeechTranscriber`, with or without contextual strings) scored 11–16%
+  WER and 16–30 of 72 terms.
+- `susurrus-eval finalize` runs another engine's transcripts through the
+  app's corrector so bake-off runs compare like for like.
+
+Parakeet is the model picker's "Parakeet v2 (NVIDIA)". Whisper Small still
+records and drives the live preview, and is the fallback if Parakeet fails.
+
+## large-v3 latency and the unspoken r — 2026-10-28
+
+The user chose accuracy over speed and switched to large-v3 (no prompt).
+Production settings on the read set (VAD chunking, 4 workers, corrector on):
+
+| Clip length | small | large-v3 |
+|---|---|---|
+| 10–21 s (16 clips) | 1.2 s | 4.1 s (max 4.8) |
+| 33–39 s (3) | 2.2 s | 9.2 s |
+| 50–62 s (6) | 3.3 s | 14.2 s (max 16.3) |
+
+Without the prompt, large-v3 writes names as a non-rhotic speaker says
+them ("Belvinda", "Hanad"), and the corrector's phonetic key didn't match
+them because of the missing r. The corrector now forgives an unspoken r
+in words of 5+ characters. Read set, large-v3: 4.5% → 4.3% WER, terms
+44 → 47 of 71. small is unchanged.
+
+## LLM cleanup with LFM3 — 2026-10-28
+
+`scripts/llm-eval/lfm_eval.py` sends the production post-corrector text of
+the read set to a local LM Studio model and scores it like the harness. No
+config beat the no-LLM baseline (8.0% WER on that text):
+
+| Model, prompt | WER | Rejected by guardrail | Median latency |
+|---|---|---|---|
+| LFM3-VL-2B Q8, default prompt only | 8.8% | 0/25 | 1.0 s |
+| LFM3-VL-2B Q8, app prompt + relevant vocab | 8.4% | 0/25 | 1.1 s |
+| LFM3-VL-2B Q8, rich prompt + full vocab | 12.8% | 0/25 | 1.4 s |
+| LFM3-1.7B BF16, default prompt only | 8.4% | 10/25 | 2.7 s |
+| LFM3-1.7B BF16, app prompt + relevant vocab | 8.3% | 10/25 | 2.3 s |
+
+- Both models reason by default. Unless the request sends
+  `"reasoning_effort": "none"`, the content comes back empty within the
+  token budget, and with reasoning on they take 17–64 s per clip.
+- LFM3-VL drops whole sentences and paraphrases ("rather than" → "instead
+  of"). `TranscriptGuardrail` passed every one of these.
+- LFM3-1.7B echoes the text twice around "Corrected transcription:", or
+  runs to 1,700 tokens. LM Studio's MLX engine (1.13.1) can't load it yet;
+  the GGUF build works.
+
 ## Baseline — 2026-10-15
 
 Production config (`small`, VAD chunking, ranker prompt, corrector on). 86

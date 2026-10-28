@@ -35,7 +35,7 @@ The `make dev` target runs the debug binary directly from `.build/debug/` with s
 ## Architecture
 
 - **App entry**: `Sources/Susurrus/SusurrusApp.swift` — SwiftUI `MenuBarExtra` with `@NSApplicationDelegateAdaptor` for eager setup
-- **Transcription**: `Sources/SusurrusKit/Services/StreamingTranscriptionService.swift` — WhisperKit `AudioStreamTranscriber` with VAD
+- **Transcription**: `Sources/SusurrusKit/Services/StreamingTranscriptionService.swift` — WhisperKit `AudioStreamTranscriber` with VAD for capture and live preview; the stop-time decode uses Parakeet (`ParakeetTranscriber.swift`, FluidAudio, Silero VAD pause squeeze) when the model is `parakeet-v2`, else Whisper
 - **Services**: All in `Sources/SusurrusKit/Services/` — follow the protocol in `Sources/SusurrusKit/Protocols/`
 - **Models**: `Sources/SusurrusKit/Models/`
 - **Views**: `Sources/Susurrus/` — `MenuBarView.swift`, `PreferencesView.swift`, `HistoryView.swift`
