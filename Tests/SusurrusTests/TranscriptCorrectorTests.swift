@@ -282,6 +282,15 @@ struct TranscriptCorrectorTests {
         #expect(outcome.changes.isEmpty)
     }
 
+    @Test("Plain query is not rewritten to XQuery; spoken x query still joins")
+    func queryStaysQuery() {
+        let terms = vocab([("XQuery", .technical)])
+        #expect(corrector.correct("what format is the query graph", vocabulary: terms, rules: []).text
+                == "what format is the query graph")
+        #expect(corrector.correct("two queries ran", vocabulary: terms, rules: []).text == "two queries ran")
+        #expect(corrector.correct("the x query module", vocabulary: terms, rules: []).text == "the XQuery module")
+    }
+
     @Test("Short words don't get the unspoken-r allowance: base, rash stay")
     func nonRhoticShortWords() {
         let terms = vocab([("Basher", .custom), ("Rasher", .custom)])
