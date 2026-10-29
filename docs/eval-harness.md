@@ -362,6 +362,13 @@ path with `susurrus-eval run`, model `parakeet-v2`):
 Parakeet is the model picker's "Parakeet v2 (NVIDIA)". Whisper Small still
 records and drives the live preview, and is the fallback if Parakeet fails.
 
+**Parakeet Unified** (`parakeet-unified`, NVIDIA parakeet-unified-en-0.6b,
+RNN-T) is a second option. Same set, app path, with the corrector: 4.6% WER,
+10.8% formatting errors, 3 stray sentence breaks, 0.7 s per minute,
+against v2's 5.4% / 10.1% / 15 / 0.3 s. It punctuates sparsely (73
+sentence ends and 38 commas, against 81 and 110 in the references; v2 93
+and 56), which is why v2 stays the default.
+
 ## large-v3 latency and the unspoken r — 2026-10-28
 
 The user chose accuracy over speed and switched to large-v3 (no prompt).
