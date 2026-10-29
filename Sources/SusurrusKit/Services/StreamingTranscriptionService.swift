@@ -149,8 +149,8 @@ public actor StreamingTranscriptionService {
         ),
         onDownloadProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
-        let usesParakeet = ParakeetTranscriber.isParakeet(modelName)
-        let whisperModel = usesParakeet ? ParakeetTranscriber.previewWhisperModel : modelName
+        let parakeetVariant = ParakeetTranscriber.Variant(rawValue: modelName)
+        let whisperModel = parakeetVariant == nil ? modelName : ParakeetTranscriber.previewWhisperModel
         let downloadBase = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -167,21 +167,24 @@ public actor StreamingTranscriptionService {
         )
 
         try await setupModel(modelFolder: modelFolder.path, computeOptions: computeOptions)
-        if usesParakeet {
-            try await enableParakeet(onDownloadProgress: onDownloadProgress)
+        if let parakeetVariant {
+            try await enableParakeet(parakeetVariant, onDownloadProgress: onDownloadProgress)
         }
     }
 
     /// Switch the stop-time decode to Parakeet (loads it on first use).
     /// Call after a Whisper model is set up; the eval harness calls it
     /// directly after `setupModel(modelFolder:)`.
-    public func enableParakeet(onDownloadProgress: (@Sendable (Double) -> Void)? = nil) async throws {
+    public func enableParakeet(
+        _ variant: ParakeetTranscriber.Variant = .v2,
+        onDownloadProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws {
         let loadStart = Date()
-        let engine = ParakeetTranscriber()
+        let engine = ParakeetTranscriber(variant: variant)
         try await engine.load(onDownloadProgress: onDownloadProgress)
         parakeet = engine
-        loadedModelName = ParakeetTranscriber.modelFolderName
-        trace("setupModel: Parakeet loaded and prewarmed in \(msSince(loadStart))ms; final decode uses Parakeet")
+        loadedModelName = variant.modelFolderName
+        trace("setupModel: \(variant.modelFolderName) loaded and prewarmed in \(msSince(loadStart))ms; final decode uses Parakeet")
     }
 
     /// Load and prewarm a model from a local folder, skipping the download
@@ -582,7 +585,7 @@ public actor StreamingTranscriptionService {
             return failed
         }
         let ms = msSince(start)
-        trace("decode: \(String(format: "%.1f", seconds))s audio in \(ms)ms (Parakeet, pauses squeezed)")
+        trace("decode: \(String(format: "%.1f", seconds))s audio in \(ms)ms (\(engine.variant.rawValue), pauses squeezed)")
         let cleaned = Self.stripNoiseTokens(from: text)
         return FinalTranscript(
             outcome: cleaned.isEmpty ? .empty : .decoded,

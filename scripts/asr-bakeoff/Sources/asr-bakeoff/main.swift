@@ -3,7 +3,7 @@
 //
 // Usage: asr-bakeoff <engine> <corpusDir> <out.json> [--vocab vocabulary.json [--strict]]
 //        asr-bakeoff compact <corpusDir> <outDir>   (squeeze long pauses with Silero VAD)
-// engine: parakeet-v2 | parakeet-v3 | parakeet-ultra | apple-dictation | apple-speech
+// engine: parakeet-v2 | parakeet-v3 | parakeet-ultra | parakeet-unified | apple-dictation | apple-speech
 import AVFoundation
 import FluidAudio
 import Foundation
@@ -64,6 +64,22 @@ final class ParakeetEngine: Engine {
               rescored.wasModified
         else { return result.text }
         return rescored.text
+    }
+}
+
+// MARK: - Parakeet Unified (FluidAudio, offline 15 s full-attention encoder)
+
+final class UnifiedEngine: Engine {
+    let asr = UnifiedAsrManager()
+    let converter = AudioConverter()
+
+    init() async throws {
+        try await asr.loadModels()
+    }
+
+    func transcribe(_ url: URL) async throws -> String {
+        try await asr.transcribe(try converter.resampleAudioFile(url))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -227,6 +243,7 @@ do {
     case "parakeet-v2": engine = try await ParakeetEngine(version: .v2, terms: terms, strict: strict)
     case "parakeet-v3": engine = try await ParakeetEngine(version: .v3, terms: terms, strict: strict)
     case "parakeet-ultra": engine = try await ParakeetEngine(version: .ultra, terms: terms, strict: strict)
+    case "parakeet-unified": engine = try await UnifiedEngine()
     case "apple-dictation": engine = try await AppleEngine(dictation: true, terms: terms)
     case "apple-speech": engine = try await AppleEngine(dictation: false, terms: terms)
     default: print("unknown engine \(engineName)"); exit(2)
