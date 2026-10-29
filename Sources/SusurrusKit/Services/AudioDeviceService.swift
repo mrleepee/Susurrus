@@ -10,8 +10,6 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
     /// `AudioInputDevice` values directly instead of calling Core Audio.
     private let devicesProvider: () -> [AudioInputDevice]
     private let defaultInputProvider: () -> UInt32?
-    private let isBluetoothProvider: (UInt32) -> Bool
-    private let isBuiltInProvider: (UInt32) -> Bool
 
     public init() {
         self.devicesProvider = {
@@ -20,25 +18,15 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
             }
         }
         self.defaultInputProvider = { Self.systemDefaultInputID() }
-        self.isBluetoothProvider = { id in
-            let transport = Self.transportType(of: id)
-            return transport == kAudioDeviceTransportTypeBluetooth
-                || transport == kAudioDeviceTransportTypeBluetoothLE
-        }
-        self.isBuiltInProvider = { Self.transportType(of: $0) == kAudioDeviceTransportTypeBuiltIn }
     }
 
     /// Test-only initialiser accepting a fixed device list.
     internal init(
         devicesProvider: @escaping () -> [AudioInputDevice],
-        defaultInputProvider: @escaping () -> UInt32? = { nil },
-        isBluetooth: @escaping (UInt32) -> Bool = { _ in false },
-        isBuiltIn: @escaping (UInt32) -> Bool = { _ in false }
+        defaultInputProvider: @escaping () -> UInt32? = { nil }
     ) {
         self.devicesProvider = devicesProvider
         self.defaultInputProvider = defaultInputProvider
-        self.isBluetoothProvider = isBluetooth
-        self.isBuiltInProvider = isBuiltIn
     }
 
     public func availableInputs() -> [AudioInputDevice] {
@@ -55,27 +43,16 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
         return .unavailable(requestedName: preferredName)
     }
 
-    /// The input to record from when the user hasn't picked one: the system
-    /// default, except that a Bluetooth default is passed over for the
-    /// built-in mic. Connecting a Bluetooth speaker or headset can make its
-    /// microphone the system default input without the user noticing —
-    /// switching output back in the Sound menu doesn't undo it — and that
-    /// mic is across the room (near-silent capture) and forces the device
-    /// into its low-quality call profile. Users who want a Bluetooth mic can
-    /// still select it explicitly in Preferences.
+    /// The input to record from when the user hasn't picked one: whatever
+    /// macOS currently has selected as its input (System Settings > Sound >
+    /// Input), read fresh at each session start. A Bluetooth speaker or
+    /// headset that becomes the default when it connects is used, matching
+    /// what the user sees in Settings.
     ///
     /// Returns `nil` only if Core Audio reports no usable default input.
     public func sessionDefaultInput() -> AudioInputDevice? {
-        let devices = devicesProvider()
-        guard let defaultID = defaultInputProvider(),
-              let current = devices.first(where: { $0.id == defaultID }) else {
-            return nil
-        }
-        guard isBluetoothProvider(current.id),
-              let builtIn = devices.first(where: { isBuiltInProvider($0.id) }) else {
-            return current
-        }
-        return builtIn
+        guard let defaultID = defaultInputProvider() else { return nil }
+        return devicesProvider().first(where: { $0.id == defaultID })
     }
 
     // MARK: - Core Audio
@@ -93,17 +70,5 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
         )
         guard status == noErr, deviceID != kAudioObjectUnknown else { return nil }
         return deviceID
-    }
-
-    static func transportType(of deviceID: UInt32) -> UInt32 {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyTransportType,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var transport = UInt32(0)
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
-        return status == noErr ? transport : 0
     }
 }
