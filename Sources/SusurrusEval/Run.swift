@@ -24,7 +24,8 @@ enum Run {
             .appendingPathComponent("Library/Application Support/Susurrus/models/argmaxinc/whisperkit-coreml")
         // Parakeet runs the final decode; Whisper Small still has to load
         // (it drives the preview text the app would have).
-        let whisperModel = ParakeetTranscriber.isParakeet(model) ? ParakeetTranscriber.previewWhisperModel : model
+        let separateFinalEngine = ParakeetTranscriber.isParakeet(model) || Qwen3ASRTranscriber.isQwen3(model)
+        let whisperModel = separateFinalEngine ? ParakeetTranscriber.previewWhisperModel : model
         let folderName = modelAliases[whisperModel] ?? "openai_whisper-\(whisperModel)"
         let folder = base.appendingPathComponent(folderName)
         guard FileManager.default.fileExists(atPath: folder.path) else {
@@ -89,6 +90,8 @@ enum Run {
         try await service.setupModel(modelFolder: modelFolder)
         if let variant = ParakeetTranscriber.Variant(rawValue: config.model) {
             try await service.enableParakeet(variant)
+        } else if Qwen3ASRTranscriber.isQwen3(config.model) {
+            try await service.enableQwen3()
         }
         printErr(String(format: "model ready in %.1fs", Date().timeIntervalSince(loadStart)))
         await service.setLanguage("en")

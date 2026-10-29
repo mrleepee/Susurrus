@@ -96,12 +96,7 @@ public actor ParakeetTranscriber {
     /// Transcribes a 16 kHz mono buffer: squeeze pauses, then one Parakeet pass.
     public func transcribe(samples: [Float]) async throws -> String {
         guard let vad, isLoaded else { throw TranscriptionError.modelNotReady }
-        let segments = try await vad.segmentSpeech(samples, config: Self.segmentation)
-        let ranges = segments.map {
-            (start: $0.startSample(sampleRate: Self.sampleRate),
-             end: min(samples.count, Int($0.endTime * Double(Self.sampleRate))))
-        }
-        let squeezed = Self.squeezePauses(samples, speech: ranges, keep: Self.keptSilence)
+        let squeezed = try await Self.squeezePauses(samples, vad: vad)
         guard squeezed.count >= Self.sampleRate / 2 else { return "" }
         let text: String
         if let unified {
@@ -113,6 +108,17 @@ public actor ParakeetTranscriber {
             throw TranscriptionError.modelNotReady
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Finds speech with Silero VAD and cuts every long pause down
+    /// (`squeezePauses(_:speech:keep:)`). Shared with `Qwen3ASRTranscriber`.
+    static func squeezePauses(_ samples: [Float], vad: VadManager) async throws -> [Float] {
+        let segments = try await vad.segmentSpeech(samples, config: segmentation)
+        let ranges = segments.map {
+            (start: $0.startSample(sampleRate: sampleRate),
+             end: min(samples.count, Int($0.endTime * Double(sampleRate))))
+        }
+        return squeezePauses(samples, speech: ranges, keep: keptSilence)
     }
 
     /// One pause-trimming pass over the whole buffer: no cap on speech length,
@@ -149,7 +155,7 @@ public actor ParakeetTranscriber {
     }
 
     /// One second of speech-like multi-tone audio for warm-up.
-    private static func warmupSamples() -> [Float] {
+    static func warmupSamples() -> [Float] {
         let fundamentals: [Float] = [150, 300, 600, 1200]
         return (0..<sampleRate).map { i in
             let t = Float(i) / Float(sampleRate)

@@ -1,6 +1,8 @@
---- a/Sources/WhisperKit/Core/Audio/AudioProcessor.swift	2026-10-20 16:48:46
-+++ b/Sources/WhisperKit/Core/Audio/AudioProcessor.swift	2026-10-20 16:48:46
-@@ -779,6 +779,16 @@
+diff --git a/Sources/WhisperKit/Core/Audio/AudioProcessor.swift b/Sources/WhisperKit/Core/Audio/AudioProcessor.swift
+index 7220e4d..32f846c 100644
+--- a/Sources/WhisperKit/Core/Audio/AudioProcessor.swift
++++ b/Sources/WhisperKit/Core/Audio/AudioProcessor.swift
+@@ -812,6 +812,16 @@ open class AudioProcessor: NSObject, AudioProcessing {
  
      public static func requestRecordPermission() async -> Bool {
          if #available(macOS 14, iOS 17, *) {

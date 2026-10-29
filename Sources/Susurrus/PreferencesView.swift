@@ -46,6 +46,8 @@ struct PreferencesView: View {
          "Most accurate on your voice, near-instant to finish; Small runs the live preview • ~480MB + Small"),
         (ParakeetTranscriber.Variant.unified.rawValue, "Parakeet Unified (NVIDIA)",
          "Newer Parakeet: slightly fewer word errors, fewer stray full stops, lighter punctuation • ~600MB + Small"),
+        (Qwen3ASRTranscriber.modelID, "Qwen3-ASR 1.7B (Alibaba)",
+         "Best on names and punctuation, uses your vocabulary; ~1 s per 20 s of speech • ~2.5GB + Small"),
         ("small", "Whisper Small", "Whisper only, with the vocabulary prompt; less accurate than Parakeet • ~464MB"),
     ]
 
@@ -781,6 +783,9 @@ struct PreferencesView: View {
         var cached = Set<String>()
         for variant in ParakeetTranscriber.Variant.allCases where ParakeetTranscriber.isCached(variant) {
             cached.insert(variant.rawValue)
+        }
+        if Qwen3ASRTranscriber.isCached() {
+            cached.insert(Qwen3ASRTranscriber.modelID)
         }
         guard let contents = try? fm.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil) else {
             cachedModels = cached
