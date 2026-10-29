@@ -7,13 +7,28 @@ import SusurrusKit
 /// and calls `onInsert`/`onCancel` back.
 @MainActor
 final class DictationReviewModel: ObservableObject {
-    enum Phase { case recording, editing }
+    enum Phase: Equatable {
+        /// Mic open, transcript streaming in read-only.
+        case recording
+        /// Mic closed, final decode running.
+        case processing
+        /// Final text in an editable field.
+        case editing
+        /// Finished straight from listening (copy or insert); the panel is
+        /// about to close itself. Carries the confirmation to show.
+        case finished(String)
+    }
 
     @Published var phase: Phase = .recording
     @Published var text: String = ""
     /// Mid-phrase capitals `CasingProfile` thinks Whisper invented. Offered,
     /// never applied — see that type for why they must not auto-apply.
     @Published var casingSuggestions: [CasingSuggestion] = []
+
+    /// Key hints shown while listening. Push-to-talk finishes on release,
+    /// so it has no separate finish keys to advertise.
+    @Published var isPushToTalk = false
+    @Published var editKeys = GlobalHotkeyService.symbols(for: .default)
 
     var onInsert: ((String) -> Void)?
     /// Copy to clipboard without touching the app you dictated from —
@@ -35,12 +50,13 @@ final class DictationReviewModel: ObservableObject {
     }
 }
 
-/// The editable surface for "dictate into the panel" mode. While the hotkey
-/// is held the transcript streams in read-only; on release it becomes an
-/// editable field the user fixes, then inserts with ⌘⏎. Editing happens
-/// entirely in Susurrus's own text field, so no target app's accessibility
-/// quirks can block it — the only thing we ever do to another app is one
-/// clean paste on insert.
+/// The editable surface for "dictate into the panel" mode. While recording
+/// the transcript streams in read-only; finishing with the main hotkey makes
+/// it an editable field the user fixes, then inserts with ⌘⏎. Finishing with
+/// ⌘⏎ or ⇧⌘C instead skips the editor: the text is inserted or copied and
+/// the panel closes. Editing happens entirely in Susurrus's own text field, so no
+/// target app's accessibility quirks can block it — the only thing we ever
+/// do to another app is one clean paste on insert.
 struct DictationReviewView: View {
     @ObservedObject var model: DictationReviewModel
     @FocusState private var editorFocused: Bool
@@ -50,53 +66,128 @@ struct DictationReviewView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            switch model.phase {
-            case .recording:
-                HStack(spacing: 8) {
-                    Circle().fill(.red).frame(width: 9, height: 9)
-                    Text("Listening… release to edit")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                ScrollView {
-                    Text(model.text.isEmpty ? "Speak now…" : model.text)
-                        .font(.body)
-                        .foregroundStyle(model.text.isEmpty ? .tertiary : .primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        VStack(spacing: 0) {
+            // Shares the title bar row with the close button.
+            HStack {
+                Spacer()
+                StatusPill(phase: model.phase)
+                Spacer()
+            }
+            .frame(height: 28)
+            .padding(.top, 4)
+
+            content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            case .editing:
-                Text("Fix anything, then ⌘⏎ to insert or ⇧⌘C to copy — Susurrus learns from your edits.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $model.text)
-                    .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .focused($editorFocused)
-                casingRow
-                HStack {
-                    Spacer()
-                    Button("Cancel") { model.onCancel?() }
-                        .keyboardShortcut(.cancelAction)
-                    Button("Copy") { model.onCopy?(model.text) }
-                        .keyboardShortcut("c", modifiers: [.command, .shift])
-                        .disabled(isEmpty)
-                    Button("Insert") { model.onInsert?(model.text) }
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(isEmpty)
-                }
-            }
+            footer
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
+                .padding(.top, 8)
         }
-        .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.smooth(duration: 0.25), value: model.phase)
         .onChange(of: model.phase) { _, newPhase in
             editorFocused = (newPhase == .editing)
+        }
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private var content: some View {
+        switch model.phase {
+        case .recording, .processing, .finished:
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(model.text.isEmpty ? "Start speaking…" : model.text)
+                        .font(.system(size: 17))
+                        .lineSpacing(4)
+                        .foregroundStyle(model.text.isEmpty ? .tertiary : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 12)
+                    Color.clear.frame(height: 1).id("end")
+                }
+                .scrollIndicators(.never)
+                .onChange(of: model.text) { _, _ in
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("end", anchor: .bottom) }
+                }
+            }
+            .opacity(model.phase == .recording ? 1 : 0.55)
+            .overlay {
+                if case .finished(let message) = model.phase {
+                    FinishedBadge(message: message)
+                        .transition(.scale(scale: 0.85).combined(with: .opacity))
+                }
+            }
+
+        case .editing:
+            VStack(alignment: .leading, spacing: 10) {
+                TextEditor(text: $model.text)
+                    .font(.system(size: 15))
+                    .lineSpacing(3)
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color(nsColor: .textBackgroundColor).opacity(0.6))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(.separator, lineWidth: 0.5)
+                    )
+                    .focused($editorFocused)
+                casingRow
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+        }
+    }
+
+    // MARK: - Footer
+
+    @ViewBuilder
+    private var footer: some View {
+        switch model.phase {
+        case .recording:
+            HStack(spacing: 18) {
+                if model.isPushToTalk {
+                    Text("Release to review")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    KeyHint(keys: "⌘ ↩", label: "Insert")
+                    KeyHint(keys: "⇧⌘ C", label: "Copy")
+                    KeyHint(keys: model.editKeys, label: "Review")
+                }
+                KeyHint(keys: "esc", label: "Cancel")
+            }
+            .frame(maxWidth: .infinity)
+
+        case .processing, .finished:
+            // Holds the footer's height so the text doesn't jump.
+            KeyHint(keys: "esc", label: "Cancel").hidden()
+
+        case .editing:
+            HStack(spacing: 8) {
+                Text("Edits teach Susurrus")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button("Cancel") { model.onCancel?() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Copy") { model.onCopy?(model.text) }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .help("Copy without inserting (⇧⌘C)")
+                    .disabled(isEmpty)
+                Button("Insert") { model.onInsert?(model.text) }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .help("Insert into the app you dictated from (⌘⏎)")
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isEmpty)
+            }
+            .controlSize(.large)
         }
     }
 
@@ -122,6 +213,7 @@ struct DictationReviewView: View {
                             .font(.caption)
                     }
                     .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.small)
                     .help("Change “\(suggestion.original)” to “\(suggestion.suggested)”")
                 }
@@ -137,9 +229,112 @@ struct DictationReviewView: View {
     }
 }
 
-/// Floating, key-able panel that hosts `DictationReviewView`. Titled and
-/// closable so there is always an obvious escape hatch (the red button acts
-/// as Cancel). Reused across sessions — a process-stable single instance.
+// MARK: - Components
+
+/// Centred title-bar capsule naming what the panel is doing right now.
+private struct StatusPill: View {
+    let phase: DictationReviewModel.Phase
+
+    var body: some View {
+        HStack(spacing: 7) {
+            switch phase {
+            case .recording:
+                PulsingDot()
+                Text("Listening")
+            case .processing:
+                ProgressView().controlSize(.mini)
+                Text("Processing")
+            case .editing:
+                Image(systemName: "pencil")
+                    .foregroundStyle(.secondary)
+                Text("Review")
+            case .finished:
+                Image(systemName: "checkmark")
+                    .foregroundStyle(.green)
+                Text("Done")
+            }
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .padding(.horizontal, 11)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(.quaternary.opacity(0.6)))
+        .contentTransition(.opacity)
+    }
+}
+
+private struct PulsingDot: View {
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(.red)
+            .frame(width: 7, height: 7)
+            .background(
+                Circle()
+                    .fill(.red.opacity(0.45))
+                    .scaleEffect(pulsing ? 2.6 : 1)
+                    .opacity(pulsing ? 0 : 1)
+            )
+            .onAppear {
+                withAnimation(.easeOut(duration: 1.3).repeatForever(autoreverses: false)) {
+                    pulsing = true
+                }
+            }
+    }
+}
+
+/// A keycap plus what it does, in the style of macOS menu shortcuts.
+private struct KeyHint: View {
+    let keys: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(keys)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(.quaternary.opacity(0.7))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(.separator, lineWidth: 0.5)
+                )
+            Text(label)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct FinishedBadge: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 40, weight: .medium))
+                .foregroundStyle(.white, .green)
+                .symbolEffect(.bounce, value: true)
+            Text(message)
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .padding(.horizontal, 26)
+        .padding(.vertical, 18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+    }
+}
+
+// MARK: - Panel
+
+/// Floating, key-able panel that hosts `DictationReviewView` on a translucent
+/// material. Titled and closable so there is always an obvious escape hatch
+/// (the close button acts as Cancel). Reused across sessions — a
+/// process-stable single instance.
 final class DictationReviewPanel: NSPanel {
 
     private let model = DictationReviewModel()
@@ -148,26 +343,52 @@ final class DictationReviewPanel: NSPanel {
     /// text is pasted on insert.
     var targetApp: NSRunningApplication?
 
+    /// How to finish straight from listening, skipping the editor.
+    enum QuickFinish { case copy, insert }
+
+    /// Set when the session is finished with a copy/insert shortcut rather
+    /// than the main hotkey; nil means open the editor as usual.
+    var quickFinish: QuickFinish?
+
+    /// Bumped on every new session so a pending auto-close from a finished
+    /// quick copy can't close the panel out from under the next one.
+    private var session = 0
+
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 340),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         title = "Dictation"
+        titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isMovableByWindowBackground = true
         level = .floating
         hidesOnDeactivate = false
         isFloatingPanel = true
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        standardWindowButton(.miniaturizeButton)?.isHidden = true
+        standardWindowButton(.zoomButton)?.isHidden = true
         // Small enough that the button row can never be squeezed out, however
         // far the user drags the window down.
-        minSize = NSSize(width: 420, height: 260)
+        minSize = NSSize(width: 440, height: 220)
 
+        let material = NSVisualEffectView()
+        material.material = .popover
+        material.blendingMode = .behindWindow
+        material.state = .active
         let host = NSHostingView(rootView: DictationReviewView(model: model))
-        contentView = host
+        host.translatesAutoresizingMaskIntoConstraints = false
+        material.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: material.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: material.trailingAnchor),
+            host.topAnchor.constraint(equalTo: material.topAnchor),
+            host.bottomAnchor.constraint(equalTo: material.bottomAnchor),
+        ])
+        contentView = material
 
         // Cancel button / Esc / close button all just discard and close —
         // there is no state to unwind, only the window to dismiss.
@@ -187,13 +408,24 @@ final class DictationReviewPanel: NSPanel {
 
     /// Set the paste target and show the panel in its live-transcription
     /// phase (non-key, so it doesn't steal focus while the user is still
-    /// holding the hotkey).
-    func beginRecording(targetApp: NSRunningApplication?) {
+    /// holding the hotkey). `editCombo` is the main hotkey, which finishes
+    /// into the editor in toggle mode.
+    func beginRecording(
+        targetApp: NSRunningApplication?,
+        isPushToTalk: Bool,
+        editCombo: HotkeyCombo?
+    ) {
+        session += 1
         self.targetApp = targetApp
+        quickFinish = nil
         model.onInsert = nil
         model.onCopy = nil
         model.text = ""
         model.casingSuggestions = []
+        model.isPushToTalk = isPushToTalk
+        if let editCombo {
+            model.editKeys = GlobalHotkeyService.symbols(for: editCombo)
+        }
         model.phase = .recording
         orderFront(nil)
     }
@@ -202,6 +434,24 @@ final class DictationReviewPanel: NSPanel {
     func updateStreaming(_ text: String) {
         guard model.phase == .recording else { return }
         model.text = text
+    }
+
+    /// The mic has closed; show that the final decode is running.
+    func beginProcessing() {
+        guard model.phase == .recording else { return }
+        model.phase = .processing
+    }
+
+    /// Quick finish: show the final text with a brief confirmation, then
+    /// close on its own. Never takes focus from the user's app.
+    func showFinished(_ text: String, message: String) {
+        model.text = text
+        model.phase = .finished(message)
+        let closing = session
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            guard let self, self.session == closing, case .finished = self.model.phase else { return }
+            self.orderOut(nil)
+        }
     }
 
     /// Switch to the editable phase with the finalized text and take focus.
