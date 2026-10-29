@@ -36,12 +36,15 @@ enum CommonWords {
     }
 
     /// Short, common-English fragments of the seed vocabulary's multi-word
-    /// terms (MarkLogic, CoRB, SPARQL, Datavid, Trust Signals). Kept separate
+    /// terms (MarkLogic, CoRB, SPARQL, Datavid, Trust Signals, XQuery). Kept separate
     /// from `top` so the frequency list stays a real frequency list: this is
     /// an explicit, user/domain-specific guard, not a claim about word rank.
     /// Contributors should add their own domain fragments here, never to `top`.
     static let domainStoplist: Set<String> = [
         "mark", "logic", "core", "spark", "vid", "trust", "signal", "signals",
+        // "query graph" was being rewritten to "XQuery graph" (one edit away);
+        // the user taught a rule 9 times to undo it.
+        "query", "queries",
     ]
 
     /// ~700 most frequent English words (lowercase, alphanumeric-normalized).
