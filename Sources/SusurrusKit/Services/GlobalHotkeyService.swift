@@ -208,12 +208,24 @@ public final class GlobalHotkeyService: HotkeyManaging, @unchecked Sendable {
         if mods & UInt32(optionKey)  != 0 { parts.append("Option") }
         if mods & UInt32(shiftKey)   != 0 { parts.append("Shift") }
         if mods & UInt32(cmdKey)     != 0 { parts.append("Cmd") }
-        parts.append(keyCodeToName(combo.keyCode))
+        parts.append(Self.keyCodeToName(combo.keyCode))
         return parts.joined(separator: "+")
     }
 
-    private func keyCodeToName(_ keyCode: UInt32) -> String {
+    /// Menu-style rendering for on-screen key hints, e.g. "⌃⌥ Space".
+    public static func symbols(for combo: HotkeyCombo) -> String {
+        var mods = ""
+        if combo.modifiers & UInt32(controlKey) != 0 { mods += "⌃" }
+        if combo.modifiers & UInt32(optionKey)  != 0 { mods += "⌥" }
+        if combo.modifiers & UInt32(shiftKey)   != 0 { mods += "⇧" }
+        if combo.modifiers & UInt32(cmdKey)     != 0 { mods += "⌘" }
+        let key = keyCodeToName(combo.keyCode)
+        return mods.isEmpty ? key : "\(mods) \(key)"
+    }
+
+    private static func keyCodeToName(_ keyCode: UInt32) -> String {
         switch UInt16(keyCode) {
+        case 0x31: return "Space"
         case 0x00: return "A";       case 0x01: return "S";       case 0x02: return "D"
         case 0x03: return "F";       case 0x04: return "H";       case 0x05: return "G"
         case 0x06: return "Z";       case 0x07: return "X";       case 0x08: return "C"

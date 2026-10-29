@@ -57,6 +57,12 @@ struct SusurrusApp: App {
     // Esc everywhere else in the OS.
     private static let sharedEscHotkeyService = GlobalHotkeyService()
     private var escHotkeyService: GlobalHotkeyService { Self.sharedEscHotkeyService }
+    // ⌘⏎ / ⇧⌘C finish-from-listening keys for the review panel — like Esc,
+    // registered only while the panel is listening.
+    private static let sharedPanelInsertHotkeyService = GlobalHotkeyService()
+    private var panelInsertHotkeyService: GlobalHotkeyService { Self.sharedPanelInsertHotkeyService }
+    private static let sharedPanelCopyHotkeyService = GlobalHotkeyService()
+    private var panelCopyHotkeyService: GlobalHotkeyService { Self.sharedPanelCopyHotkeyService }
     private static let sharedHotkeyStorage = HotkeyStorage()
     private var hotkeyStorage: HotkeyStorage { Self.sharedHotkeyStorage }
     private static let sharedMicPermissionManager = MicPermissionManager()
@@ -455,11 +461,14 @@ struct SusurrusApp: App {
         }
     }
 
-    /// Control+Option+Space: dictate into a review panel. Hold to record —
-    /// the transcript streams into an editable panel; release to edit it;
-    /// ⌘⏎ inserts the corrected text into the app you were in with one clean
-    /// paste. Nothing is written to the target app until you insert, so no
-    /// editor's accessibility quirks can block it.
+    /// Control+Option+Space: dictate into a review panel. The transcript
+    /// streams into the panel; finishing with the main hotkey (or releasing,
+    /// in push-to-talk) opens it for editing, and ⌘⏎ inserts the corrected
+    /// text into the app you were in with one clean paste. While it's
+    /// listening, ⌘⏎ / ⇧⌘C (see registerPanelFinishKeys) or a second
+    /// Control+Option+Space finish straight to insert / copy and close the
+    /// panel. Nothing is written to the target app until you
+    /// insert, so no editor's accessibility quirks can block it.
     private func setupFixHotkeyIfNeeded() {
         guard !appState.fixHotkeyConfigured else { return }
 
@@ -474,6 +483,15 @@ struct SusurrusApp: App {
                     combo: .reviewPanel,
                     onKeyDown: {
                         Task { @MainActor in
+                            // Second press while the panel is listening:
+                            // finish, copy, close — no editor.
+                            if state.recordingState == .streaming,
+                               state.dictationDestination == .reviewPanel {
+                                traceApp("Review-panel hotkey: quick copy")
+                                panel.quickFinish = .copy
+                                state.stopStreaming()
+                                return
+                            }
                             guard state.recordingState == .idle else { return }
                             // Capture the paste target before the panel opens.
                             panel.targetApp = NSWorkspace.shared.frontmostApplication
@@ -682,7 +700,12 @@ struct SusurrusApp: App {
         let toPanel = appState.dictationDestination == .reviewPanel
         let overlay = toPanel ? nil : overlayWindow
         if toPanel {
-            panel.beginRecording(targetApp: panel.targetApp)
+            registerPanelFinishKeys()
+            panel.beginRecording(
+                targetApp: panel.targetApp,
+                isPushToTalk: appState.recordingMode == .pushToTalk,
+                editCombo: hotkeyStorage.loadCombo()
+            )
         }
 
         // Snapshot vocab and rules once per session so the interim callback
@@ -734,6 +757,39 @@ struct SusurrusApp: App {
         }
     }
 
+    /// ⌘⏎ inserts and ⇧⌘C copies straight from the listening panel, skipping
+    /// the editor — the same keys the editor uses, so they mean the same
+    /// thing in both phases. Global only while the panel is listening (torn
+    /// down with Esc), so they never shadow those keys in other apps.
+    private func registerPanelFinishKeys() {
+        let state = appState
+        let panel = reviewPanel
+        let keys: [(GlobalHotkeyService, HotkeyCombo, DictationReviewPanel.QuickFinish)] = [
+            (panelInsertHotkeyService, HotkeyCombo(keyCode: 0x24, modifiers: 0x0100), .insert),
+            (panelCopyHotkeyService, HotkeyCombo(keyCode: 0x08, modifiers: 0x0300), .copy),
+        ]
+        for (service, combo, finish) in keys {
+            Task {
+                do {
+                    try await service.register(
+                        combo: combo,
+                        onKeyDown: {
+                            Task { @MainActor in
+                                guard state.recordingState == .streaming,
+                                      state.dictationDestination == .reviewPanel else { return }
+                                traceApp("Review panel: quick finish \(finish)")
+                                panel.quickFinish = finish
+                                state.stopStreaming()
+                            }
+                        }
+                    )
+                } catch {
+                    traceApp("Panel finish hotkey registration failed: \(error)")
+                }
+            }
+        }
+    }
+
     /// Discards the in-flight streaming session with no output: no history
     /// entry, no notification, no paste — the target app is never touched.
     /// Bound to Esc, which is only registered while actively recording (see
@@ -747,6 +803,8 @@ struct SusurrusApp: App {
         let streaming = streamingService
         let media = mediaService
         let esc = escHotkeyService
+        let panelInsert = panelInsertHotkeyService
+        let panelCopy = panelCopyHotkeyService
         let apps = pausedMediaApps
         pausedMediaApps = []
 
@@ -759,6 +817,8 @@ struct SusurrusApp: App {
         Task {
             await streaming.cancelStreamTranscription()
             await esc.unregister()
+            await panelInsert.unregister()
+            await panelCopy.unregister()
             if !apps.isEmpty {
                 traceApp("cancelActiveDictation: resuming media: \(apps.joined(separator: ", "))")
                 await media.resumeApps(apps)
@@ -774,11 +834,16 @@ struct SusurrusApp: App {
         // clipboard even if this one throws.
         let toPanel = appState.dictationDestination == .reviewPanel
         appState.dictationDestination = .clipboard
+        let quickFinish = toPanel ? reviewPanel.quickFinish : nil
+        reviewPanel.quickFinish = nil
 
         // Keep the overlay up in a dimmed "Finalizing…" state through the
         // whole-buffer decode (1–8s) — it hides once the text is delivered.
-        // Panel mode never showed the overlay, so leave it alone.
-        if !toPanel {
+        // Panel mode never showed the overlay; the panel shows its own
+        // processing state instead.
+        if toPanel {
+            reviewPanel.beginProcessing()
+        } else {
             overlayWindow?.beginFinalizing()
         }
 
@@ -801,12 +866,19 @@ struct SusurrusApp: App {
         let composer = promptComposer
         let overlay = overlayWindow
         let panel = reviewPanel
-        // Opt-in accuracy-testing capture (tier C): only panel dictations,
-        // because only they end in a reviewed, approved text.
-        let keepRecording = toPanel && UserDefaults.standard.bool(forKey: EvalCaptureStore.enabledKey)
+        let panelInsert = panelInsertHotkeyService
+        let panelCopy = panelCopyHotkeyService
+        // Opt-in accuracy-testing capture (tier C): only panel dictations
+        // the user reviewed, because only they end in an approved text —
+        // a quick copy was never looked at.
+        let keepRecording = toPanel && quickFinish == nil && UserDefaults.standard.bool(forKey: EvalCaptureStore.enabledKey)
 
         Task {
             do {
+                // Listening is over: hand ⌘⏎ / ⇧⌘C back before the editor
+                // opens, so its own Insert/Copy shortcuts aren't swallowed.
+                await panelInsert.unregister()
+                await panelCopy.unregister()
                 let stopStart = Date()
                 traceApp("stopStreamingSession: calling stopStreamTranscription")
                 await streaming.setRetainSessionAudio(keepRecording)
@@ -848,7 +920,7 @@ struct SusurrusApp: App {
                     }
                     await MainActor.run {
                         let targetApp = panel.targetApp
-                        panel.enterEditing(finalText: corrected, casingSuggestions: casing) { edited, shouldPaste in
+                        let deliver: (String, Bool) -> Void = { edited, shouldPaste in
                             let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !final.isEmpty else { return }
                             // Learn from any manual edit beyond the corrector.
@@ -893,6 +965,19 @@ struct SusurrusApp: App {
                                 }
                                 traceApp("reviewInsert: pasted=\(pasted) into \(targetApp?.bundleIdentifier ?? "?")")
                             }
+                        }
+                        if let quickFinish {
+                            let final = corrected.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !final.isEmpty else {
+                                traceApp("reviewQuickFinish: nothing heard, closing")
+                                panel.cancel()
+                                return
+                            }
+                            let insert = quickFinish == .insert
+                            deliver(corrected, insert)
+                            panel.showFinished(final, message: insert ? "Inserted" : "Copied to Clipboard")
+                        } else {
+                            panel.enterEditing(finalText: corrected, casingSuggestions: casing, onFinish: deliver)
                         }
                     }
                 } else if !text.isEmpty {
