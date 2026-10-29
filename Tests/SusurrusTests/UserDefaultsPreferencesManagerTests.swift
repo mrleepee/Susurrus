@@ -28,17 +28,26 @@ struct UserDefaultsPreferencesManagerTests {
 
     // MARK: - selectedModel
 
-    @Test("selectedModel defaults to base")
+    @Test("selectedModel defaults to Parakeet v2")
     func selectedModelDefault() {
         let manager = makeManager()
-        #expect(manager.selectedModel() == "base")
+        #expect(manager.selectedModel() == "parakeet-v2")
     }
 
     @Test("setSelectedModel persists value")
     func setSelectedModel() {
         let manager = makeManager()
+        manager.setSelectedModel("parakeet-unified")
+        #expect(manager.selectedModel() == "parakeet-unified")
+    }
+
+    @Test("A dropped model is replaced with the default, and the replacement saved")
+    func droppedModelMigrates() {
+        let manager = makeManager()
         manager.setSelectedModel("large-v3")
-        #expect(manager.selectedModel() == "large-v3")
+        #expect(manager.selectedModel() == "parakeet-v2")
+        manager.setSelectedModel("base")
+        #expect(manager.selectedModel() == "parakeet-v2")
     }
 
     // MARK: - appendToClipboard
@@ -156,13 +165,13 @@ struct UserDefaultsPreferencesManagerTests {
 
         let writer = UserDefaultsPreferencesManager(defaults: defaults)
         writer.setRecordingMode(.toggle)
-        writer.setSelectedModel("large-v3")
+        writer.setSelectedModel("parakeet-unified")
         writer.setLLMEnabled(true)
 
         // Fresh instance reading same defaults
         let reader = UserDefaultsPreferencesManager(defaults: defaults)
         #expect(reader.recordingMode() == .toggle)
-        #expect(reader.selectedModel() == "large-v3")
+        #expect(reader.selectedModel() == "parakeet-unified")
         #expect(reader.llmEnabled() == true)
     }
 

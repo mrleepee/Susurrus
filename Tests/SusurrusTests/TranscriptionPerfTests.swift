@@ -143,24 +143,7 @@ struct TranscriptionPerfTests {
 
     // MARK: - Tests (run sequentially with .serialized)
 
-    @Test("Benchmark: base model across compute units and decoding options")
-    func benchmarkBaseModel() async throws {
-        let audio = try await captureAudio(durationSeconds: 5.0)
-        print("[PERF] Audio: \(audio.count) samples (\(String(format: "%.1f", Double(audio.count) / 16000.0))s)")
-
-        let computes: [MLComputeUnits] = [.cpuAndNeuralEngine, .cpuAndGPU, .all]
-        var allResults: [BenchResult] = []
-
-        for compute in computes {
-            let results = await benchmarkModel(model: "base", compute: compute, audio: audio)
-            allResults.append(contentsOf: results)
-        }
-
-        printSummary("BASE MODEL SUMMARY", results: allResults)
-        #expect(!allResults.isEmpty)
-    }
-
-    @Test("Benchmark: small model with best compute from base")
+    @Test("Benchmark: small model across compute units and decoding options")
     func benchmarkSmallModel() async throws {
         let audio = try await captureAudio(durationSeconds: 5.0)
         print("[PERF] Audio: \(audio.count) samples (\(String(format: "%.1f", Double(audio.count) / 16000.0))s)")

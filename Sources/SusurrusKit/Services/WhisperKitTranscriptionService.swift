@@ -34,7 +34,7 @@ public actor WhisperKitTranscriptionService: Transcribing {
     /// Download (if needed) and load the WhisperKit model.
     /// Uses WhisperKit's default cache location (~/.cache/huggingface/hub/).
     public func setupModel(
-        modelName: String = "base",
+        modelName: String = "small",
         computeOptions: ModelComputeOptions = ModelComputeOptions(
             audioEncoderCompute: .cpuAndNeuralEngine,
             textDecoderCompute: .cpuAndNeuralEngine

@@ -142,7 +142,7 @@ public actor StreamingTranscriptionService {
 
     /// Load the model from the given folder.
     public func setupModel(
-        modelName: String = "base",
+        modelName: String = "small",
         computeOptions: ModelComputeOptions = ModelComputeOptions(
             audioEncoderCompute: .cpuAndNeuralEngine,
             textDecoderCompute: .cpuAndNeuralEngine

@@ -5,11 +5,11 @@ import WhisperKit
 @Suite("Model Load Tests")
 struct ModelLoadTests {
 
-    @Test("Download and load base model")
-    func loadBaseModel() async throws {
+    @Test("Download and load small model")
+    func loadSmallModel() async throws {
         let service = WhisperKitTranscriptionService()
 
-        try await service.setupModel(modelName: "base") { progress in
+        try await service.setupModel(modelName: "small") { progress in
             print("Progress: \(progress)")
         }
 
