@@ -52,9 +52,9 @@ final class DictationReviewModel: ObservableObject {
 
 /// The editable surface for "dictate into the panel" mode. While recording
 /// the transcript streams in read-only; finishing with the main hotkey makes
-/// it an editable field the user fixes, then inserts with ⌘⏎. Finishing with
-/// ⌘⏎ or ⇧⌘C instead skips the editor: the text is inserted or copied and
-/// the panel closes. Editing happens entirely in Susurrus's own text field, so no
+/// it an editable field the user fixes, then copies with ⌘⏎ or inserts with
+/// ⌥⌘⏎. Finishing with those same keys while still listening skips the
+/// editor: the text is copied or inserted and the panel closes. Editing happens entirely in Susurrus's own text field, so no
 /// target app's accessibility quirks can block it — the only thing we ever
 /// do to another app is one clean paste on insert.
 struct DictationReviewView: View {
@@ -151,17 +151,19 @@ struct DictationReviewView: View {
     private var footer: some View {
         switch model.phase {
         case .recording:
-            HStack(spacing: 18) {
-                if model.isPushToTalk {
-                    Text("Release to review")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else {
-                    KeyHint(keys: "⌘ ↩", label: "Insert")
-                    KeyHint(keys: "⇧⌘ C", label: "Copy")
-                    KeyHint(keys: model.editKeys, label: "Review")
+            GlassGroup(spacing: 8) {
+                HStack(spacing: 8) {
+                    if model.isPushToTalk {
+                        Text("Release to review")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        KeyHint(keys: "⌘↩", label: "Copy")
+                        KeyHint(keys: "⌥⌘↩", label: "Insert")
+                        KeyHint(keys: model.editKeys, label: "Review")
+                    }
+                    KeyHint(keys: "esc", label: "Cancel")
                 }
-                KeyHint(keys: "esc", label: "Cancel")
             }
             .frame(maxWidth: .infinity)
 
@@ -175,17 +177,23 @@ struct DictationReviewView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                 Spacer()
-                Button("Cancel") { model.onCancel?() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Copy") { model.onCopy?(model.text) }
-                    .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .help("Copy without inserting (⇧⌘C)")
-                    .disabled(isEmpty)
-                Button("Insert") { model.onInsert?(model.text) }
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .help("Insert into the app you dictated from (⌘⏎)")
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isEmpty)
+                GlassGroup(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Button("Cancel") { model.onCancel?() }
+                            .keyboardShortcut(.cancelAction)
+                            .glassButton()
+                        Button("Insert") { model.onInsert?(model.text) }
+                            .keyboardShortcut(.return, modifiers: [.command, .option])
+                            .help("Insert into the app you dictated from (⌥⌘⏎)")
+                            .glassButton()
+                            .disabled(isEmpty)
+                        Button("Copy") { model.onCopy?(model.text) }
+                            .keyboardShortcut(.return, modifiers: .command)
+                            .help("Copy to the clipboard (⌘⏎)")
+                            .glassButton(prominent: true)
+                            .disabled(isEmpty)
+                    }
+                }
             }
             .controlSize(.large)
         }
@@ -212,7 +220,7 @@ struct DictationReviewView: View {
                         Text("\(suggestion.original) → \(suggestion.suggested)")
                             .font(.caption)
                     }
-                    .buttonStyle(.bordered)
+                    .glassButton()
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
                     .help("Change “\(suggestion.original)” to “\(suggestion.suggested)”")
@@ -255,10 +263,18 @@ private struct StatusPill: View {
             }
         }
         .font(.system(size: 12, weight: .semibold))
-        .padding(.horizontal, 11)
-        .padding(.vertical, 4)
-        .background(Capsule().fill(.quaternary.opacity(0.6)))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .glass(in: Capsule(), tint: tint)
         .contentTransition(.opacity)
+    }
+
+    private var tint: Color? {
+        switch phase {
+        case .recording: .red.opacity(0.25)
+        case .finished: .green.opacity(0.25)
+        case .processing, .editing: nil
+        }
     }
 }
 
@@ -283,7 +299,7 @@ private struct PulsingDot: View {
     }
 }
 
-/// A keycap plus what it does, in the style of macOS menu shortcuts.
+/// A shortcut and what it does, as a small glass chip.
 private struct KeyHint: View {
     let keys: String
     let label: String
@@ -291,22 +307,14 @@ private struct KeyHint: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(keys)
-                .font(.system(size: 11, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(.quaternary.opacity(0.7))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(.separator, lineWidth: 0.5)
-                )
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
             Text(label)
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .glass(in: Capsule())
     }
 }
 
@@ -324,8 +332,45 @@ private struct FinishedBadge: View {
         }
         .padding(.horizontal, 26)
         .padding(.vertical, 18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .glass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+}
+
+// MARK: - Liquid Glass, with pre-Tahoe fallbacks
+
+extension View {
+    /// Liquid Glass on macOS 26; a translucent fill on earlier systems.
+    @ViewBuilder
+    func glass<S: Shape>(in shape: S, tint: Color? = nil) -> some View {
+        if #available(macOS 26, *) {
+            glassEffect(.regular.tint(tint), in: shape)
+        } else {
+            background(shape.fill(tint ?? Color.primary.opacity(0.08)))
+        }
+    }
+
+    @ViewBuilder
+    func glassButton(prominent: Bool = false) -> some View {
+        if #available(macOS 26, *) {
+            if prominent { buttonStyle(.glassProminent) } else { buttonStyle(.glass) }
+        } else {
+            if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
+        }
+    }
+}
+
+/// Lets neighbouring glass shapes blend and morph into each other on
+/// macOS 26; a plain passthrough before that.
+private struct GlassGroup<Content: View>: View {
+    var spacing: CGFloat
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if #available(macOS 26, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
     }
 }
 
@@ -338,6 +383,9 @@ private struct FinishedBadge: View {
 final class DictationReviewPanel: NSPanel {
 
     private let model = DictationReviewModel()
+
+    /// Matches a Tahoe titled window's own corner so the glass fills it.
+    private static let glassCornerRadius: CGFloat = 16
 
     /// The app that was frontmost when dictation started — where the final
     /// text is pasted on insert.
@@ -375,20 +423,32 @@ final class DictationReviewPanel: NSPanel {
         // far the user drags the window down.
         minSize = NSSize(width: 440, height: 220)
 
-        let material = NSVisualEffectView()
-        material.material = .popover
-        material.blendingMode = .behindWindow
-        material.state = .active
         let host = NSHostingView(rootView: DictationReviewView(model: model))
-        host.translatesAutoresizingMaskIntoConstraints = false
-        material.addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: material.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: material.trailingAnchor),
-            host.topAnchor.constraint(equalTo: material.topAnchor),
-            host.bottomAnchor.constraint(equalTo: material.bottomAnchor),
-        ])
-        contentView = material
+        if #available(macOS 26, *) {
+            // The whole panel is one sheet of Liquid Glass, like Spotlight.
+            // The window itself must be clear or the glass has nothing
+            // behind it to refract.
+            isOpaque = false
+            backgroundColor = .clear
+            let glass = NSGlassEffectView()
+            glass.cornerRadius = Self.glassCornerRadius
+            glass.contentView = host
+            contentView = glass
+        } else {
+            let material = NSVisualEffectView()
+            material.material = .popover
+            material.blendingMode = .behindWindow
+            material.state = .active
+            host.translatesAutoresizingMaskIntoConstraints = false
+            material.addSubview(host)
+            NSLayoutConstraint.activate([
+                host.leadingAnchor.constraint(equalTo: material.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: material.trailingAnchor),
+                host.topAnchor.constraint(equalTo: material.topAnchor),
+                host.bottomAnchor.constraint(equalTo: material.bottomAnchor),
+            ])
+            contentView = material
+        }
 
         // Cancel button / Esc / close button all just discard and close —
         // there is no state to unwind, only the window to dismiss.
