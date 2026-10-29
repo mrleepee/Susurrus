@@ -140,6 +140,20 @@ enum FinalTranscriber {
         return (tokens, chosen)
     }
 
+    /// Whether a prompted decode looks like it lost text: nothing survived,
+    /// or some window came back empty after the last temperature fallback.
+    static func promptMayHaveFailed(_ transcript: FinalTranscript) -> Bool {
+        if transcript.outcome == .empty { return true }
+        guard transcript.outcome == .decoded else { return false }
+        return transcript.segments.contains {
+            $0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.temperature >= 0.99
+        }
+    }
+
+    static func wordCount(_ text: String) -> Int {
+        text.split(whereSeparator: \.isWhitespace).count
+    }
+
     /// Decodes `samples` with `options` (prompt tokens already applied).
     static func decode(
         samples: [Float],

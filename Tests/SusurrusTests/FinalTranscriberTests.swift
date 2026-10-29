@@ -59,3 +59,31 @@ struct FinalTranscriberTests {
         }
     }
 }
+
+@Suite("Prompt failure detection Tests")
+struct PromptFailureDetectionTests {
+    private func segment(_ text: String, temperature: Float) -> FinalSegment {
+        FinalSegment(text: text, start: 0, end: 10, avgLogprob: -0.2, noSpeechProb: 0, compressionRatio: 1.4, temperature: temperature)
+    }
+    private func transcript(_ outcome: FinalTranscript.Outcome, _ segments: [FinalSegment]) -> FinalTranscript {
+        FinalTranscript(outcome: outcome, text: segments.map(\.text).joined(separator: " "), promptTerms: [],
+                        promptTokenCount: 10, segments: segments, decodeMs: 0, failure: nil)
+    }
+
+    @Test("Empty output counts as a failed prompted decode")
+    func emptyOutcome() {
+        #expect(FinalTranscriber.promptMayHaveFailed(transcript(.empty, [])))
+    }
+
+    @Test("A window left empty at the last fallback counts as failed")
+    func exhaustedWindow() {
+        let t = transcript(.decoded, [segment("Hello there.", temperature: 0), segment("", temperature: 1)])
+        #expect(FinalTranscriber.promptMayHaveFailed(t))
+    }
+
+    @Test("A clean decode, or silence skipped before decoding, does not retry")
+    func noRetry() {
+        #expect(!FinalTranscriber.promptMayHaveFailed(transcript(.decoded, [segment("Hello.", temperature: 0)])))
+        #expect(!FinalTranscriber.promptMayHaveFailed(transcript(.silent, [])))
+    }
+}

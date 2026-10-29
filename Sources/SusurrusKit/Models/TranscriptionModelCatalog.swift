@@ -8,7 +8,8 @@ public enum TranscriptionModelCatalog {
     public static let defaultModel = ParakeetTranscriber.Variant.v2.rawValue
 
     public static let supported: [String] =
-        ParakeetTranscriber.Variant.allCases.map(\.rawValue) + [ParakeetTranscriber.previewWhisperModel]
+        ParakeetTranscriber.Variant.allCases.map(\.rawValue)
+        + [Qwen3ASRTranscriber.modelID, ParakeetTranscriber.previewWhisperModel]
 
     public static func isSupported(_ model: String) -> Bool {
         supported.contains(model)
