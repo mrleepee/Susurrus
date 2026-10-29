@@ -57,7 +57,7 @@ struct SusurrusApp: App {
     // Esc everywhere else in the OS.
     private static let sharedEscHotkeyService = GlobalHotkeyService()
     private var escHotkeyService: GlobalHotkeyService { Self.sharedEscHotkeyService }
-    // ⌘⏎ / ⇧⌘C finish-from-listening keys for the review panel — like Esc,
+    // ⌘⏎ / ⌥⌘⏎ finish-from-listening keys for the review panel — like Esc,
     // registered only while the panel is listening.
     private static let sharedPanelInsertHotkeyService = GlobalHotkeyService()
     private var panelInsertHotkeyService: GlobalHotkeyService { Self.sharedPanelInsertHotkeyService }
@@ -463,11 +463,11 @@ struct SusurrusApp: App {
 
     /// Control+Option+Space: dictate into a review panel. The transcript
     /// streams into the panel; finishing with the main hotkey (or releasing,
-    /// in push-to-talk) opens it for editing, and ⌘⏎ inserts the corrected
-    /// text into the app you were in with one clean paste. While it's
-    /// listening, ⌘⏎ / ⇧⌘C (see registerPanelFinishKeys) or a second
-    /// Control+Option+Space finish straight to insert / copy and close the
-    /// panel. Nothing is written to the target app until you
+    /// in push-to-talk) opens it for editing; there ⌘⏎ copies and ⌥⌘⏎
+    /// inserts the corrected text into the app you were in with one clean
+    /// paste. While it's listening, the same keys (see
+    /// registerPanelFinishKeys) or a second Control+Option+Space finish
+    /// straight to copy / insert and close the panel. Nothing is written to the target app until you
     /// insert, so no editor's accessibility quirks can block it.
     private func setupFixHotkeyIfNeeded() {
         guard !appState.fixHotkeyConfigured else { return }
@@ -757,7 +757,7 @@ struct SusurrusApp: App {
         }
     }
 
-    /// ⌘⏎ inserts and ⇧⌘C copies straight from the listening panel, skipping
+    /// ⌘⏎ copies and ⌥⌘⏎ inserts straight from the listening panel, skipping
     /// the editor — the same keys the editor uses, so they mean the same
     /// thing in both phases. Global only while the panel is listening (torn
     /// down with Esc), so they never shadow those keys in other apps.
@@ -765,8 +765,9 @@ struct SusurrusApp: App {
         let state = appState
         let panel = reviewPanel
         let keys: [(GlobalHotkeyService, HotkeyCombo, DictationReviewPanel.QuickFinish)] = [
-            (panelInsertHotkeyService, HotkeyCombo(keyCode: 0x24, modifiers: 0x0100), .insert),
-            (panelCopyHotkeyService, HotkeyCombo(keyCode: 0x08, modifiers: 0x0300), .copy),
+            // Carbon modifiers: cmdKey 0x0100, optionKey 0x0800; 0x24 is Return.
+            (panelCopyHotkeyService, HotkeyCombo(keyCode: 0x24, modifiers: 0x0100), .copy),
+            (panelInsertHotkeyService, HotkeyCombo(keyCode: 0x24, modifiers: 0x0900), .insert),
         ]
         for (service, combo, finish) in keys {
             Task {
@@ -875,7 +876,7 @@ struct SusurrusApp: App {
 
         Task {
             do {
-                // Listening is over: hand ⌘⏎ / ⇧⌘C back before the editor
+                // Listening is over: hand ⌘⏎ / ⌥⌘⏎ back before the editor
                 // opens, so its own Insert/Copy shortcuts aren't swallowed.
                 await panelInsert.unregister()
                 await panelCopy.unregister()
