@@ -40,8 +40,18 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
         defaults.set(mode.rawValue, forKey: Keys.recordingMode)
     }
 
+    /// The chosen model. A stored model the app no longer offers (base,
+    /// medium, the large-v3 family) is replaced with the default and the
+    /// replacement saved, so the picker and the loader agree.
     public func selectedModel() -> String {
-        defaults.string(forKey: Keys.selectedModel) ?? "base"
+        guard let stored = defaults.string(forKey: Keys.selectedModel) else {
+            return TranscriptionModelCatalog.defaultModel
+        }
+        guard TranscriptionModelCatalog.isSupported(stored) else {
+            defaults.set(TranscriptionModelCatalog.defaultModel, forKey: Keys.selectedModel)
+            return TranscriptionModelCatalog.defaultModel
+        }
+        return stored
     }
 
     public func setSelectedModel(_ model: String) {

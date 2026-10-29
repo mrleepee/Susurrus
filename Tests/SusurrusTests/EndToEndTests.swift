@@ -22,7 +22,7 @@ struct EndToEndTests {
         let service = WhisperKitTranscriptionService()
 
         // Step 1: Load model
-        try await service.setupModel(modelName: "base") { _ in }
+        try await service.setupModel(modelName: "small") { _ in }
         #expect(await service.isModelReady() == true)
 
         // Step 2: Generate test audio and transcribe
@@ -43,7 +43,7 @@ struct EndToEndTests {
     @Test("Transcribe real audio from microphone", .enabled(if: liveAudioTestsEnabled))
     func transcribeRealAudio() async throws {
         let service = WhisperKitTranscriptionService()
-        try await service.setupModel(modelName: "base") { _ in }
+        try await service.setupModel(modelName: "small") { _ in }
 
         // Capture 3 seconds of real audio from the microphone
         let capture = AudioCaptureService()
