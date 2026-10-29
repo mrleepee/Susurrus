@@ -42,8 +42,10 @@ struct PreferencesView: View {
     @State private var importReplaceExisting = false
 
     private let modelOptions: [(id: String, label: String, detail: String)] = [
-        (ParakeetTranscriber.modelID, "Parakeet v2 (NVIDIA)",
+        (ParakeetTranscriber.Variant.v2.rawValue, "Parakeet v2 (NVIDIA)",
          "Most accurate on your voice, near-instant to finish; Small runs the live preview • ~480MB + Small"),
+        (ParakeetTranscriber.Variant.unified.rawValue, "Parakeet Unified (NVIDIA)",
+         "Newer Parakeet: slightly fewer word errors, fewer stray full stops, lighter punctuation • ~600MB + Small"),
         ("base", "Base", "Fastest • ~140MB"),
         ("small", "Small", "Recommended: fast, good with your vocabulary • ~464MB"),
         ("medium", "Medium", "Slower • ~770MB"),
@@ -782,8 +784,8 @@ struct PreferencesView: View {
             .appendingPathComponent("whisperkit-coreml")
 
         var cached = Set<String>()
-        if ParakeetTranscriber.isCached() {
-            cached.insert(ParakeetTranscriber.modelID)
+        for variant in ParakeetTranscriber.Variant.allCases where ParakeetTranscriber.isCached(variant) {
+            cached.insert(variant.rawValue)
         }
         guard let contents = try? fm.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil) else {
             cachedModels = cached

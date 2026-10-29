@@ -38,9 +38,11 @@ struct ParakeetTranscriberTests {
         #expect(out == ramp(40))
     }
 
-    @Test("Only the picker id selects Parakeet")
+    @Test("Only the picker ids select Parakeet")
     func pickerID() {
         #expect(ParakeetTranscriber.isParakeet("parakeet-v2"))
+        #expect(ParakeetTranscriber.isParakeet("parakeet-unified"))
+        #expect(ParakeetTranscriber.Variant(rawValue: "parakeet-unified") == .unified)
         #expect(!ParakeetTranscriber.isParakeet("small"))
         #expect(!ParakeetTranscriber.isParakeet("large-v3"))
     }

@@ -87,8 +87,8 @@ enum Run {
         printErr("loading model...")
         let loadStart = Date()
         try await service.setupModel(modelFolder: modelFolder)
-        if ParakeetTranscriber.isParakeet(config.model) {
-            try await service.enableParakeet()
+        if let variant = ParakeetTranscriber.Variant(rawValue: config.model) {
+            try await service.enableParakeet(variant)
         }
         printErr(String(format: "model ready in %.1fs", Date().timeIntervalSince(loadStart)))
         await service.setLanguage("en")
