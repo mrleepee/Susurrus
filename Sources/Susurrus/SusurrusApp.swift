@@ -1061,8 +1061,15 @@ struct SusurrusApp: App {
                     traceApp("stopStreamingSession: autoPaste=\(autoPaste)")
                     if autoPaste {
                         try? await Task.sleep(for: .milliseconds(150))
-                        let pasted = clip.simulatePaste()
-                        if !pasted {
+                        // Same guard as the panel's Insert: a ⌘V into a
+                        // file list or sidebar does nothing useful (or
+                        // worse), and the text is already on the clipboard.
+                        let front = NSWorkspace.shared.frontmostApplication
+                        let verdict = front.map { FocusedTextProbe.check(pid: $0.processIdentifier) } ?? .unknown
+                        if verdict == .notEditable {
+                            traceApp("stopStreamingSession: no text field focused in \(front?.bundleIdentifier ?? "?"), copied only")
+                            overlay?.showMessage("Copied to clipboard — no text field to insert into", duration: 2.2)
+                        } else if !clip.simulatePaste() {
                             notifications.showNotification(
                                 title: "Auto-paste blocked — text is on the clipboard",
                                 body: "Grant System Settings → Privacy & Security → Accessibility. If Susurrus is already listed, remove and re-add it."
