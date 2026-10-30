@@ -14,9 +14,10 @@ final class DictationReviewModel: ObservableObject {
         case processing
         /// Final text in an editable field.
         case editing
-        /// Finished straight from listening (copy or insert); the panel is
-        /// about to close itself. Carries the confirmation to show.
-        case finished(String)
+        /// Copied or inserted; the panel is about to close itself. Carries
+        /// the confirmation to show, and a second line when the result
+        /// wasn't what was asked for (an insert that could only copy).
+        case finished(String, detail: String?)
     }
 
     @Published var phase: Phase = .recording
@@ -116,8 +117,8 @@ struct DictationReviewView: View {
             }
             .opacity(model.phase == .recording ? 1 : 0.55)
             .overlay {
-                if case .finished(let message) = model.phase {
-                    FinishedBadge(message: message)
+                if case .finished(let message, let detail) = model.phase {
+                    FinishedBadge(message: message, detail: detail)
                         .transition(.scale(scale: 0.85).combined(with: .opacity))
                 }
             }
@@ -320,15 +321,22 @@ private struct KeyHint: View {
 
 private struct FinishedBadge: View {
     let message: String
+    let detail: String?
 
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: detail == nil ? "checkmark.circle.fill" : "doc.on.clipboard.fill")
                 .font(.system(size: 40, weight: .medium))
-                .foregroundStyle(.white, .green)
+                .foregroundStyle(detail == nil ? AnyShapeStyle(.white) : AnyShapeStyle(.orange),
+                                 detail == nil ? AnyShapeStyle(.green) : AnyShapeStyle(.orange))
                 .symbolEffect(.bounce, value: true)
             Text(message)
                 .font(.system(size: 13, weight: .semibold))
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 26)
         .padding(.vertical, 18)
@@ -502,13 +510,15 @@ final class DictationReviewPanel: NSPanel {
         model.phase = .processing
     }
 
-    /// Quick finish: show the final text with a brief confirmation, then
-    /// close on its own. Never takes focus from the user's app.
-    func showFinished(_ text: String, message: String) {
+    /// Show the delivered text with a brief confirmation, then close on its
+    /// own. Never takes focus from the user's app. A `detail` line (the
+    /// insert fell back to copy) stays up longer so it can be read.
+    func showFinished(_ text: String, message: String, detail: String? = nil) {
         model.text = text
-        model.phase = .finished(message)
+        model.phase = .finished(message, detail: detail)
+        orderFront(nil)
         let closing = session
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + (detail == nil ? 0.9 : 2.2)) { [weak self] in
             guard let self, self.session == closing, case .finished = self.model.phase else { return }
             self.orderOut(nil)
         }
@@ -516,8 +526,8 @@ final class DictationReviewPanel: NSPanel {
 
     /// Switch to the editable phase with the finalized text and take focus.
     /// `onFinish` receives the user's edited text and whether it should be
-    /// pasted into the target app (Insert) or only copied (Copy). Either way
-    /// the panel closes.
+    /// pasted into the target app (Insert) or only copied (Copy). It reports
+    /// the outcome with `showFinished`, which closes the panel.
     func enterEditing(
         finalText: String,
         casingSuggestions: [CasingSuggestion] = [],
@@ -525,14 +535,8 @@ final class DictationReviewPanel: NSPanel {
     ) {
         model.text = finalText
         model.casingSuggestions = casingSuggestions
-        model.onInsert = { [weak self] edited in
-            onFinish(edited, true)
-            self?.orderOut(nil)
-        }
-        model.onCopy = { [weak self] edited in
-            onFinish(edited, false)
-            self?.orderOut(nil)
-        }
+        model.onInsert = { edited in onFinish(edited, true) }
+        model.onCopy = { edited in onFinish(edited, false) }
         model.phase = .editing
         makeKeyAndOrderFront(nil)
     }
