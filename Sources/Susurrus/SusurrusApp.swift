@@ -923,7 +923,10 @@ struct SusurrusApp: App {
                         let targetApp = panel.targetApp
                         let deliver: (String, Bool) -> Void = { edited, shouldPaste in
                             let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !final.isEmpty else { return }
+                            guard !final.isEmpty else {
+                                panel.cancel()
+                                return
+                            }
                             // Learn from any manual edit beyond the corrector.
                             // Copy and Insert are equally good teaching signal.
                             if final != corrected, !corrected.isEmpty {
@@ -950,21 +953,31 @@ struct SusurrusApp: App {
                             }
                             guard shouldPaste else {
                                 traceApp("reviewCopy: copied \(final.count) chars, target untouched")
+                                panel.showFinished(final, message: "Copied to Clipboard")
                                 return
                             }
                             // Return focus to the target app, then one clean
-                            // paste — the only thing we ever do to it.
+                            // paste — the only thing we ever do to it. If its
+                            // focused element is clearly not somewhere to type
+                            // (a file list, a sidebar), skip the ⌘V: the text
+                            // is already on the clipboard, so say so instead.
                             targetApp?.activate(options: [])
-                            Task {
+                            Task { @MainActor in
                                 try? await Task.sleep(for: .milliseconds(150))
-                                let pasted = clip.simulatePaste()
-                                if !pasted {
-                                    notifications.showNotification(
-                                        title: "Text copied — paste to insert",
-                                        body: "Couldn't paste automatically. The corrected text is on the clipboard; press ⌘V where you want it."
-                                    )
+                                let target = targetApp?.bundleIdentifier ?? "?"
+                                let verdict = targetApp.map { FocusedTextProbe.check(pid: $0.processIdentifier) } ?? .unknown
+                                guard verdict != .notEditable else {
+                                    traceApp("reviewInsert: no text field focused in \(target), copied only")
+                                    panel.showFinished(final, message: "Copied to Clipboard", detail: "No text field to insert into")
+                                    return
                                 }
-                                traceApp("reviewInsert: pasted=\(pasted) into \(targetApp?.bundleIdentifier ?? "?")")
+                                let pasted = clip.simulatePaste()
+                                traceApp("reviewInsert: pasted=\(pasted) into \(target) (field: \(verdict))")
+                                if pasted {
+                                    panel.showFinished(final, message: "Inserted")
+                                } else {
+                                    panel.showFinished(final, message: "Copied to Clipboard", detail: "Couldn't paste — press ⌘V to insert")
+                                }
                             }
                         }
                         if let quickFinish {
@@ -974,9 +987,7 @@ struct SusurrusApp: App {
                                 panel.cancel()
                                 return
                             }
-                            let insert = quickFinish == .insert
-                            deliver(corrected, insert)
-                            panel.showFinished(final, message: insert ? "Inserted" : "Copied to Clipboard")
+                            deliver(corrected, quickFinish == .insert)
                         } else {
                             panel.enterEditing(finalText: corrected, casingSuggestions: casing, onFinish: deliver)
                         }
