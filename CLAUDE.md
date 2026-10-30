@@ -13,7 +13,7 @@ xcodebuild -downloadComponent MetalToolchain   # once per machine: make builds M
 make dev             # Build and run debug binary directly (shows stdout/stderr in terminal)
 make build           # Build release .app bundle
 make install         # Install to /Applications
-swift test           # Run tests (currently blocked — test files use Swift Testing which isn't in toolchain)
+swift test           # Run tests (Swift Testing; `swift test --filter <Suite>` for one suite)
 make eval            # Score the golden audio set against the committed baseline (accuracy gate; see docs/eval-harness.md)
 ```
 

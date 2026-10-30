@@ -20,6 +20,8 @@ struct PreferencesView: View {
     @AppStorage("llmLocalModel") private var llmLocalModel = ""
     @AppStorage(StreamingTranscriptionService.confidenceLoggingKey) private var confidenceLogging = false
     @AppStorage(EvalCaptureStore.enabledKey) private var keepRecordings = false
+    @AppStorage(SpokenFormatter.slashCommandsKey) private var formatSlashCommands = true
+    @AppStorage(SpokenFormatter.listsKey) private var formatSpokenLists = true
     @State private var recordingsCount = 0
     @State private var recordingsSummary = ""
     @State private var confirmDeleteRecordings = false
@@ -158,6 +160,19 @@ struct PreferencesView: View {
                 Text("Spotify, Apple Music, and other media apps will pause when recording starts and resume when it stops.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Slash commands", isOn: $formatSlashCommands)
+                Text("\u{201C}slash autopilot\u{201D} types /autopilot. Knows Claude Code\u{2019}s built-in commands and your skills, commands and plugins in ~/.claude, so \u{201C}slash code review\u{201D} types /code-review.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Spoken lists", isOn: $formatSpokenLists)
+                Text("\u{201C}One, fix the parser. A, handle nulls. B, handle empties. Two, write the tests.\u{201D} becomes a numbered list with lettered sub-items. Also 0.1, 0.2 outlines and \u{201C}bullet point\u{201D} lists. Needs at least two items in order.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Spoken Formatting")
             }
 
             Section {
