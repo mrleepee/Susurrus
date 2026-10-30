@@ -19,7 +19,7 @@ SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null \
 # WhisperKit unpatched, and that build crashes on the first dictation.
 WHISPERKIT := .build/checkouts/WhisperKit
 deps:
-	@swift package resolve
+	@swift package resolve --disable-keychain
 	@for p in patches/whisperkit-*.patch; do \
 		files=$$(grep '^+++ b/' $$p | sed 's|^+++ b/||; s|\t.*||'); \
 		for f in $$files; do chmod u+w "$(WHISPERKIT)/$$f"; done; \
@@ -30,8 +30,14 @@ deps:
 		fi; \
 	done
 
+# MLX (Qwen3-ASR) needs its Metal shader library next to the binary; SwiftPM
+# doesn't build it. Needs Xcode's Metal Toolchain, installed once with:
+#   xcodebuild -downloadComponent MetalToolchain
+METALLIB_SCRIPT := .build/checkouts/speech-swift/scripts/build_mlx_metallib.sh
+
 build: deps
 	swift build
+	BUILD_DIR=$(CURDIR)/.build bash $(METALLIB_SCRIPT) debug
 
 # Run debug binary directly — stdout/stderr visible in terminal, no install needed
 dev: build
@@ -41,12 +47,17 @@ dev: build
 
 release: deps
 	swift build -c release
+	BUILD_DIR=$(CURDIR)/.build bash $(METALLIB_SCRIPT) release
 
 bundle: release
 	rm -rf $(APP_BUNDLE)
 	mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	mkdir -p $(APP_BUNDLE)/Contents/Resources
 	cp .build/release/$(APP_NAME) $(APP_BUNDLE)/Contents/MacOS/
+	@# MLX looks for mlx.metallib next to the binary, but codesign rejects a
+	@# data file in Contents/MacOS: keep it in Resources and link to it.
+	cp .build/release/mlx.metallib $(APP_BUNDLE)/Contents/Resources/
+	ln -s ../Resources/mlx.metallib $(APP_BUNDLE)/Contents/MacOS/mlx.metallib
 	cp Info.plist $(APP_BUNDLE)/Contents/
 	cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/
 	# Never ship .env or any secrets in the bundle — API keys belong in macOS Keychain only
@@ -66,7 +77,7 @@ install: bundle
 	@# Kill running instance if any
 	-killall $(APP_NAME) 2>/dev/null || true
 	rm -rf $(INSTALL_DIR)/$(APP_NAME).app
-	cp -r $(APP_BUNDLE) $(INSTALL_DIR)/
+	ditto $(APP_BUNDLE) $(INSTALL_DIR)/$(APP_NAME).app
 	@# Force Launch Services to re-scan the new copy. Without this it can
 	@# keep serving a stale registration (wrong mod date, or a lingering
 	@# launch-disabled flag from before code-signing was stabilized),
@@ -106,6 +117,7 @@ EVAL_OUT ?= eval-runs/$(shell date +%Y%m%d-%H%M%S).json
 
 eval-build: deps
 	swift build -c release --product susurrus-eval
+	BUILD_DIR=$(CURDIR)/.build bash $(METALLIB_SCRIPT) release
 
 # Render the golden scripts to audio (regenerate after a macOS update changes voices).
 eval-golden: eval-build

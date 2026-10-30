@@ -2,13 +2,14 @@
 
 ## Project Overview
 
-Susurrus is a macOS menu bar app for streaming voice transcription using WhisperKit. Written in Swift, built with Swift Package Manager.
+Susurrus is a macOS menu bar app for voice transcription: WhisperKit for capture and the live preview, Parakeet (FluidAudio) or Qwen3-ASR (speech-swift, MLX) for the final text. Written in Swift, built with Swift Package Manager.
 
 ## Common Commands
 
 ```bash
 swift build          # Build debug binary (run `make deps` once first in a fresh checkout or worktree — see below)
 make deps            # Resolve packages and apply patches/*.patch to them (every make build target runs it)
+xcodebuild -downloadComponent MetalToolchain   # once per machine: make builds MLX's mlx.metallib for Qwen3-ASR
 make dev             # Build and run debug binary directly (shows stdout/stderr in terminal)
 make build           # Build release .app bundle
 make install         # Install to /Applications
@@ -35,7 +36,7 @@ The `make dev` target runs the debug binary directly from `.build/debug/` with s
 ## Architecture
 
 - **App entry**: `Sources/Susurrus/SusurrusApp.swift` — SwiftUI `MenuBarExtra` with `@NSApplicationDelegateAdaptor` for eager setup
-- **Transcription**: `Sources/SusurrusKit/Services/StreamingTranscriptionService.swift` — WhisperKit `AudioStreamTranscriber` with VAD for capture and live preview; the stop-time decode uses Parakeet (`ParakeetTranscriber.swift`, FluidAudio, Silero VAD pause squeeze) when the model is `parakeet-v2` or `parakeet-unified`; the only Whisper model offered is Small (preview, fallback, Whisper-only option)
+- **Transcription**: `Sources/SusurrusKit/Services/StreamingTranscriptionService.swift` — WhisperKit `AudioStreamTranscriber` with VAD for capture and live preview; the stop-time decode uses Parakeet (`ParakeetTranscriber.swift`, FluidAudio, Silero VAD pause squeeze) when the model is `parakeet-v2` or `parakeet-unified`, or Qwen3-ASR 1.7B (`Qwen3ASRTranscriber.swift`, ranked vocabulary as context) for `qwen3-asr-1.7b`; the only Whisper model offered is Small (preview, fallback, Whisper-only option)
 - **Services**: All in `Sources/SusurrusKit/Services/` — follow the protocol in `Sources/SusurrusKit/Protocols/`
 - **Models**: `Sources/SusurrusKit/Models/`
 - **Views**: `Sources/Susurrus/` — `MenuBarView.swift`, `PreferencesView.swift`, `HistoryView.swift`
@@ -48,6 +49,6 @@ The `make dev` target runs the debug binary directly from `.build/debug/` with s
 
 ## Platform Requirements
 
-- macOS 14+ (Sonoma)
+- macOS 15+ (speech-swift's minimum)
 - Swift Tools Version 6.2
-- Dependencies: WhisperKit 0.9.4+
+- Dependencies: WhisperKit 1.1.1 (patched), FluidAudio 0.17.7, speech-swift (pinned commit). `mlx.metallib` ships in `Contents/Resources` with a symlink in `Contents/MacOS` (codesign rejects data files there); install with `ditto`, not `cp -r`, or the symlink breaks the signature

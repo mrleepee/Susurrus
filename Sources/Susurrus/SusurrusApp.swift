@@ -57,7 +57,7 @@ struct SusurrusApp: App {
     // Esc everywhere else in the OS.
     private static let sharedEscHotkeyService = GlobalHotkeyService()
     private var escHotkeyService: GlobalHotkeyService { Self.sharedEscHotkeyService }
-    // ⌘⏎ / ⇧⌘C finish-from-listening keys for the review panel — like Esc,
+    // ⌘⏎ / ⌥⌘⏎ finish-from-listening keys for the review panel — like Esc,
     // registered only while the panel is listening.
     private static let sharedPanelInsertHotkeyService = GlobalHotkeyService()
     private var panelInsertHotkeyService: GlobalHotkeyService { Self.sharedPanelInsertHotkeyService }
@@ -463,11 +463,11 @@ struct SusurrusApp: App {
 
     /// Control+Option+Space: dictate into a review panel. The transcript
     /// streams into the panel; finishing with the main hotkey (or releasing,
-    /// in push-to-talk) opens it for editing, and ⌘⏎ inserts the corrected
-    /// text into the app you were in with one clean paste. While it's
-    /// listening, ⌘⏎ / ⇧⌘C (see registerPanelFinishKeys) or a second
-    /// Control+Option+Space finish straight to insert / copy and close the
-    /// panel. Nothing is written to the target app until you
+    /// in push-to-talk) opens it for editing; there ⌘⏎ copies and ⌥⌘⏎
+    /// inserts the corrected text into the app you were in with one clean
+    /// paste. While it's listening, the same keys (see
+    /// registerPanelFinishKeys) or a second Control+Option+Space finish
+    /// straight to copy / insert and close the panel. Nothing is written to the target app until you
     /// insert, so no editor's accessibility quirks can block it.
     private func setupFixHotkeyIfNeeded() {
         guard !appState.fixHotkeyConfigured else { return }
@@ -761,7 +761,7 @@ struct SusurrusApp: App {
         }
     }
 
-    /// ⌘⏎ inserts and ⇧⌘C copies straight from the listening panel, skipping
+    /// ⌘⏎ copies and ⌥⌘⏎ inserts straight from the listening panel, skipping
     /// the editor — the same keys the editor uses, so they mean the same
     /// thing in both phases. Global only while the panel is listening (torn
     /// down with Esc), so they never shadow those keys in other apps.
@@ -769,8 +769,9 @@ struct SusurrusApp: App {
         let state = appState
         let panel = reviewPanel
         let keys: [(GlobalHotkeyService, HotkeyCombo, DictationReviewPanel.QuickFinish)] = [
-            (panelInsertHotkeyService, HotkeyCombo(keyCode: 0x24, modifiers: 0x0100), .insert),
-            (panelCopyHotkeyService, HotkeyCombo(keyCode: 0x08, modifiers: 0x0300), .copy),
+            // Carbon modifiers: cmdKey 0x0100, optionKey 0x0800; 0x24 is Return.
+            (panelCopyHotkeyService, HotkeyCombo(keyCode: 0x24, modifiers: 0x0100), .copy),
+            (panelInsertHotkeyService, HotkeyCombo(keyCode: 0x24, modifiers: 0x0900), .insert),
         ]
         for (service, combo, finish) in keys {
             Task {
@@ -879,7 +880,7 @@ struct SusurrusApp: App {
 
         Task {
             do {
-                // Listening is over: hand ⌘⏎ / ⇧⌘C back before the editor
+                // Listening is over: hand ⌘⏎ / ⌥⌘⏎ back before the editor
                 // opens, so its own Insert/Copy shortcuts aren't swallowed.
                 await panelInsert.unregister()
                 await panelCopy.unregister()
@@ -926,7 +927,10 @@ struct SusurrusApp: App {
                         let targetApp = panel.targetApp
                         let deliver: (String, Bool) -> Void = { edited, shouldPaste in
                             let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !final.isEmpty else { return }
+                            guard !final.isEmpty else {
+                                panel.cancel()
+                                return
+                            }
                             // Learn from any manual edit beyond the corrector.
                             // Copy and Insert are equally good teaching signal.
                             if final != corrected, !corrected.isEmpty {
@@ -953,21 +957,31 @@ struct SusurrusApp: App {
                             }
                             guard shouldPaste else {
                                 traceApp("reviewCopy: copied \(final.count) chars, target untouched")
+                                panel.showFinished(final, message: "Copied to Clipboard")
                                 return
                             }
                             // Return focus to the target app, then one clean
-                            // paste — the only thing we ever do to it.
+                            // paste — the only thing we ever do to it. If its
+                            // focused element is clearly not somewhere to type
+                            // (a file list, a sidebar), skip the ⌘V: the text
+                            // is already on the clipboard, so say so instead.
                             targetApp?.activate(options: [])
-                            Task {
+                            Task { @MainActor in
                                 try? await Task.sleep(for: .milliseconds(150))
-                                let pasted = clip.simulatePaste()
-                                if !pasted {
-                                    notifications.showNotification(
-                                        title: "Text copied — paste to insert",
-                                        body: "Couldn't paste automatically. The corrected text is on the clipboard; press ⌘V where you want it."
-                                    )
+                                let target = targetApp?.bundleIdentifier ?? "?"
+                                let verdict = targetApp.map { FocusedTextProbe.check(pid: $0.processIdentifier) } ?? .unknown
+                                guard verdict != .notEditable else {
+                                    traceApp("reviewInsert: no text field focused in \(target), copied only")
+                                    panel.showFinished(final, message: "Copied to Clipboard", detail: "No text field to insert into")
+                                    return
                                 }
-                                traceApp("reviewInsert: pasted=\(pasted) into \(targetApp?.bundleIdentifier ?? "?")")
+                                let pasted = clip.simulatePaste()
+                                traceApp("reviewInsert: pasted=\(pasted) into \(target) (field: \(verdict))")
+                                if pasted {
+                                    panel.showFinished(final, message: "Inserted")
+                                } else {
+                                    panel.showFinished(final, message: "Copied to Clipboard", detail: "Couldn't paste — press ⌘V to insert")
+                                }
                             }
                         }
                         if let quickFinish {
@@ -977,9 +991,7 @@ struct SusurrusApp: App {
                                 panel.cancel()
                                 return
                             }
-                            let insert = quickFinish == .insert
-                            deliver(corrected, insert)
-                            panel.showFinished(final, message: insert ? "Inserted" : "Copied to Clipboard")
+                            deliver(corrected, quickFinish == .insert)
                         } else {
                             panel.enterEditing(finalText: corrected, casingSuggestions: casing, onFinish: deliver)
                         }

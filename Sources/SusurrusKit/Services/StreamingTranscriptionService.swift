@@ -2,6 +2,11 @@ import CoreML
 import Foundation
 @preconcurrency import WhisperKit
 
+// WhisperKit 1.x's stream state is a struct of value types (Bool, Int,
+// Float, String, arrays of segments) but isn't declared Sendable, so Swift 6
+// rejects handing a snapshot from its callback to this actor.
+extension AudioStreamTranscriber.State: @retroactive @unchecked Sendable {}
+
 /// Writes to ~/susurrus_debug.log — same sink as traceApp() in the app layer.
 private func traceStream(_ message: String) {
     let path = NSHomeDirectory() + "/susurrus_debug.log"
@@ -59,6 +64,9 @@ public actor StreamingTranscriptionService {
     /// When set, the stop-time decode uses Parakeet; Whisper still drives
     /// capture and the live preview, and is the fallback if Parakeet fails.
     private var parakeet: ParakeetTranscriber?
+    /// When set, the stop-time decode uses Qwen3-ASR with the ranked
+    /// vocabulary as context; same Whisper role and fallback as Parakeet.
+    private var qwen3: Qwen3ASRTranscriber?
     private var modelReady = false
 
     /// Stop-time decode settings. Always `.production` in the app; the eval
@@ -155,7 +163,8 @@ public actor StreamingTranscriptionService {
         onDownloadProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
         let parakeetVariant = ParakeetTranscriber.Variant(rawValue: modelName)
-        let whisperModel = parakeetVariant == nil ? modelName : ParakeetTranscriber.previewWhisperModel
+        let usesQwen3 = Qwen3ASRTranscriber.isQwen3(modelName)
+        let whisperModel = parakeetVariant == nil && !usesQwen3 ? modelName : ParakeetTranscriber.previewWhisperModel
         let downloadBase = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -174,6 +183,8 @@ public actor StreamingTranscriptionService {
         try await setupModel(modelFolder: modelFolder.path, computeOptions: computeOptions)
         if let parakeetVariant {
             try await enableParakeet(parakeetVariant, onDownloadProgress: onDownloadProgress)
+        } else if usesQwen3 {
+            try await enableQwen3(onDownloadProgress: onDownloadProgress)
         }
     }
 
@@ -188,8 +199,21 @@ public actor StreamingTranscriptionService {
         let engine = ParakeetTranscriber(variant: variant)
         try await engine.load(onDownloadProgress: onDownloadProgress)
         parakeet = engine
+        qwen3 = nil
         loadedModelName = variant.modelFolderName
         trace("setupModel: \(variant.modelFolderName) loaded and prewarmed in \(msSince(loadStart))ms; final decode uses Parakeet")
+    }
+
+    /// Switch the stop-time decode to Qwen3-ASR (downloads ~2.5 GB on first
+    /// use). Call after a Whisper model is set up, like `enableParakeet`.
+    public func enableQwen3(onDownloadProgress: (@Sendable (Double) -> Void)? = nil) async throws {
+        let loadStart = Date()
+        let engine = Qwen3ASRTranscriber()
+        try await engine.load(onDownloadProgress: onDownloadProgress)
+        qwen3 = engine
+        parakeet = nil
+        loadedModelName = Qwen3ASRTranscriber.modelFolderName
+        trace("setupModel: \(Qwen3ASRTranscriber.modelFolderName) loaded and prewarmed in \(msSince(loadStart))ms; final decode uses Qwen3-ASR")
     }
 
     /// Load and prewarm a model from a local folder, skipping the download
@@ -203,6 +227,7 @@ public actor StreamingTranscriptionService {
     ) async throws {
         let modelName = URL(fileURLWithPath: modelFolder).lastPathComponent
         parakeet = nil
+        qwen3 = nil
         let loadStart = Date()
         let kit = try await WhisperKit(modelFolder: modelFolder, computeOptions: computeOptions)
         trace("setupModel: '\(modelName)' loaded in \(msSince(loadStart))ms")
@@ -262,6 +287,9 @@ public actor StreamingTranscriptionService {
         if let parakeet {
             _ = try? await parakeet.transcribe(samples: Self.warmupSamples())
         }
+        if let qwen3 {
+            _ = try? await qwen3.transcribe(samples: Self.warmupSamples(), terms: [])
+        }
         do {
             _ = try await whisperKit.transcribe(
                 audioArray: Self.warmupSamples(),
@@ -283,6 +311,7 @@ public actor StreamingTranscriptionService {
         await tearDownActiveSession(reason: "model unload")
         whisperKit = nil
         parakeet = nil
+        qwen3 = nil
         modelReady = false
         lastTranscriberState = nil
         finalTextEmitted = false
@@ -580,6 +609,13 @@ public actor StreamingTranscriptionService {
             trace("stop: Parakeet failed (\(result.failure ?? "?")) — falling back to Whisper")
         }
 
+        if let qwen3 {
+            let terms = Array((vocabularySelector?(previewText) ?? []).prefix(Qwen3ASRTranscriber.maxContextTerms))
+            let result = await qwen3Decode(samples: samples, terms: terms, engine: qwen3)
+            if result.outcome != .failed { return result }
+            trace("stop: Qwen3-ASR failed (\(result.failure ?? "?")) — falling back to Whisper")
+        }
+
         var options = baseOptions
         var chosen: [String] = []
         if let selector = vocabularySelector, let tokenizer = whisperKit.tokenizer {
@@ -598,13 +634,65 @@ public actor StreamingTranscriptionService {
             }
         }
 
-        return await FinalTranscriber.decode(
+        let wordTimestamps = UserDefaults.standard.bool(forKey: Self.confidenceLoggingKey)
+        let traceSink: @Sendable (String) -> Void = { [tracingEnabled] in if tracingEnabled { traceStream($0) } }
+        let prompted = await FinalTranscriber.decode(
             samples: samples,
             whisperKit: whisperKit,
             options: options,
             promptTerms: chosen,
-            wordTimestamps: UserDefaults.standard.bool(forKey: Self.confidenceLoggingKey),
-            trace: { [tracingEnabled] in if tracingEnabled { traceStream($0) } }
+            wordTimestamps: wordTimestamps,
+            trace: traceSink
+        )
+        guard options.promptTokens != nil, FinalTranscriber.promptMayHaveFailed(prompted) else { return prompted }
+
+        // WhisperKit 1.x sometimes exhausts every temperature fallback on a
+        // window when a prompt is set and returns it empty, though the same
+        // audio decodes without one (golden set, noisy variants). Retry once
+        // promptless and keep whichever result has more words.
+        trace("stop: prompted decode lost text (\(prompted.outcome.rawValue)) — retrying without the prompt")
+        var promptless = options
+        promptless.promptTokens = nil
+        let retry = await FinalTranscriber.decode(
+            samples: samples,
+            whisperKit: whisperKit,
+            options: promptless,
+            promptTerms: [],
+            wordTimestamps: wordTimestamps,
+            trace: traceSink
+        )
+        return FinalTranscriber.wordCount(retry.text) > FinalTranscriber.wordCount(prompted.text) ? retry : prompted
+    }
+
+    /// The Qwen3-ASR stop-time decode: same guards as Parakeet, with the
+    /// ranked vocabulary as context (recorded as the clip's prompt terms).
+    private func qwen3Decode(samples: [Float], terms: [String], engine: Qwen3ASRTranscriber) async -> FinalTranscript {
+        guard samples.count >= FinalTranscriber.minSamples else { return .skipped(.tooShort) }
+        let seconds = Double(samples.count) / 16_000
+        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+        trace("flush: Qwen3-ASR decode of \(String(format: "%.1f", seconds))s (peak \(String(format: "%.3f", peak))), context \(terms.count) terms: \(terms.joined(separator: ", "))")
+        guard peak >= FinalTranscriber.silencePeak else { return .skipped(.silent) }
+
+        let start = Date()
+        let text: String
+        do {
+            text = try await engine.transcribe(samples: samples, terms: terms)
+        } catch {
+            var failed = FinalTranscript.skipped(.failed)
+            failed.failure = "\(error)"
+            return failed
+        }
+        let ms = msSince(start)
+        trace("decode: \(String(format: "%.1f", seconds))s audio in \(ms)ms (qwen3-asr, pauses squeezed)")
+        let cleaned = Self.stripNoiseTokens(from: text)
+        return FinalTranscript(
+            outcome: cleaned.isEmpty ? .empty : .decoded,
+            text: cleaned,
+            promptTerms: terms,
+            promptTokenCount: 0,
+            segments: [],
+            decodeMs: ms,
+            failure: nil
         )
     }
 

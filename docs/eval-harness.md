@@ -369,6 +369,35 @@ against v2's 5.4% / 10.1% / 15 / 0.3 s. It punctuates sparsely (73
 sentence ends and 38 commas, against 81 and 110 in the references; v2 93
 and 56), which is why v2 stays the default.
 
+## Qwen3-ASR with vocabulary context — 2026-10-29
+
+Qwen3-ASR-1.7B (Alibaba, speech LLM: audio encoder + Qwen3 decoder) takes free
+text in its system prompt, so the ranked vocabulary goes in as a
+comma-separated term list. Model `qwen3-asr-1.7b` in the picker and in
+`susurrus-eval run` (use `"prompt": "ranker"` so terms reach it). It runs
+in-process via speech-swift's `Qwen3ASR` (MLX, 8-bit, ~2.5 GB in
+`~/Library/Caches/qwen3-speech`).
+
+Pause-stretched read set, app path, with the corrector (`score.py`):
+
+| Engine | WER | Formatting errors | Terms | Terms where not said | 20 s of speech |
+|---|---|---|---|---|---|
+| Parakeet v2 | 5.3% | 10.0% | 50/72 | 1 | ~0.1 s |
+| Qwen3-ASR + vocabulary | 4.6% | 8.0% | 65/72 | 0 | ~0.8–1.2 s |
+
+The harness's own scorer gives Qwen3-ASR 3.9% and 64/71. Without context
+(mlx-audio bake-off) it scored 5.1%; it was the only engine to hear
+"Claude" rather than "claw". Canary-Qwen-2.5B was ruled out on paper (fixed
+prompt, 40 s training clips); Nemotron 3.5 Transcribe (34B) is too big.
+
+speech-swift needs macOS 15 and WhisperKit 1.x, so the app moved to both.
+Under WhisperKit 1.1.1 a prompted Whisper decode sometimes exhausts every
+temperature fallback on a window and returns it empty (noisy golden
+clips); the app now retries once without the prompt
+(`FinalTranscriber.promptMayHaveFailed`). Whisper Small on the golden set:
+6.3% → 6.6% WER, dropped runs 1 → 2. The regression was accepted (Whisper
+is preview and fallback only) and the baseline re-recorded at 6.5%.
+
 ## large-v3 latency and the unspoken r — 2026-10-28
 
 The user chose accuracy over speed and switched to large-v3 (no prompt).
