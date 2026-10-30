@@ -1,8 +1,9 @@
 import Foundation
 
 /// Everything between raw ASR text and the text the user gets:
-/// deterministic corrector (Layer 1) → optional LLM polish (Layer 2),
-/// guarded → corrector re-pass on accepted LLM output.
+/// deterministic corrector (Layer 1) → spoken formatting (slash commands,
+/// lists) → optional LLM polish (Layer 2), guarded → corrector and
+/// formatting re-pass on accepted LLM output.
 ///
 /// Pure with respect to app state: vocabulary and rules are passed in, and
 /// nothing is recorded. The caller credits `changes` (fires, fixes) and
@@ -34,7 +35,7 @@ public struct TranscriptFinalizer: Sendable {
     public struct Result: Equatable, Sendable {
         /// The text to deliver.
         public let text: String
-        /// After Layer 1, before any LLM pass.
+        /// After Layer 1 and spoken formatting, before any LLM pass.
         public let corrected: String
         /// Changes from the first corrector pass only. That pass is the one
         /// credited: counting the post-LLM re-pass too would make fire counts
@@ -53,6 +54,7 @@ public struct TranscriptFinalizer: Sendable {
         _ raw: String,
         vocabulary: [VocabularyEntry],
         rules: [CorrectionRule],
+        formatter: SpokenFormatter? = nil,
         llm: LLMStage? = nil
     ) async -> Result {
         guard !raw.isEmpty else {
@@ -60,7 +62,9 @@ public struct TranscriptFinalizer: Sendable {
         }
 
         let outcome = corrector.correct(raw, vocabulary: vocabulary, rules: rules)
-        let corrected = outcome.text
+        // After the corrector, so learned rules keep matching the spoken
+        // words they were learned from ("slash", "one").
+        let corrected = formatter?.format(outcome.text) ?? outcome.text
 
         guard let llm else {
             return Result(text: corrected, corrected: corrected, changes: outcome.changes, llm: .skipped)
@@ -73,7 +77,8 @@ public struct TranscriptFinalizer: Sendable {
             }
             // Re-run the deterministic pass so vocabulary casing and spelling
             // survive any LLM meddling.
-            let polished = corrector.correct(output, vocabulary: vocabulary, rules: rules).text
+            let recorrected = corrector.correct(output, vocabulary: vocabulary, rules: rules).text
+            let polished = formatter?.format(recorrected) ?? recorrected
             return Result(text: polished, corrected: corrected, changes: outcome.changes, llm: .accepted)
         } catch {
             return Result(text: corrected, corrected: corrected, changes: outcome.changes, llm: .failed(error.localizedDescription))

@@ -10,6 +10,7 @@ audio ──► streaming preview (no prompt tokens — latency)
       ──► final whole-buffer decode
       │      promptTokens = 48-token budget, relevance-ranked   (Layer 0)
       ──► deterministic corrector                                (Layer 1, always-on, ~0ms)
+      ──► spoken formatting: slash commands, lists               (Layer 1.2, on by default)
       ──► casing suggestions, offered not applied                (Layer 1.5, panel only)
       ──► optional LLM polish, guarded                           (Layer 2, opt-in)
       │      └── corrector re-applied to LLM output
@@ -86,6 +87,39 @@ check in `applyVocabulary` is gated on `isSingleWord`, which is what makes
 "mark logic" → "MarkLogic" work with no rule involved. Layer 3 relies on
 it to suppress redundant rules and to require corroboration for every
 multi-word rule, so it is pinned by a corrector-level test.
+
+## Layer 1.2 — Spoken formatting (`SpokenFormatter`)
+
+Turns spoken structure into written structure, after the corrector so
+learned rules still match the words they were learned from. Two passes,
+each with its own toggle in Preferences → General → Spoken Formatting:
+
+- **Slash commands.** "slash autopilot" → `/autopilot`. Names come from
+  `SlashCommandCatalog`: Claude Code's built-ins plus `~/.claude/commands`,
+  `~/.claude/skills` (directory and frontmatter `name:`) and installed
+  plugins, read on each stop (~4 ms). The longest run of up to four words
+  that normalizes to a known name wins, so "slash code review" →
+  `/code-review` and "slash auto pilot" → `/autopilot`. An unknown word
+  attaches only if it isn't common English, so "slash the budget" stays.
+- **Lists.** Numbered (`1.`), lettered sub-items (`   a.`), outline (`0.1`)
+  and "bullet point" (`- `) runs. A list needs at least two markers in
+  order, each with content, opened at the start of the text or after a full
+  stop. Spoken number words must be set off by punctuation or a cue word
+  (number / point / item / step), which is what keeps "One, two, three",
+  "two or three people" and "One thing that comes up" as prose.
+
+Parakeet writes markers as digits ("1. Fix the parser. A. Handle nulls.")
+and drops the punctuation entirely when there's no pause ("1 fix the parser
+2 write the tests 3 ship it", "0.1 set up the repo 0.2 add the build").
+Unpunctuated digit markers are accepted only as continuations, and such a
+run needs three items (numbered) or an opener ending in `.1` (outline), so
+"1 is down and 2 are up" and "1.2 billion …, 1.5 billion …" stay prose.
+Punctuated markers are always tried first, so the "2" in "One, load 2
+files. Two, …" can't take item two.
+
+Replayed over 368 real dictations (2026-10-30), 2 changed, both correct
+`/autopilot`s. The LLM route was not taken: Layer 2 never beat no-LLM on
+WER, costs ~1 s, and its guardrail exists to reject structural rewrites.
 
 ## Layer 1.5 — Casing suggestions (`CasingProfile`, review panel only)
 
