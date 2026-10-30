@@ -16,7 +16,9 @@ public enum FocusedTextProbe {
     }
 
     public static func check(pid: pid_t) -> Verdict {
-        guard AXIsProcessTrusted() else { return .unknown }
+        // Querying our own process from the main thread just blocks until
+        // the timeout; our own windows never take dictated text anyway.
+        guard AXIsProcessTrusted(), pid != getpid() else { return .unknown }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.25)
 
