@@ -677,15 +677,16 @@ struct SusurrusApp: App {
             )
             resolvedDeviceID = nil
         }
-        // Pin "system default" to a concrete device at session start, so
-        // capture always runs on a fresh processor bound to the device that
-        // is current now, and a Bluetooth mic that hijacked the default is
-        // skipped (see AudioDeviceService.sessionDefaultInput).
+        // Pin "system default" to the input macOS has selected right now
+        // (System Settings > Sound > Input), so capture runs on a fresh
+        // processor bound to it — including a Bluetooth speaker's mic that
+        // became the default when it connected — and keeps following the
+        // default if it changes mid-session.
+        var followsSystemDefault = false
         if resolvedDeviceID == nil, let input = audioDeviceService.sessionDefaultInput() {
-            let systemDefault = AudioDeviceService.systemDefaultInputID()
-            let note = input.id == systemDefault ? "system default" : "skipping Bluetooth default \(systemDefault.map(String.init) ?? "?")"
-            traceApp("startStreamingSession: routing to '\(input.name)' (id \(input.id), \(note))")
+            traceApp("startStreamingSession: routing to '\(input.name)' (id \(input.id), system default)")
             resolvedDeviceID = input.id
+            followsSystemDefault = true
         }
 
         // Capture reference types only for the streaming Task
@@ -718,7 +719,10 @@ struct SusurrusApp: App {
         Task {
             do {
                 traceApp("startStreamingSession: calling startStreamTranscription (panel=\(toPanel))")
-                try await streaming.startStreamTranscription(deviceID: resolvedDeviceID) { transcript in
+                try await streaming.startStreamTranscription(
+                    deviceID: resolvedDeviceID,
+                    followsSystemDefault: followsSystemDefault
+                ) { transcript in
                     // Strip Whisper's special tokens / silence markers first
                     // (<|startoftranscript|>, [ Silence ], …) so neither the
                     // corrector fuzzy-matches them nor the preview shows them.
