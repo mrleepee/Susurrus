@@ -114,6 +114,13 @@ struct SusurrusApp: App {
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
 
+        // Model-switch state lives in UserDefaults so PreferencesView can see
+        // it, which means a quit or crash mid-switch leaves it set forever and
+        // the model picker stays greyed out. No switch is running at launch.
+        UserDefaults.standard.set(false, forKey: "modelReloading")
+        UserDefaults.standard.set("", forKey: "modelDownloadingName")
+        UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
+
         if !AXIsProcessTrusted() {
             PasteboardClipboardService.promptAccessibility()
         }
@@ -221,7 +228,12 @@ struct SusurrusApp: App {
             let task = Task { @MainActor in
                 modelReloading = true
                 UserDefaults.standard.set(true, forKey: "modelReloading")
+                traceApp("model switch: reloading '\(newModel)'")
                 await reloadModel(newModel)
+                // A superseded switch must not clear the flag while the
+                // newer one is still loading.
+                guard !Task.isCancelled else { return }
+                traceApp("model switch: '\(newModel)' done")
                 modelReloading = false
                 UserDefaults.standard.set(false, forKey: "modelReloading")
             }
