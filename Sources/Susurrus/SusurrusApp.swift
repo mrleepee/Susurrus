@@ -23,7 +23,14 @@ struct SusurrusApp: App {
     @State private var appState = AppState()
     @State private var pulseOn = false
     @State private var pulseTimer: Timer?
-    @State private var modelLoading = false
+    /// Process-wide, not `@State`: `init()` and the menu's `onAppear` both
+    /// call `startModelLoadingIfNeeded()`, and `@State` written from `init`
+    /// doesn't persist — that guard let every launch load the models twice.
+    @MainActor private static var modelLoadStarted = false
+    /// Bumped per model-picker change; only the newest reload may touch app
+    /// state, and each waits for the previous one so they never interleave.
+    @MainActor private static var reloadGeneration = 0
+    @MainActor private static var windowCloseObserved = false
     /// Live observation of recordingMode preference (fixes #9).
     @AppStorage("recordingMode") private var recordingMode = "push-to-talk"
     @Environment(\.openWindow) private var openWindow
@@ -83,10 +90,6 @@ struct SusurrusApp: App {
     // Recording duration timer
     @State private var durationTimer: Timer?
 
-    // Throttle: minimum interval between overlay updates (ms)
-    private let overlayThrottleInterval: TimeInterval = 0.1
-    @State private var lastOverlayUpdate: Date = .distantPast
-
     /// Set to true while a model reload is in flight; disables model picker in UI.
     @State private var modelReloading = false
 
@@ -113,13 +116,6 @@ struct SusurrusApp: App {
 
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
-
-        // Model-switch state lives in UserDefaults so PreferencesView can see
-        // it, which means a quit or crash mid-switch leaves it set forever and
-        // the model picker stays greyed out. No switch is running at launch.
-        UserDefaults.standard.set(false, forKey: "modelReloading")
-        UserDefaults.standard.set("", forKey: "modelDownloadingName")
-        UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
 
         if !AXIsProcessTrusted() {
             PasteboardClipboardService.promptAccessibility()
@@ -209,9 +205,6 @@ struct SusurrusApp: App {
         .onChange(of: appState.recordingState) { _, newState in
             handleStateChange(newState)
         }
-        .onChange(of: appState.interimText) { _, newInterim in
-            handleInterimTextChange(newInterim)
-        }
         .onChange(of: recordingMode) { _, newMode in
             // Sync live preference change to AppState (fixes #9)
             if let mode = RecordingMode(rawValue: newMode) {
@@ -223,16 +216,21 @@ struct SusurrusApp: App {
             PreferencesView()
         }
         .onChange(of: preferences.selectedModel()) { _, newModel in
-            // Cancel any in-flight reload before starting a new one
-            currentModelReloadTask?.cancel()
+            // Reloads run one at a time: each waits for the previous, and
+            // a superseded one skips itself, so two loads never interleave
+            // on the streaming actor and an older one can't clear the
+            // "reloading" flag or mark the model ready under a newer one.
+            Self.reloadGeneration += 1
+            let generation = Self.reloadGeneration
+            let previous = currentModelReloadTask
+            modelReloading = true
+            UserDefaults.standard.set(true, forKey: "modelReloading")
             let task = Task { @MainActor in
-                modelReloading = true
-                UserDefaults.standard.set(true, forKey: "modelReloading")
+                await previous?.value
+                guard generation == Self.reloadGeneration else { return }
                 traceApp("model switch: reloading '\(newModel)'")
-                await reloadModel(newModel)
-                // A superseded switch must not clear the flag while the
-                // newer one is still loading.
-                guard !Task.isCancelled else { return }
+                await reloadModel(newModel, generation: generation)
+                guard generation == Self.reloadGeneration else { return }
                 traceApp("model switch: '\(newModel)' done")
                 modelReloading = false
                 UserDefaults.standard.set(false, forKey: "modelReloading")
@@ -258,6 +256,9 @@ struct SusurrusApp: App {
     /// Observes window close notifications to revert to .accessory policy
     /// when no visible windows remain (keeps menu bar icon clean).
     private func observeWindowClose() {
+        // Called from the menu's onAppear, which fires on every menu open.
+        guard !Self.windowCloseObserved else { return }
+        Self.windowCloseObserved = true
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: nil,
@@ -284,8 +285,14 @@ struct SusurrusApp: App {
     // MARK: - Setup
 
     private func startModelLoadingIfNeeded() {
-        guard !modelLoading else { return }
-        modelLoading = true
+        guard !Self.modelLoadStarted else { return }
+        Self.modelLoadStarted = true
+        // A quit mid-reload leaves these persisted values set, which would
+        // grey out the model picker (and show a stale "Downloading...") on
+        // every later launch.
+        UserDefaults.standard.set(false, forKey: "modelReloading")
+        UserDefaults.standard.set("", forKey: "modelDownloadingName")
+        UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         traceApp("startModelLoadingIfNeeded: starting model load")
         Task {
             await preloadModel()
@@ -327,17 +334,24 @@ struct SusurrusApp: App {
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
             traceApp("preloadModel: FAILED: \(error)")
-            modelLoading = false
+            // Cleared so the next menu open retries the load.
+            Self.modelLoadStarted = false
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
+            notificationService.showNotification(
+                title: "Couldn't load the speech model",
+                body: "\(error.localizedDescription) Open the menu to retry, or pick another model in Preferences > Model."
+            )
         }
     }
 
-    private func reloadModel(_ modelName: String) async {
+    /// `generation` is the model-picker change this reload serves; a reload
+    /// superseded while it was loading leaves app state to the newer one.
+    private func reloadModel(_ modelName: String, generation: Int) async {
         let state = appState
         let streaming = streamingService
         state.modelReady = false
-        modelLoading = true
+        Self.modelLoadStarted = true
         state.modelLoadProgress = 0
         UserDefaults.standard.set(modelName, forKey: "modelDownloadingName")
         UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
@@ -352,14 +366,20 @@ struct SusurrusApp: App {
                     }
                 }
             )
+            guard generation == Self.reloadGeneration else { return }
             state.modelReady = true
             startKeepWarmTimer()
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
-            modelLoading = false
+            traceApp("reloadModel: FAILED for '\(modelName)': \(error)")
+            guard generation == Self.reloadGeneration else { return }
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
+            notificationService.showNotification(
+                title: "Couldn't load \(modelName)",
+                body: "\(error.localizedDescription) Pick another model in Preferences > Model."
+            )
         }
     }
 
@@ -445,9 +465,12 @@ struct SusurrusApp: App {
                     combo: combo,
                     onKeyDown: {
                         Task { @MainActor in
-                            state.forceLLM = true
+                            // Only once a session actually started: set
+                            // before, a press while the model is loading
+                            // left the flag on for the next dictation.
                             let started = state.handleHotkeyDown()
                             if started {
+                                state.forceLLM = true
                                 if state.micPermission == .undetermined {
                                     let perm = await micManager.requestPermission()
                                     state.micPermission = perm
@@ -552,16 +575,6 @@ struct SusurrusApp: App {
         case .recording, .processing:
             break
         }
-    }
-
-    /// Called whenever appState.interimText changes.
-    /// Throttled to avoid rebuilding the overlay on every audio callback (~10/sec).
-    private func handleInterimTextChange(_ interim: InterimTranscript?) {
-        guard let interim else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastOverlayUpdate) >= overlayThrottleInterval else { return }
-        lastOverlayUpdate = now
-        overlayWindow?.show(confirmed: interim.confirmed, unconfirmed: interim.unconfirmed)
     }
 
     // MARK: - Streaming session
@@ -751,7 +764,9 @@ struct SusurrusApp: App {
                             let tail = cleanTail.isEmpty ? "" : (confirmed.isEmpty ? cleanTail : " \(cleanTail)")
                             panel.updateStreaming(confirmed + tail)
                         } else {
-                            state.interimText = transcript
+                            // The only overlay writer: an onChange(of:
+                            // interimText) path used to repaint it with the
+                            // raw, uncorrected transcript right after this.
                             overlay?.show(confirmed: confirmed, unconfirmed: cleanTail)
                         }
                     }
@@ -759,7 +774,16 @@ struct SusurrusApp: App {
             } catch {
                 traceApp("startStreamingSession: streaming failed: \(error.localizedDescription)")
                 Task { @MainActor in
-                    state.cancel()
+                    // Only a session that is still recording failed here;
+                    // once it has moved on to finalizing or idle, the stop
+                    // or cancel path owns cleanup.
+                    guard state.recordingState == .streaming else { return }
+                    // Route through the Esc-cancel path so the session is
+                    // torn down completely: the global Esc and panel finish
+                    // keys unregistered (they would otherwise keep
+                    // swallowing those keys in every app), the review panel
+                    // closed, paused media resumed, the timer stopped.
+                    state.requestCancel()
                     notifications.showNotification(
                         title: "Recording failed",
                         body: "\(error.localizedDescription) Try again — if it keeps happening, check the input device in Preferences > Audio."

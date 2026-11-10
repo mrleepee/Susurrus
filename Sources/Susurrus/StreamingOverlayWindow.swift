@@ -7,7 +7,8 @@ import SwiftUI
 /// Positioned horizontally centered on the menu bar icon's screen x coordinate,
 /// immediately below the menu bar (Behaviour 1.1).
 ///
-/// Click events pass through to the application beneath via `canBecomeKey = false`.
+/// Click events pass through to the application beneath via `ignoresMouseEvents = true`;
+/// `canBecomeKey = false` keeps keyboard focus in the active application.
 /// The panel fades out over 300ms when hidden (Behaviour 1.3, R10).
 final class StreamingOverlayWindow: NSPanel {
 
@@ -37,9 +38,14 @@ final class StreamingOverlayWindow: NSPanel {
     /// Whether the overlay is currently visible.
     private(set) var isShowing = false
 
-    /// Cached anchor point for the overlay — computed once after first show,
-    /// so we don't re-locate the menu bar icon on every callback.
+    /// Cached anchor point for the overlay — computed once per hidden-to-shown
+    /// transition, so the card doesn't re-centre on the mouse on every callback.
     private var cachedAnchorPoint: CGPoint?
+
+    /// Incremented by each `showMessage()` call. A message's dismissal timer
+    /// only acts if its captured generation is still current, so a newer
+    /// message isn't cut short by the timer of an earlier one.
+    private var messageGeneration = 0
 
     /// Last streamed text, kept so the finalizing state can dim it in place.
     private var lastConfirmed = ""
@@ -70,10 +76,12 @@ final class StreamingOverlayWindow: NSPanel {
             defer: false
         )
 
-        // Behaviour 1.4 / R8: do not steal focus from active application
-        ignoresMouseEvents = false
+        // Behaviour 1.4 / R8: clicks pass through to the application beneath
+        ignoresMouseEvents = true
 
         level = .floating
+        // Stay visible over full-screen apps and on every Space.
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
@@ -130,7 +138,7 @@ final class StreamingOverlayWindow: NSPanel {
     /// Returns the anchor point (center-x of menu bar icon) using the mouse location.
     /// Since SwiftUI MenuBarExtra status items are inaccessible via NSStatusBar.system,
     /// we use the current mouse x as a proxy for the icon's horizontal position.
-    /// This is cached after the first call to avoid repeated computation.
+    /// This is cached until the next hidden-to-shown transition (see `show`).
     private func anchorPoint() -> CGPoint {
         if let cached = cachedAnchorPoint {
             return cached
@@ -165,7 +173,19 @@ final class StreamingOverlayWindow: NSPanel {
 
     /// Shows the overlay with the given text (Behaviour 1.1).
     /// If already visible, updates text immediately.
+    ///
+    /// Live text takes over from any message on screen: a message posted at
+    /// session start (e.g. "preferred microphone not connected") would
+    /// otherwise have its dismissal timer hide the live preview mid-dictation.
     func show(confirmed: String, unconfirmed: String) {
+        if isShowingMessage, !confirmed.isEmpty || !unconfirmed.isEmpty {
+            messageGeneration += 1
+            isShowingMessage = false
+        }
+        present(confirmed: confirmed, unconfirmed: unconfirmed)
+    }
+
+    private func present(confirmed: String, unconfirmed: String) {
         // A throttled interim update can arrive after the hotkey release
         // flipped us into the finalizing state — ignore it so it can't
         // wipe the "Finalizing…" progress row.
@@ -180,12 +200,13 @@ final class StreamingOverlayWindow: NSPanel {
         // words) rather than flicker the window away.
         guard isShowing || !confirmed.isEmpty || !unconfirmed.isEmpty else { return }
 
-        // Invalidate cached anchor on show so position refreshes each session
-        cachedAnchorPoint = nil
-
         updateText(confirmed: confirmed, unconfirmed: unconfirmed)
 
         if !isShowing {
+            // Hidden-to-shown transition only: refresh the anchor so each session
+            // re-locates from the mouse. Doing this on every update would re-centre
+            // the card on the mouse ~10 times a second.
+            cachedAnchorPoint = nil
             isShowing = true
             alphaValue = 0
             orderFront(nil)
@@ -258,10 +279,14 @@ final class StreamingOverlayWindow: NSPanel {
     func showMessage(_ text: String, duration: TimeInterval = 1.8) {
         isFinalizing = false
         isShowingMessage = true
-        show(confirmed: text, unconfirmed: "")
+        messageGeneration += 1
+        let generation = messageGeneration
+        present(confirmed: text, unconfirmed: "")
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
-            self?.isShowingMessage = false
-            self?.hide()
+            // A newer message has taken over the overlay; its own timer owns dismissal.
+            guard let self, self.messageGeneration == generation else { return }
+            self.isShowingMessage = false
+            self.hide()
         }
     }
 
@@ -299,8 +324,9 @@ final class StreamingOverlayWindow: NSPanel {
 
     // MARK: - NSWindow overrides
 
-    /// Prevent the panel from becoming key — this is what makes clicks pass through
-    /// to the active application (Behaviour 1.4, R8).
+    /// Prevent the panel from becoming key, so keyboard focus stays with the
+    /// active application (Behaviour 1.4, R8). Click pass-through is handled by
+    /// `ignoresMouseEvents` in `init`.
     override var canBecomeKey: Bool {
         false
     }
