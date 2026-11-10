@@ -28,7 +28,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     private let observerLock = NSLock()
 
     // Recovery state — all guarded by `observerLock`.
-    private static let maxRecoveryAttempts = 3
+    private static let maxRecoveryAttempts = 6
     private var requestedDeviceID: DeviceID?
     private var isRecording = false
     private var recoveryPending = false
@@ -154,12 +154,44 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
         let generation = sessionGeneration
         observerLock.unlock()
         // Debounce: route changes usually arrive in bursts while the hardware settles.
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.recoverCapture(generation: generation)
         }
     }
 
     private func recoverCapture(generation: Int) {
+        observerLock.lock()
+        guard generation == sessionGeneration, isRecording else {
+            recoveryPending = false
+            observerLock.unlock()
+            return
+        }
+        // Configuration changes also fire when nothing broke — starting the mic,
+        // another app pausing playback. If the engine is still running, capture
+        // is intact; rebuilding would drop audio (and re-trigger the notification).
+        let engine = (inner as? AudioProcessor)?.audioEngine
+        if let engine, engine.isRunning {
+            recoveryPending = false
+            observerLock.unlock()
+            traceDeviceProcessor("engine configuration changed — engine still running, no rebuild")
+            return
+        }
+        // Stopped, but often only by an output-side change (Spotify pausing on a
+        // Bluetooth headset) with the input format unchanged: restarting the same
+        // engine keeps the tap and is far quicker than a rebuild. A changed input
+        // format makes start() throw, and we fall through to the rebuild.
+        // (start() outside the lock: it can post the notification synchronously.)
+        observerLock.unlock()
+        if let engine, (try? engine.start()) != nil, engine.isRunning {
+            observerLock.lock()
+            let stillCurrent = generation == sessionGeneration && isRecording
+            recoveryPending = false
+            observerLock.unlock()
+            // Stopped while we were restarting: don't leave an orphaned engine running.
+            guard stillCurrent else { engine.stop(); return }
+            traceDeviceProcessor("engine configuration changed — restarted engine in place")
+            return
+        }
         observerLock.lock()
         guard generation == sessionGeneration, isRecording else {
             recoveryPending = false
