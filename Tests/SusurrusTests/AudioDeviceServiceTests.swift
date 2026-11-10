@@ -114,32 +114,18 @@ struct AudioDeviceServiceTests {
         let list = fixtureDevices
         return AudioDeviceService(
             devicesProvider: { list },
-            defaultInputProvider: { defaultID },
-            isBluetooth: { $0 == 73 },
-            isBuiltIn: { $0 == 91 }
+            defaultInputProvider: { defaultID }
         )
     }
 
-    @Test("sessionDefaultInput returns the system default when it isn't Bluetooth")
-    func sessionDefaultKeepsWiredDefault() {
+    @Test("sessionDefaultInput returns the macOS default input")
+    func sessionDefaultFollowsSystem() {
         #expect(makeRoutingService(defaultID: 42).sessionDefaultInput()?.id == 42)
     }
 
-    @Test("sessionDefaultInput skips a Bluetooth default for the built-in mic")
-    func sessionDefaultSkipsBluetooth() {
-        #expect(makeRoutingService(defaultID: 73).sessionDefaultInput()?.id == 91)
-    }
-
-    @Test("sessionDefaultInput keeps a Bluetooth default when there is no built-in mic")
-    func sessionDefaultKeepsBluetoothWithoutBuiltIn() {
-        let list = fixtureDevices.filter { $0.id != 91 }
-        let service = AudioDeviceService(
-            devicesProvider: { list },
-            defaultInputProvider: { 73 },
-            isBluetooth: { $0 == 73 },
-            isBuiltIn: { $0 == 91 }
-        )
-        #expect(service.sessionDefaultInput()?.id == 73)
+    @Test("sessionDefaultInput follows a Bluetooth default rather than skipping it")
+    func sessionDefaultKeepsBluetooth() {
+        #expect(makeRoutingService(defaultID: 73).sessionDefaultInput()?.id == 73)
     }
 
     @Test("sessionDefaultInput is nil when the default isn't a listed input")

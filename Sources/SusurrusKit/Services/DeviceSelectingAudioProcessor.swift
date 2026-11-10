@@ -21,6 +21,12 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     private var inner: any AudioProcessing
     private let preferredDeviceID: DeviceID?
 
+    /// When true, `preferredDeviceID` is just the macOS default input at
+    /// session start, not a user choice: if the default changes mid-session
+    /// (e.g. a Bluetooth speaker connects and its mic becomes the default),
+    /// capture moves to the new default. When false the device stays pinned.
+    private let followsSystemDefault: Bool
+
     /// Observer for the live engine's configuration-change notification.
     /// Guarded by `observerLock` — set on the transcriber's executor, read
     /// on whatever thread stops recording.
@@ -35,14 +41,24 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     private var recoveryAttempts = 0
     private var sessionGeneration = 0
     private var captureFailure: String?
+    /// The device the live engine is bound to; changes when capture follows
+    /// a new system default.
+    private var boundDeviceID: DeviceID?
 
     /// - Parameters:
     ///   - preferredDeviceID: Device ID to substitute when callers pass `nil`. If `nil`,
     ///     the wrapper is effectively transparent.
+    ///   - followsSystemDefault: Move capture to the new macOS default input
+    ///     when it changes mid-session.
     ///   - inner: Underlying processor. Defaults to a fresh `AudioProcessor()` but can
     ///     be replaced with a fake for testing.
-    init(preferredDeviceID: DeviceID?, inner: any AudioProcessing = AudioProcessor()) {
+    init(
+        preferredDeviceID: DeviceID?,
+        followsSystemDefault: Bool = false,
+        inner: any AudioProcessing = AudioProcessor()
+    ) {
         self.preferredDeviceID = preferredDeviceID
+        self.followsSystemDefault = followsSystemDefault
         self.inner = inner
     }
 
@@ -166,11 +182,17 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
             observerLock.unlock()
             return
         }
+        // Following the system default: if macOS switched its input (a
+        // Bluetooth speaker's mic became the default), rebuild on the new
+        // device even if the old engine is still running.
+        let bound = boundDeviceID
+        let newDefault = followsSystemDefault ? AudioDeviceService.systemDefaultInputID() : nil
+        let switchDevice = newDefault != nil && newDefault != bound
         // Configuration changes also fire when nothing broke — starting the mic,
         // another app pausing playback. If the engine is still running, capture
         // is intact; rebuilding would drop audio (and re-trigger the notification).
         let engine = (inner as? AudioProcessor)?.audioEngine
-        if let engine, engine.isRunning {
+        if !switchDevice, let engine, engine.isRunning {
             recoveryPending = false
             observerLock.unlock()
             traceDeviceProcessor("engine configuration changed — engine still running, no rebuild")
@@ -182,7 +204,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
         // format makes start() throw, and we fall through to the rebuild.
         // (start() outside the lock: it can post the notification synchronously.)
         observerLock.unlock()
-        if let engine, (try? engine.start()) != nil, engine.isRunning {
+        if !switchDevice, let engine, (try? engine.start()) != nil, engine.isRunning {
             observerLock.lock()
             let stillCurrent = generation == sessionGeneration && isRecording
             recoveryPending = false
@@ -207,7 +229,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
         }
         recoveryAttempts += 1
         let attempt = recoveryAttempts
-        let deviceID = preferredDeviceID ?? requestedDeviceID
+        let deviceID = switchDevice ? newDefault : bound
         observerLock.unlock()
 
         guard let processor = inner as? AudioProcessor else {
@@ -234,12 +256,18 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
 
         observerLock.lock()
         let stillCurrent = generation == sessionGeneration && isRecording
-        if stillCurrent { captureFailure = nil }
+        if stillCurrent {
+            captureFailure = nil
+            boundDeviceID = deviceID
+        }
         recoveryPending = false
         observerLock.unlock()
         if stillCurrent {
             observeEngineConfigurationChanges()
-            traceDeviceProcessor("engine configuration changed — rebuilt capture (attempt \(attempt)), samples kept")
+            let note = switchDevice
+                ? "switched to system default \(deviceID.map(String.init) ?? "nil") from \(bound.map(String.init) ?? "nil")"
+                : "same device"
+            traceDeviceProcessor("engine configuration changed — rebuilt capture (attempt \(attempt), \(note)), samples kept")
         } else {
             // Stopped while we were rebuilding: don't leave a live engine behind.
             processor.stopRecording()
@@ -276,6 +304,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     private func beginSession(requestedDeviceID: DeviceID?, fresh: Bool) {
         observerLock.lock()
         self.requestedDeviceID = requestedDeviceID
+        boundDeviceID = preferredDeviceID ?? requestedDeviceID
         isRecording = true
         if fresh {
             sessionGeneration += 1
