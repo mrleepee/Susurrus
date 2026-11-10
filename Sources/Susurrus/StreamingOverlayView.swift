@@ -17,19 +17,23 @@ struct StreamingOverlayView: View {
     // Secondary color for unconfirmed/in-flight text
     private let secondaryColor = Color.secondary
 
+    /// Space between the confirmed and unconfirmed runs. Only added when both
+    /// are non-empty and neither side already supplies the whitespace.
+    private var joiner: String {
+        guard let last = confirmed.last, let first = unconfirmed.first else { return "" }
+        return (last.isWhitespace || first.isWhitespace) ? "" : " "
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !confirmed.isEmpty || !unconfirmed.isEmpty {
-                HStack(spacing: 0) {
-                    Text(confirmed)
-                        .foregroundColor(primaryColor)
-
-                    if !unconfirmed.isEmpty {
-                        Text(unconfirmed)
-                            .foregroundColor(secondaryColor.opacity(0.8))
-                    }
-                }
-                .opacity(isFinalizing ? 0.45 : 1)
+                // One concatenated Text (not an HStack) so the lines wrap as a
+                // single paragraph. Head truncation drops the oldest words at
+                // the top, keeping the newest words visible within lineLimit(3).
+                (Text(confirmed).foregroundColor(primaryColor)
+                    + Text(joiner + unconfirmed).foregroundColor(secondaryColor.opacity(0.8)))
+                    .truncationMode(.head)
+                    .opacity(isFinalizing ? 0.45 : 1)
             }
 
             if isFinalizing {

@@ -27,6 +27,15 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     private var configObserver: NSObjectProtocol?
     private let observerLock = NSLock()
 
+    // Recovery state — all guarded by `observerLock`.
+    private static let maxRecoveryAttempts = 3
+    private var requestedDeviceID: DeviceID?
+    private var isRecording = false
+    private var recoveryPending = false
+    private var recoveryAttempts = 0
+    private var sessionGeneration = 0
+    private var captureFailure: String?
+
     /// - Parameters:
     ///   - preferredDeviceID: Device ID to substitute when callers pass `nil`. If `nil`,
     ///     the wrapper is effectively transparent.
@@ -45,6 +54,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     ) throws {
         let resolved = preferredDeviceID ?? inputDeviceID
         try inner.startRecordingLive(inputDeviceID: resolved, callback: callback)
+        beginSession(requestedDeviceID: inputDeviceID, fresh: true)
         observeEngineConfigurationChanges()
     }
 
@@ -54,6 +64,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     ) throws {
         let resolved = preferredDeviceID ?? inputDeviceID
         try inner.resumeRecordingLive(inputDeviceID: resolved, callback: callback)
+        beginSession(requestedDeviceID: inputDeviceID, fresh: false)
         observeEngineConfigurationChanges()
     }
 
@@ -82,18 +93,42 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     func pauseRecording() { inner.pauseRecording() }
 
     func stopRecording() {
+        observerLock.lock()
+        isRecording = false
+        sessionGeneration += 1
+        recoveryPending = false
+        observerLock.unlock()
         removeConfigurationObserver()
         inner.stopRecording()
     }
 
     // MARK: - Route-change recovery
 
+    /// True once recovery from an engine configuration change has exhausted its
+    /// retries (or is impossible), i.e. the session is no longer capturing audio.
+    var captureFailed: Bool {
+        observerLock.lock(); defer { observerLock.unlock() }
+        return captureFailure != nil
+    }
+
+    /// Description of the last unrecoverable capture error, if any.
+    var captureFailureDescription: String? {
+        observerLock.lock(); defer { observerLock.unlock() }
+        return captureFailure
+    }
+
     /// AVAudioEngine stops itself when the audio hardware configuration
-    /// changes — e.g. a Bluetooth speaker connecting or the user switching
-    /// output in the Sound menu mid-dictation. WhisperKit doesn't listen for
-    /// this, so the session silently records nothing from then on. Restart
-    /// the engine: the input device is pinned, so the existing tap and
-    /// converter stay valid.
+    /// changes (Bluetooth connect, output switched in the Sound menu, ...). The
+    /// hardware format may change too, so restarting the old engine fails with
+    /// -10868 and the old tap/converter are invalid. Instead tear the engine
+    /// down and build a fresh one via `AudioProcessor.setupEngine`, which reads
+    /// the current hardware format and installs a new tap. `audioSamples` and
+    /// `audioBufferCallback` live on the processor, not the engine, so captured
+    /// audio and the streaming callback survive.
+    ///
+    /// (`resumeRecordingLive` is deliberately not used: with the same device ID
+    /// it only calls `audioEngine?.start()`, a no-op once `stopRecording()` has
+    /// nil-ed the engine.)
     private func observeEngineConfigurationChanges() {
         guard let engine = (inner as? AudioProcessor)?.audioEngine else { return }
         removeConfigurationObserver()
@@ -101,18 +136,100 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
             queue: nil
-        ) { [weak engine] _ in
-            guard let engine, !engine.isRunning else { return }
-            do {
-                try engine.start()
-                traceDeviceProcessor("engine configuration changed — restarted capture")
-            } catch {
-                traceDeviceProcessor("engine configuration changed — restart FAILED: \(error)")
-            }
+        ) { [weak self] _ in
+            self?.scheduleRecovery()
         }
         observerLock.lock()
         configObserver = observer
         observerLock.unlock()
+    }
+
+    private func scheduleRecovery() {
+        observerLock.lock()
+        guard isRecording, !recoveryPending else {
+            observerLock.unlock()
+            return
+        }
+        recoveryPending = true
+        let generation = sessionGeneration
+        observerLock.unlock()
+        // Debounce: route changes usually arrive in bursts while the hardware settles.
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.recoverCapture(generation: generation)
+        }
+    }
+
+    private func recoverCapture(generation: Int) {
+        observerLock.lock()
+        guard generation == sessionGeneration, isRecording else {
+            recoveryPending = false
+            observerLock.unlock()
+            return
+        }
+        guard recoveryAttempts < Self.maxRecoveryAttempts else {
+            recoveryPending = false
+            captureFailure = captureFailure ?? "recovery attempts exhausted"
+            observerLock.unlock()
+            traceDeviceProcessor("engine configuration changed — giving up after \(Self.maxRecoveryAttempts) attempts; capture has stopped")
+            return
+        }
+        recoveryAttempts += 1
+        let attempt = recoveryAttempts
+        let deviceID = preferredDeviceID ?? requestedDeviceID
+        observerLock.unlock()
+
+        guard let processor = inner as? AudioProcessor else {
+            fail(generation: generation, "inner processor is not an AudioProcessor; cannot rebuild engine")
+            return
+        }
+
+        removeConfigurationObserver()
+        // Tears down the old engine and nils `audioEngine`; samples/callback untouched.
+        processor.stopRecording()
+        do {
+            processor.audioEngine = try processor.setupEngine(inputDeviceID: deviceID)
+        } catch {
+            traceDeviceProcessor("engine configuration changed — rebuild attempt \(attempt) FAILED: \(error)")
+            observerLock.lock()
+            captureFailure = "\(error)"
+            recoveryPending = false
+            let stillCurrent = generation == sessionGeneration && isRecording
+            observerLock.unlock()
+            // Hardware may still be settling: retry (bounded by the attempt cap).
+            if stillCurrent { retryRecovery(generation: generation) }
+            return
+        }
+
+        observerLock.lock()
+        let stillCurrent = generation == sessionGeneration && isRecording
+        if stillCurrent { captureFailure = nil }
+        recoveryPending = false
+        observerLock.unlock()
+        if stillCurrent {
+            observeEngineConfigurationChanges()
+            traceDeviceProcessor("engine configuration changed — rebuilt capture (attempt \(attempt)), samples kept")
+        } else {
+            // Stopped while we were rebuilding: don't leave a live engine behind.
+            processor.stopRecording()
+        }
+    }
+
+    private func retryRecovery(generation: Int) {
+        observerLock.lock()
+        guard !recoveryPending else { observerLock.unlock(); return }
+        recoveryPending = true
+        observerLock.unlock()
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.recoverCapture(generation: generation)
+        }
+    }
+
+    private func fail(generation: Int, _ message: String) {
+        observerLock.lock()
+        if generation == sessionGeneration { captureFailure = message }
+        recoveryPending = false
+        observerLock.unlock()
+        traceDeviceProcessor("engine configuration changed — \(message)")
     }
 
     private func removeConfigurationObserver() {
@@ -121,6 +238,20 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
         configObserver = nil
         observerLock.unlock()
         if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    /// Marks a new recording session (`fresh` resets the retry budget and failure state).
+    private func beginSession(requestedDeviceID: DeviceID?, fresh: Bool) {
+        observerLock.lock()
+        self.requestedDeviceID = requestedDeviceID
+        isRecording = true
+        if fresh {
+            sessionGeneration += 1
+            recoveryAttempts = 0
+            recoveryPending = false
+            captureFailure = nil
+        }
+        observerLock.unlock()
     }
 
     func padOrTrim(
