@@ -226,16 +226,32 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
     /// Returns the number of entries imported.
     @discardableResult
     public func importCSV(_ csv: String) -> Int {
+        // Whole import is one atomic section so a concurrent dictation-stop
+        // usage write can't interleave and drop rows. parseCSV is pure, so
+        // running it under the lock changes nothing but the ordering guarantee.
+        return withLock {
+            var imported = 0
+            for entry in parseCSV(csv) {
+                if addEntry(entry) {
+                    imported += 1
+                }
+            }
+            return imported
+        }
+    }
+
+    /// Parse CSV into entries without touching storage. Pure, so callers can
+    /// check a file first (e.g. before clearing the vocabulary for a replace).
+    /// Skips the header row, blank lines, and rows with an empty term.
+    /// Unknown categories fall back to `.custom`. Duplicates are not removed here.
+    public func parseCSV(_ csv: String) -> [VocabularyEntry] {
         var lines = csv.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         // Skip header if present
         if let first = lines.first, first.lowercased().hasPrefix("word") {
             lines.removeFirst()
         }
 
-        // Whole import is one atomic section so a concurrent dictation-stop
-        // usage write can't interleave and drop rows.
-        return withLock {
-        var imported = 0
+        var parsed: [VocabularyEntry] = []
         for line in lines {
             // Handle quoted values
             var columns: [String] = []
@@ -265,12 +281,9 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
                 cat.rawValue.caseInsensitiveCompare(categoryString) == .orderedSame
             } ?? .custom
 
-            if addEntry(VocabularyEntry(term: term, category: category)) {
-                imported += 1
-            }
+            parsed.append(VocabularyEntry(term: term, category: category))
         }
-        return imported
-        }
+        return parsed
     }
 
     // MARK: - Migration
