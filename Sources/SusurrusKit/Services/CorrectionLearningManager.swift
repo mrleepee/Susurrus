@@ -64,7 +64,7 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     /// Factory for testing with isolated UserDefaults.
     public static func createForTesting() -> CorrectionLearningManager {
         CorrectionLearningManager(
-            defaults: UserDefaults(suiteName: "com.susurrus.correction.test.\(UUID().uuidString)")!
+            defaults: EphemeralDefaults.make("correction")
         )
     }
 
@@ -544,11 +544,16 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
 
     static func tokenize(_ text: String) -> [EditToken] {
         text.split(whereSeparator: \.isWhitespace).compactMap { raw in
+            // Unit signs are part of the word: trimming them turned the edit
+            // "1 hundred percent" → "100%" into a rule that writes "100".
             let display = String(raw).trimmingCharacters(
-                in: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "'")).inverted
+                in: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "'%£$€")).inverted
             )
-            guard !display.isEmpty else { return nil }
-            return EditToken(display: display, key: display.lowercased())
+            // The key stays symbol-free: it becomes a rule's match, and the
+            // corrector's word tokens never contain these signs.
+            let key = display.lowercased().filter { !"%£$€".contains($0) }
+            guard !key.isEmpty else { return nil }
+            return EditToken(display: display, key: key)
         }
     }
 

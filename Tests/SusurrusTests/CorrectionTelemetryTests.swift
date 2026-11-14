@@ -10,7 +10,7 @@ import Testing
 struct CorrectionTelemetryTests {
 
     private func manager() -> CorrectionLearningManager {
-        let suite = UserDefaults(suiteName: "com.susurrus.fire.test.\(UUID().uuidString)")!
+        let suite = EphemeralDefaults.make("fire")
         return CorrectionLearningManager(defaults: suite)
     }
 
@@ -134,7 +134,7 @@ struct CorrectionTelemetryTests {
 
     @Test("recordFixes credits only the entry that actually fired")
     func vocabRecordFixes() {
-        let suite = UserDefaults(suiteName: "com.susurrus.fix.test.\(UUID().uuidString)")!
+        let suite = EphemeralDefaults.make("fix")
         let vm = VocabularyManager(defaults: suite)
         vm.setEntries([
             VocabularyEntry(term: "MarkLogic", category: .technical),

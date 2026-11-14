@@ -25,14 +25,47 @@ public final class MediaService: MediaControlling, @unchecked Sendable {
     /// Apple Event error raised when the Automation grant is missing/denied.
     private static let notPermittedError = -1743
 
-    /// Media apps with AppleScript support for play/pause.
-    private let knownApps: [(name: String, pauseScript: String, resumeScript: String)] = [
-        ("Spotify", "pause", "play"),
-        ("Music", "pause", "play"),
-        ("VLC", "pause", "play"),
-        ("QuickTime Player", "pause", "play"),
-        ("iTunes", "pause", "play"),
+    /// One scriptable media app. Each app has its own scripting dictionary,
+    /// so each carries its own scripts: a term an app doesn't define fails
+    /// to compile (error -2741), which a `try` block can't catch.
+    struct MediaApp: Sendable {
+        let name: String
+        /// Statements (inside `tell application`) evaluating to a boolean.
+        let isPlayingExpression: String
+        let pauseScript: String
+        let resumeScript: String
+    }
+
+    static let knownApps: [MediaApp] = [
+        MediaApp(name: "Spotify", isPlayingExpression: "player state is playing",
+                 pauseScript: "pause", resumeScript: "play"),
+        MediaApp(name: "Music", isPlayingExpression: "player state is playing",
+                 pauseScript: "pause", resumeScript: "play"),
+        // VLC has no `player state` and no `pause`: `playing` is a boolean
+        // and `play` toggles, so both directions check the state first.
+        MediaApp(name: "VLC", isPlayingExpression: "playing",
+                 pauseScript: "if playing then play",
+                 resumeScript: "if not playing then play"),
+        // QuickTime's playback state and commands belong to documents.
+        MediaApp(name: "QuickTime Player",
+                 isPlayingExpression: "(exists document 1) and (playing of document 1)",
+                 pauseScript: "pause document 1",
+                 resumeScript: "if exists document 1 then play document 1"),
     ]
+
+    private var knownApps: [MediaApp] { Self.knownApps }
+
+    static func isPlayingScript(for app: MediaApp) -> String {
+        """
+        tell application "\(app.name)"
+            try
+                return (\(app.isPlayingExpression)) as text
+            on error
+                return "false"
+            end try
+        end tell
+        """
+    }
 
     public init() {}
 
@@ -56,7 +89,7 @@ public final class MediaService: MediaControlling, @unchecked Sendable {
             // Events instead would need its own Automation grant just to
             // learn the app isn't running.
             guard isRunning(app.name) else { continue }
-            guard await isPlaying(app.name) else {
+            guard await isPlaying(app) else {
                 traceMedia("\(app.name) running but not playing")
                 continue
             }
@@ -87,16 +120,9 @@ public final class MediaService: MediaControlling, @unchecked Sendable {
         NSWorkspace.shared.runningApplications.contains { $0.localizedName == appName }
     }
 
-    private func isPlaying(_ appName: String) async -> Bool {
-        let script = """
-        tell application "\(appName)"
-            try
-                return (player state is playing) as text
-            on error
-                return "false"
-            end try
-        end tell
-        """
+    private func isPlaying(_ app: MediaApp) async -> Bool {
+        let appName = app.name
+        let script = Self.isPlayingScript(for: app)
         let result = await runAppleScript(script)
         if result.denied {
             traceMedia("\(appName) player-state DENIED — Automation grant missing")

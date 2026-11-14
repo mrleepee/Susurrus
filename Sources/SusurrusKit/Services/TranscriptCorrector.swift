@@ -184,11 +184,17 @@ public struct TranscriptCorrector: TranscriptCorrecting {
             if let exact = byNormalized[candidateNorm] {
                 // Exact after normalization (case/spacing/punctuation only).
                 // Guard single common words; multi-word joins are safe.
-                if !(isSingleWord && CommonWords.contains(candidateNorm)) {
+                if !(isSingleWord && CommonWords.contains(candidateNorm)),
+                   !Self.isOrdinaryPhrase(window.words, joinedInto: exact.displayTerm) {
                     matched = exact
                 }
             } else if candidateNorm.count >= Self.minFuzzyLength,
                       !vocabTermsLowercased.contains(original.lowercased()),
+                      // A window that already holds a correctly spelled term
+                      // is that term plus a neighbour, not a misspelling:
+                      // "Rodney in" is 2 edits from "rodney", and matching it
+                      // deletes the "in".
+                      !(!isSingleWord && window.words.contains { byNormalized[Self.normalize($0)] != nil }),
                       !(isSingleWord && CommonWords.containsOrInflection(candidateNorm)),
                       !(isSingleWord && Self.followsNameModifier(window, tokens: tokens, in: text)) {
                 // Fuzzy: phonetic key, length, and edit distance must all be close.
@@ -274,6 +280,17 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                 span: match.range.location..<(match.range.location + match.range.length)
             )
         }
+    }
+
+    /// Whether `words` is plain English that only collides with a one-word
+    /// vocabulary term when its spaces are removed: "Check in the SDK" must
+    /// not become "checkIn the SDK". Every word has to be in the frequency
+    /// list (`top`, not the domain stoplist, so "mark logic" still joins),
+    /// and a term stored with its own spaces ("Trust Signals") is a recasing,
+    /// not a join.
+    private static func isOrdinaryPhrase(_ words: [String], joinedInto term: String) -> Bool {
+        guard words.count > 1, !term.contains(where: \.isWhitespace) else { return false }
+        return words.allSatisfy { CommonWords.top.contains(normalize($0)) }
     }
 
     /// Whether the word before `window` is a name or acronym modifier ("CTS

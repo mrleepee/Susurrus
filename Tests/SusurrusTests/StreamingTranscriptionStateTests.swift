@@ -227,6 +227,20 @@ struct StreamingTranscriptionStateTests {
         await service.setVocabularyPrompt("custom vocabulary terms")
         // No crash — we can't read it back directly, but we verify it doesn't fail
     }
+
+    @Test("Stop gives up on a loop that doesn't exit")
+    func loopExitWaitIsCapped() async {
+        let stuck = Task<Void, Error> { try? await Task.sleep(for: .seconds(30)) }
+        defer { stuck.cancel() }
+        let start = ContinuousClock.now
+        let exited = await StreamingTranscriptionService.waitForExit(of: stuck, upTo: .milliseconds(50))
+        #expect(!exited)
+        #expect(ContinuousClock.now - start < .seconds(5))
+
+        let quick = Task<Void, Error> {}
+        #expect(await StreamingTranscriptionService.waitForExit(of: quick, upTo: .seconds(5)))
+        #expect(await StreamingTranscriptionService.waitForExit(of: nil, upTo: .seconds(5)))
+    }
 }
 
 // MARK: - Helpers

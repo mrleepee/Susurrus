@@ -500,8 +500,13 @@ public actor StreamingTranscriptionService {
         // about to batch-decode the whole buffer anyway, so its result is
         // redundant and waiting for it just serializes two decodes.
         sessionTask?.cancel()
-        try? await sessionTask?.value
-        trace("stop: loop cancelled+exited in \(msSince(stopStart))ms")
+        // Its result is discarded, so don't let a stuck loop hold the stop:
+        // twice it took 15 s to exit, ahead of a 1.5 s decode.
+        if await Self.waitForExit(of: sessionTask, upTo: Self.loopExitLimit) {
+            trace("stop: loop cancelled+exited in \(msSince(stopStart))ms")
+        } else {
+            trace("stop: loop still running after \(msSince(stopStart))ms — not waiting for it")
+        }
 
         let state = lastTranscriberState
         let processor = activeProcessor
@@ -548,6 +553,27 @@ public actor StreamingTranscriptionService {
 
         retain(samples: samples, text: cleaned, promptTerms: promptTerms)
         return cleaned
+    }
+
+    /// How long a stop waits for the cancelled realtime loop. Normal exits
+    /// are under half a second.
+    static let loopExitLimit: Duration = .milliseconds(1000)
+
+    /// Waits for `task` to finish, giving up after `limit`. Returns whether
+    /// it finished. Awaiting a task's value ignores the awaiter's own
+    /// cancellation, so this races two unstructured tasks rather than using
+    /// a task group, which would wait for the slow child anyway.
+    static func waitForExit(of task: Task<Void, Error>?, upTo limit: Duration) async -> Bool {
+        guard let task else { return true }
+        let (stream, continuation) = AsyncStream<Bool>.makeStream()
+        let waiter = Task { _ = try? await task.value; continuation.yield(true) }
+        let timer = Task {
+            try? await Task.sleep(for: limit)
+            if !Task.isCancelled { continuation.yield(false) }
+        }
+        defer { waiter.cancel(); timer.cancel(); continuation.finish() }
+        for await finished in stream { return finished }
+        return true
     }
 
     private func retain(samples: [Float], text: String, promptTerms: [String]) {
