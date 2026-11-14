@@ -111,7 +111,7 @@ struct CorrectionLearningManagerTests {
     @Test("Proper noun corrections auto-added to vocabulary")
     func properNounExtraction() {
         let vocab = VocabularyManager.createForTesting()
-        let mgr = CorrectionLearningManager(vocabularyManager: vocab, defaults: UserDefaults(suiteName: "com.susurrus.correction.propnouns.\(UUID().uuidString)")!)
+        let mgr = CorrectionLearningManager(vocabularyManager: vocab, defaults: EphemeralDefaults.make("correction.propnouns"))
         mgr.recordCorrection(raw: "databid is great", edited: "DataBid is great")
         let entries = vocab.entries()
         #expect(entries.contains(where: { $0.term == "DataBid" }))
@@ -120,7 +120,7 @@ struct CorrectionLearningManagerTests {
     @Test("Non-case changes not added to vocabulary")
     func nonCaseChangesNotAdded() {
         let vocab = VocabularyManager.createForTesting()
-        let mgr = CorrectionLearningManager(vocabularyManager: vocab, defaults: UserDefaults(suiteName: "com.susurrus.correction.noncase.\(UUID().uuidString)")!)
+        let mgr = CorrectionLearningManager(vocabularyManager: vocab, defaults: EphemeralDefaults.make("correction.noncase"))
         mgr.recordCorrection(raw: "the project", edited: "my project")
         #expect(vocab.entries().isEmpty)
     }
@@ -128,7 +128,7 @@ struct CorrectionLearningManagerTests {
     @Test("Duplicate proper nouns not added twice")
     func duplicateProperNounsSkipped() {
         let vocab = VocabularyManager.createForTesting()
-        let defaults = UserDefaults(suiteName: "com.susurrus.correction.dupnouns.\(UUID().uuidString)")!
+        let defaults = EphemeralDefaults.make("correction.dupnouns")
         let mgr = CorrectionLearningManager(vocabularyManager: vocab, defaults: defaults)
         mgr.recordCorrection(raw: "databid", edited: "DataBid")
         mgr.recordCorrection(raw: "databid", edited: "DataBid")

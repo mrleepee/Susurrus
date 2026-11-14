@@ -43,7 +43,7 @@ public final class VocabularyManager: VocabularyManaging, @unchecked Sendable {
 
     /// Factory for testing with an isolated UserDefaults suite (no seed data).
     public static func createForTesting() -> VocabularyManager {
-        VocabularyManager(defaults: UserDefaults(suiteName: "com.susurrus.vocab.test.\(UUID().uuidString)")!, skipSeed: true)
+        VocabularyManager(defaults: EphemeralDefaults.make("vocab"), skipSeed: true)
     }
 
     // MARK: - Legacy flat-word API

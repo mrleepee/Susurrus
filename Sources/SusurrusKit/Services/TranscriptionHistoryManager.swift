@@ -116,7 +116,7 @@ public final class TranscriptionHistoryManager: @unchecked Sendable {
 
     /// Factory for testing with isolated UserDefaults.
     public static func createForTesting() -> TranscriptionHistoryManager {
-        TranscriptionHistoryManager(defaults: UserDefaults(suiteName: "com.susurrus.history.test.\(UUID().uuidString)")!)
+        TranscriptionHistoryManager(defaults: EphemeralDefaults.make("history"))
     }
 
     private func loadAll() -> [TranscriptionHistoryItem] {

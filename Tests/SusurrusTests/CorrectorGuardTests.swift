@@ -75,4 +75,38 @@ struct CorrectorGuardTests {
     func misheardNameFixed() {
         #expect(correct("ask Harned about it") == "ask Harnadh about it")
     }
+
+    // MARK: - Multi-word windows (daily log, 2026-11-11 to 11-13)
+
+    private func correct(_ text: String, terms: [String]) -> String {
+        let vocabulary = terms.map { VocabularyEntry(term: $0, category: .custom) }
+        return corrector.correct(text, vocabulary: vocabulary, rules: []).text
+    }
+
+    @Test("A correct term keeps the word next to it")
+    func fuzzyWindowKeepsNeighbour() {
+        #expect(correct("I spoke to Rodney in the morning", terms: ["Rodney"])
+            == "I spoke to Rodney in the morning")
+        #expect(correct("ask Anwar or me", terms: ["Anwar"]) == "ask Anwar or me")
+        #expect(correct("me and Silvia a short update", terms: ["Silvia"])
+            == "me and Silvia a short update")
+    }
+
+    @Test("A split misspelling still fuzzy-joins")
+    func fuzzyJoinStillWorks() {
+        #expect(correct("the dev smal cluster", terms: ["dev-small"]) == "the dev-small cluster")
+        #expect(correct("ask Harnad h today", terms: ["Harnadh"]) == "ask Harnadh today")
+    }
+
+    @Test("Ordinary words are not joined into a one-word term")
+    func ordinaryPhraseNotJoined() {
+        #expect(correct("Check in the SDK", terms: ["checkIn"]) == "Check in the SDK")
+    }
+
+    @Test("Joins with a non-common word, and spaced terms, still apply")
+    func exactJoinsStillWork() {
+        #expect(correct("we use mark logic here", terms: ["MarkLogic"]) == "we use MarkLogic here")
+        #expect(correct("the post hog events", terms: ["PostHog"]) == "the PostHog events")
+        #expect(correct("the check in desk", terms: ["Check In"]) == "the Check In desk")
+    }
 }
