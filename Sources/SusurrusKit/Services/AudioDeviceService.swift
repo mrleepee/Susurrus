@@ -10,6 +10,12 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
     /// `AudioInputDevice` values directly instead of calling Core Audio.
     private let devicesProvider: () -> [AudioInputDevice]
     private let isBuiltInProvider: (UInt32) -> Bool
+    private let defaultInputProvider: () -> UInt32?
+
+    /// UserDefaults key for the Settings override: record from whatever
+    /// macOS has selected as its input instead of the Studio Display /
+    /// built-in rule.
+    public static let useSystemDefaultInputKey = "useSystemDefaultInput"
 
     public init() {
         self.devicesProvider = {
@@ -18,15 +24,18 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
             }
         }
         self.isBuiltInProvider = { Self.transportType(of: $0) == kAudioDeviceTransportTypeBuiltIn }
+        self.defaultInputProvider = { Self.systemDefaultInputID() }
     }
 
     /// Test-only initialiser accepting a fixed device list.
     internal init(
         devicesProvider: @escaping () -> [AudioInputDevice],
-        isBuiltIn: @escaping (UInt32) -> Bool = { _ in false }
+        isBuiltIn: @escaping (UInt32) -> Bool = { _ in false },
+        defaultInputProvider: @escaping () -> UInt32? = { nil }
     ) {
         self.devicesProvider = devicesProvider
         self.isBuiltInProvider = isBuiltIn
+        self.defaultInputProvider = defaultInputProvider
     }
 
     public func availableInputs() -> [AudioInputDevice] {
@@ -49,9 +58,17 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
     /// Bluetooth speaker or headset that grabs the default input when it
     /// connects (and drops into its low-quality call profile) is never used.
     ///
-    /// Returns `nil` only if neither microphone is present.
-    public func dictationInput() -> AudioInputDevice? {
+    /// With `useSystemDefault` (the Settings override) it is instead whatever
+    /// macOS has selected in System Settings > Sound > Input, Bluetooth
+    /// included.
+    ///
+    /// Returns `nil` only if the chosen microphone is not present.
+    public func dictationInput(useSystemDefault: Bool = false) -> AudioInputDevice? {
         let devices = devicesProvider()
+        if useSystemDefault {
+            guard let defaultID = defaultInputProvider() else { return nil }
+            return devices.first(where: { $0.id == defaultID })
+        }
         if let studio = devices.first(where: { Self.isStudioDisplay($0.name) }) {
             return studio
         }

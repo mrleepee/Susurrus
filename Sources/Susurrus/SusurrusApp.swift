@@ -679,21 +679,25 @@ struct SusurrusApp: App {
 
         // Record from the Studio Display mic when connected, otherwise the
         // built-in mic — never Bluetooth or whatever else macOS has selected
-        // (see AudioDeviceService.dictationInput). Re-picked if the hardware
-        // changes mid-session.
+        // (see AudioDeviceService.dictationInput) — unless Settings says to
+        // use the Mac's default input. Re-picked if the hardware changes
+        // mid-session.
         let devices = audioDeviceService
+        let useSystemDefault = UserDefaults.standard.bool(forKey: AudioDeviceService.useSystemDefaultInputKey)
         var resolvedDeviceID: UInt32?
-        if let input = devices.dictationInput() {
-            traceApp("startStreamingSession: routing to '\(input.name)' (id \(input.id))")
+        if let input = devices.dictationInput(useSystemDefault: useSystemDefault) {
+            traceApp("startStreamingSession: routing to '\(input.name)' (id \(input.id)\(useSystemDefault ? ", Mac default input" : ""))")
             resolvedDeviceID = input.id
-        } else {
+        } else if !useSystemDefault {
             traceApp("startStreamingSession: no Studio Display or built-in mic — using system default")
             notificationService.showNotification(
                 title: "Microphone not found",
                 body: "Neither the Studio Display nor the built-in microphone is available. Using the system default input."
             )
         }
-        let reselectDevice: @Sendable () -> UInt32? = { devices.dictationInput()?.id }
+        let reselectDevice: @Sendable () -> UInt32? = {
+            devices.dictationInput(useSystemDefault: useSystemDefault)?.id
+        }
 
         // Capture reference types only for the streaming Task
         let state = appState

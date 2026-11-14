@@ -132,4 +132,16 @@ struct AudioDeviceServiceTests {
     func dictationNeverBluetooth() {
         #expect(makeRoutingService([bluetooth]).dictationInput() == nil)
     }
+
+    @Test("dictationInput follows the macOS default, Bluetooth included, when overridden")
+    func dictationSystemDefaultOverride() {
+        let devices = [builtIn, bluetooth, studio]
+        let service = AudioDeviceService(
+            devicesProvider: { devices },
+            isBuiltIn: { $0 == 91 },
+            defaultInputProvider: { 73 }
+        )
+        #expect(service.dictationInput(useSystemDefault: true)?.id == 73)
+        #expect(service.dictationInput()?.id == 42)
+    }
 }
