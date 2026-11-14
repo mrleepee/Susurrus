@@ -21,11 +21,10 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     private var inner: any AudioProcessing
     private let preferredDeviceID: DeviceID?
 
-    /// When true, `preferredDeviceID` is just the macOS default input at
-    /// session start, not a user choice: if the default changes mid-session
-    /// (e.g. a Bluetooth speaker connects and its mic becomes the default),
-    /// capture moves to the new default. When false the device stays pinned.
-    private let followsSystemDefault: Bool
+    /// Picks the device capture should be on now. Asked when the hardware
+    /// changes mid-session, so e.g. unplugging the Studio Display moves
+    /// capture to the built-in mic. `nil` keeps the device pinned.
+    private let reselectDevice: (@Sendable () -> DeviceID?)?
 
     /// Observer for the live engine's configuration-change notification.
     /// Guarded by `observerLock` — set on the transcriber's executor, read
@@ -48,17 +47,16 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
     /// - Parameters:
     ///   - preferredDeviceID: Device ID to substitute when callers pass `nil`. If `nil`,
     ///     the wrapper is effectively transparent.
-    ///   - followsSystemDefault: Move capture to the new macOS default input
-    ///     when it changes mid-session.
+    ///   - reselectDevice: Re-picks the input after a mid-session hardware change.
     ///   - inner: Underlying processor. Defaults to a fresh `AudioProcessor()` but can
     ///     be replaced with a fake for testing.
     init(
         preferredDeviceID: DeviceID?,
-        followsSystemDefault: Bool = false,
+        reselectDevice: (@Sendable () -> DeviceID?)? = nil,
         inner: any AudioProcessing = AudioProcessor()
     ) {
         self.preferredDeviceID = preferredDeviceID
-        self.followsSystemDefault = followsSystemDefault
+        self.reselectDevice = reselectDevice
         self.inner = inner
     }
 
@@ -182,12 +180,11 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
             observerLock.unlock()
             return
         }
-        // Following the system default: if macOS switched its input (a
-        // Bluetooth speaker's mic became the default), rebuild on the new
-        // device even if the old engine is still running.
+        // If the right device changed (Studio Display unplugged or plugged
+        // in), rebuild on it even if the old engine is still running.
         let bound = boundDeviceID
-        let newDefault = followsSystemDefault ? AudioDeviceService.systemDefaultInputID() : nil
-        let switchDevice = newDefault != nil && newDefault != bound
+        let newTarget = reselectDevice?()
+        let switchDevice = newTarget != nil && newTarget != bound
         // Configuration changes also fire when nothing broke — starting the mic,
         // another app pausing playback. If the engine is still running, capture
         // is intact; rebuilding would drop audio (and re-trigger the notification).
@@ -229,7 +226,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
         }
         recoveryAttempts += 1
         let attempt = recoveryAttempts
-        let deviceID = switchDevice ? newDefault : bound
+        let deviceID = switchDevice ? newTarget : bound
         observerLock.unlock()
 
         guard let processor = inner as? AudioProcessor else {
@@ -265,7 +262,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
         if stillCurrent {
             observeEngineConfigurationChanges()
             let note = switchDevice
-                ? "switched to system default \(deviceID.map(String.init) ?? "nil") from \(bound.map(String.init) ?? "nil")"
+                ? "switched to \(deviceID.map(String.init) ?? "nil") from \(bound.map(String.init) ?? "nil")"
                 : "same device"
             traceDeviceProcessor("engine configuration changed — rebuilt capture (attempt \(attempt), \(note)), samples kept")
         } else {

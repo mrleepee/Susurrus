@@ -9,7 +9,7 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
     /// Optional injection point for tests — supply a closure that returns
     /// `AudioInputDevice` values directly instead of calling Core Audio.
     private let devicesProvider: () -> [AudioInputDevice]
-    private let defaultInputProvider: () -> UInt32?
+    private let isBuiltInProvider: (UInt32) -> Bool
 
     public init() {
         self.devicesProvider = {
@@ -17,16 +17,16 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
                 AudioInputDevice(id: $0.id, name: $0.name)
             }
         }
-        self.defaultInputProvider = { Self.systemDefaultInputID() }
+        self.isBuiltInProvider = { Self.transportType(of: $0) == kAudioDeviceTransportTypeBuiltIn }
     }
 
     /// Test-only initialiser accepting a fixed device list.
     internal init(
         devicesProvider: @escaping () -> [AudioInputDevice],
-        defaultInputProvider: @escaping () -> UInt32? = { nil }
+        isBuiltIn: @escaping (UInt32) -> Bool = { _ in false }
     ) {
         self.devicesProvider = devicesProvider
-        self.defaultInputProvider = defaultInputProvider
+        self.isBuiltInProvider = isBuiltIn
     }
 
     public func availableInputs() -> [AudioInputDevice] {
@@ -43,19 +43,38 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
         return .unavailable(requestedName: preferredName)
     }
 
-    /// The input to record from when the user hasn't picked one: whatever
-    /// macOS currently has selected as its input (System Settings > Sound >
-    /// Input), read fresh at each session start. A Bluetooth speaker or
-    /// headset that becomes the default when it connects is used, matching
-    /// what the user sees in Settings.
+    /// The microphone dictation records from. Only two are ever used: the
+    /// Studio Display's mic when the display is connected, otherwise the Mac's
+    /// built-in mic. Whatever macOS has selected as its input is ignored, so a
+    /// Bluetooth speaker or headset that grabs the default input when it
+    /// connects (and drops into its low-quality call profile) is never used.
     ///
-    /// Returns `nil` only if Core Audio reports no usable default input.
-    public func sessionDefaultInput() -> AudioInputDevice? {
-        guard let defaultID = defaultInputProvider() else { return nil }
-        return devicesProvider().first(where: { $0.id == defaultID })
+    /// Returns `nil` only if neither microphone is present.
+    public func dictationInput() -> AudioInputDevice? {
+        let devices = devicesProvider()
+        if let studio = devices.first(where: { Self.isStudioDisplay($0.name) }) {
+            return studio
+        }
+        return devices.first(where: { isBuiltInProvider($0.id) })
+    }
+
+    static func isStudioDisplay(_ name: String) -> Bool {
+        name.localizedCaseInsensitiveContains("Studio Display")
     }
 
     // MARK: - Core Audio
+
+    static func transportType(of deviceID: UInt32) -> UInt32 {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport = UInt32(0)
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
+        return status == noErr ? transport : 0
+    }
 
     public static func systemDefaultInputID() -> UInt32? {
         var address = AudioObjectPropertyAddress(
