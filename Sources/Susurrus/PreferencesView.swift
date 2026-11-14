@@ -11,6 +11,7 @@ struct PreferencesView: View {
     @AppStorage("llmEnabled") private var llmEnabled = false
     @AppStorage("autoPasteEnabled") private var autoPasteEnabled = true
     @AppStorage("pauseMediaOnRecord") private var pauseMediaOnRecord = true
+    @AppStorage(AudioDeviceService.useSystemDefaultInputKey) private var useSystemDefaultInput = false
     @State private var axTrusted = false
     @AppStorage("llmModel") private var llmModel: String = "MiniMax-M2.5"
     @AppStorage("llmEndpoint") private var llmEndpoint: String = "https://api.minimax.io/anthropic/v1/messages"
@@ -156,6 +157,13 @@ struct PreferencesView: View {
                     }
                 }
             }
+
+            Toggle("Use Mac's Default Microphone", isOn: $useSystemDefaultInput)
+            Text(useSystemDefaultInput
+                ? "Records from whatever is selected in System Settings > Sound > Input, including a Bluetooth speaker or headset that takes over the input when it connects."
+                : "Records from the Studio Display microphone when the display is connected, otherwise the MacBook's built-in microphone. Bluetooth speakers and headsets are never used, even if macOS switches its input to them. Turn this on to use the Mac's default input instead.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Toggle("Pause Media While Recording", isOn: $pauseMediaOnRecord)
             if pauseMediaOnRecord {

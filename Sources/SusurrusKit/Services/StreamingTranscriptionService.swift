@@ -370,19 +370,18 @@ public actor StreamingTranscriptionService {
     ///
     /// - Parameters:
     ///   - deviceID: Core Audio input device ID to record from, or `nil` for system default.
-    ///   - followsSystemDefault: `deviceID` is the macOS default input rather
-    ///     than a user choice, so capture moves with the default if it changes
-    ///     mid-session (e.g. a Bluetooth speaker connects).
+    ///   - reselectDevice: Re-picks the input when the audio hardware changes
+    ///     mid-session; `nil` keeps capture pinned to `deviceID`.
     ///   - callback: Called on each state change with confirmed/unconfirmed text.
     /// - Throws: `TranscriptionError.modelNotReady` if the model is not loaded.
     public func startStreamTranscription(
         deviceID: UInt32? = nil,
-        followsSystemDefault: Bool = false,
+        reselectDevice: (@Sendable () -> UInt32?)? = nil,
         callback: @escaping InterimCallback
     ) async throws {
         try await startStreamTranscription(
             deviceID: deviceID,
-            followsSystemDefault: followsSystemDefault,
+            reselectDevice: reselectDevice,
             audioProcessorOverride: nil,
             callback: callback
         )
@@ -393,7 +392,7 @@ public actor StreamingTranscriptionService {
     /// (or the shared `whisperKit.audioProcessor` when `deviceID` is also `nil`).
     internal func startStreamTranscription(
         deviceID: UInt32?,
-        followsSystemDefault: Bool = false,
+        reselectDevice: (@Sendable () -> UInt32?)? = nil,
         audioProcessorOverride: (any AudioProcessing)?,
         callback: @escaping InterimCallback
     ) async throws {
@@ -436,7 +435,7 @@ public actor StreamingTranscriptionService {
         } else if let deviceID {
             processor = DeviceSelectingAudioProcessor(
                 preferredDeviceID: deviceID,
-                followsSystemDefault: followsSystemDefault
+                reselectDevice: reselectDevice
             )
         } else {
             processor = whisperKit.audioProcessor

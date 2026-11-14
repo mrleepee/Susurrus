@@ -108,29 +108,40 @@ struct AudioDeviceServiceTests {
         #expect(AudioDeviceResolution.systemDefault != .unavailable(requestedName: "X"))
     }
 
-    // MARK: - sessionDefaultInput
+    // MARK: - dictationInput
 
-    private func makeRoutingService(defaultID: UInt32?) -> AudioDeviceService {
-        let list = fixtureDevices
-        return AudioDeviceService(
-            devicesProvider: { list },
-            defaultInputProvider: { defaultID }
+    private func makeRoutingService(_ devices: [AudioInputDevice]) -> AudioDeviceService {
+        AudioDeviceService(devicesProvider: { devices }, isBuiltIn: { $0 == 91 })
+    }
+
+    private let builtIn = AudioInputDevice(id: 91, name: "MacBook Pro Microphone")
+    private let studio = AudioInputDevice(id: 42, name: "Studio Display Microphone")
+    private let bluetooth = AudioInputDevice(id: 73, name: "Bose Revolve II SoundLink")
+
+    @Test("dictationInput prefers the Studio Display mic when connected")
+    func dictationPrefersStudio() {
+        #expect(makeRoutingService([builtIn, bluetooth, studio]).dictationInput()?.id == 42)
+    }
+
+    @Test("dictationInput uses the built-in mic when the Studio Display is absent")
+    func dictationFallsBackToBuiltIn() {
+        #expect(makeRoutingService([bluetooth, builtIn]).dictationInput()?.id == 91)
+    }
+
+    @Test("dictationInput never picks a Bluetooth or other input")
+    func dictationNeverBluetooth() {
+        #expect(makeRoutingService([bluetooth]).dictationInput() == nil)
+    }
+
+    @Test("dictationInput follows the macOS default, Bluetooth included, when overridden")
+    func dictationSystemDefaultOverride() {
+        let devices = [builtIn, bluetooth, studio]
+        let service = AudioDeviceService(
+            devicesProvider: { devices },
+            isBuiltIn: { $0 == 91 },
+            defaultInputProvider: { 73 }
         )
-    }
-
-    @Test("sessionDefaultInput returns the macOS default input")
-    func sessionDefaultFollowsSystem() {
-        #expect(makeRoutingService(defaultID: 42).sessionDefaultInput()?.id == 42)
-    }
-
-    @Test("sessionDefaultInput follows a Bluetooth default rather than skipping it")
-    func sessionDefaultKeepsBluetooth() {
-        #expect(makeRoutingService(defaultID: 73).sessionDefaultInput()?.id == 73)
-    }
-
-    @Test("sessionDefaultInput is nil when the default isn't a listed input")
-    func sessionDefaultNilWhenUnknown() {
-        #expect(makeRoutingService(defaultID: nil).sessionDefaultInput() == nil)
-        #expect(makeRoutingService(defaultID: 999).sessionDefaultInput() == nil)
+        #expect(service.dictationInput(useSystemDefault: true)?.id == 73)
+        #expect(service.dictationInput()?.id == 42)
     }
 }

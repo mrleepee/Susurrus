@@ -677,36 +677,26 @@ struct SusurrusApp: App {
             }
         }
 
-        // Resolve preferred device name to a current Core Audio device ID.
-        // If the user has no preference, or the saved device is disconnected,
-        // `resolvedDeviceID` is nil and streaming uses the system default.
-        let preferredName = preferences.selectedInputDeviceName()
-        let resolution = audioDeviceService.resolve(preferredName: preferredName)
+        // Record from the Studio Display mic when connected, otherwise the
+        // built-in mic — never Bluetooth or whatever else macOS has selected
+        // (see AudioDeviceService.dictationInput) — unless Settings says to
+        // use the Mac's default input. Re-picked if the hardware changes
+        // mid-session.
+        let devices = audioDeviceService
+        let useSystemDefault = UserDefaults.standard.bool(forKey: AudioDeviceService.useSystemDefaultInputKey)
         var resolvedDeviceID: UInt32?
-        switch resolution {
-        case .specific(let id, let name):
-            traceApp("startStreamingSession: routing to device '\(name)' (id \(id))")
-            resolvedDeviceID = id
-        case .systemDefault:
-            resolvedDeviceID = nil
-        case .unavailable(let requestedName):
-            traceApp("startStreamingSession: preferred device '\(requestedName)' unavailable — falling back to system default")
-            notificationService.showNotification(
-                title: "Preferred microphone not connected",
-                body: "'\(requestedName)' is unavailable. Using the system default input."
-            )
-            resolvedDeviceID = nil
-        }
-        // Pin "system default" to the input macOS has selected right now
-        // (System Settings > Sound > Input), so capture runs on a fresh
-        // processor bound to it — including a Bluetooth speaker's mic that
-        // became the default when it connected — and keeps following the
-        // default if it changes mid-session.
-        var followsSystemDefault = false
-        if resolvedDeviceID == nil, let input = audioDeviceService.sessionDefaultInput() {
-            traceApp("startStreamingSession: routing to '\(input.name)' (id \(input.id), system default)")
+        if let input = devices.dictationInput(useSystemDefault: useSystemDefault) {
+            traceApp("startStreamingSession: routing to '\(input.name)' (id \(input.id)\(useSystemDefault ? ", Mac default input" : ""))")
             resolvedDeviceID = input.id
-            followsSystemDefault = true
+        } else if !useSystemDefault {
+            traceApp("startStreamingSession: no Studio Display or built-in mic — using system default")
+            notificationService.showNotification(
+                title: "Microphone not found",
+                body: "Neither the Studio Display nor the built-in microphone is available. Using the system default input."
+            )
+        }
+        let reselectDevice: @Sendable () -> UInt32? = {
+            devices.dictationInput(useSystemDefault: useSystemDefault)?.id
         }
 
         // Capture reference types only for the streaming Task
@@ -741,7 +731,7 @@ struct SusurrusApp: App {
                 traceApp("startStreamingSession: calling startStreamTranscription (panel=\(toPanel))")
                 try await streaming.startStreamTranscription(
                     deviceID: resolvedDeviceID,
-                    followsSystemDefault: followsSystemDefault
+                    reselectDevice: reselectDevice
                 ) { transcript in
                     // Strip Whisper's special tokens / silence markers first
                     // (<|startoftranscript|>, [ Silence ], …) so neither the
