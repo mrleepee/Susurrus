@@ -32,8 +32,10 @@ enum Finalize {
         let rules = vocab.rules.filter(\.enabled)
         var run = try JSONDecoder().decode(BakeoffRun.self, from: Data(contentsOf: inURL))
         let finalizer = TranscriptFinalizer()
+        // Built-ins only, not ~/.claude, so a run scores the same on any machine.
+        let formatter = SpokenFormatter(commands: SlashCommandCatalog.builtIns)
         for i in run.clips.indices {
-            run.clips[i].text = await finalizer.finalize(run.clips[i].text, vocabulary: vocab.entries, rules: rules).text
+            run.clips[i].text = await finalizer.finalize(run.clips[i].text, vocabulary: vocab.entries, rules: rules, formatter: formatter).text
         }
         run.engine += " +corrector"
         let encoder = JSONEncoder()
