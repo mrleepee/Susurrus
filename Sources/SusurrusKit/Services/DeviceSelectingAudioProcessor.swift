@@ -235,6 +235,10 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
         }
 
         removeConfigurationObserver()
+        // Logged before and after so a rebuild that loses audio shows up:
+        // on 11-15 three "samples kept" rebuilds still ended with 0.9 s of a
+        // 19 s recording.
+        let samplesBefore = inner.audioSamples.count
         // Tears down the old engine and nils `audioEngine`; samples/callback untouched.
         processor.stopRecording()
         do {
@@ -264,7 +268,7 @@ final class DeviceSelectingAudioProcessor: AudioProcessing, @unchecked Sendable 
             let note = switchDevice
                 ? "switched to \(deviceID.map(String.init) ?? "nil") from \(bound.map(String.init) ?? "nil")"
                 : "same device"
-            traceDeviceProcessor("engine configuration changed — rebuilt capture (attempt \(attempt), \(note)), samples kept")
+            traceDeviceProcessor("engine configuration changed — rebuilt capture (attempt \(attempt), \(note)), samples \(samplesBefore) → \(inner.audioSamples.count)")
         } else {
             // Stopped while we were rebuilding: don't leave a live engine behind.
             processor.stopRecording()

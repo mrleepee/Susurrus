@@ -228,6 +228,35 @@ struct StreamingTranscriptionStateTests {
         // No crash — we can't read it back directly, but we verify it doesn't fail
     }
 
+    @Test("A short capture from a long session is an interruption, not silence")
+    func interruptedVersusSilence() {
+        #expect(StreamingTranscriptionService.noSpeechError(capturedSeconds: 0.9, wallClockSeconds: 19)
+            == .recordingInterrupted(capturedSeconds: 0, wallClockSeconds: 19))
+        #expect(StreamingTranscriptionService.noSpeechError(capturedSeconds: 18, wallClockSeconds: 19)
+            == .noSpeechDetected)
+        // A quick tap is never an interruption.
+        #expect(StreamingTranscriptionService.noSpeechError(capturedSeconds: 0.3, wallClockSeconds: 1.1)
+            == .noSpeechDetected)
+    }
+
+    @Test("Final decode limit scales with audio, at least 30 s")
+    func finalDecodeLimit() {
+        #expect(StreamingTranscriptionService.finalDecodeLimit(audioSeconds: 10) == .seconds(30))
+        #expect(StreamingTranscriptionService.finalDecodeLimit(audioSeconds: 600) == .seconds(300))
+    }
+
+    @Test("firstResult returns the value, or nil past the limit")
+    func firstResultTimesOut() async {
+        #expect(await StreamingTranscriptionService.firstResult(within: .seconds(5)) { 42 } == 42)
+        let start = ContinuousClock.now
+        let slow = await StreamingTranscriptionService.firstResult(within: .milliseconds(50)) { () -> Int in
+            try? await Task.sleep(for: .seconds(30))
+            return 1
+        }
+        #expect(slow == nil)
+        #expect(ContinuousClock.now - start < .seconds(5))
+    }
+
     @Test("Stop gives up on a loop that doesn't exit")
     func loopExitWaitIsCapped() async {
         let stuck = Task<Void, Error> { try? await Task.sleep(for: .seconds(30)) }

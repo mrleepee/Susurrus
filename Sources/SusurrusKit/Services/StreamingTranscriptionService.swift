@@ -117,6 +117,10 @@ public actor StreamingTranscriptionService {
     /// decode pass instead of racing it for the ANE.
     private var sessionTask: Task<Void, Error>?
 
+    /// When the current session started, to tell an interrupted capture
+    /// (far less audio than wall-clock time) from real silence at stop.
+    private var sessionStartedAt: Date?
+
     /// Bumped at every session start. State callbacks carry the generation
     /// they were created under, so a transcriber that outlived its session
     /// can never write its text into a newer one.
@@ -447,6 +451,7 @@ public actor StreamingTranscriptionService {
 
         self.activeProcessor = processor
         self.activeDecodingOptions = finalOptions
+        self.sessionStartedAt = Date()
 
         let transcriber = AudioStreamTranscriber(
             audioEncoder: whisperKit.audioEncoder,
@@ -493,7 +498,17 @@ public actor StreamingTranscriptionService {
         retainedSession = nil
 
         // Stop audio capture; the realtime loop exits after its in-flight pass.
-        await transcriber.stopStreamTranscription()
+        // Bounded: on 11-16 a stop after a 27-minute recording never got
+        // past this call. Past the limit, stop the mic ourselves and decode
+        // what was captured.
+        let stopped = await Self.firstResult(within: Self.transcriberStopLimit) {
+            await transcriber.stopStreamTranscription()
+            return true
+        }
+        if stopped == nil {
+            trace("stop: transcriber stop still pending after \(msSince(stopStart))ms — stopping capture directly")
+            activeProcessor?.stopRecording()
+        }
 
         // Cancel the in-flight decode pass instead of draining it — we're
         // about to batch-decode the whole buffer anyway, so its result is
@@ -501,7 +516,7 @@ public actor StreamingTranscriptionService {
         sessionTask?.cancel()
         // Its result is discarded, so don't let a stuck loop hold the stop:
         // twice it took 15 s to exit, ahead of a 1.5 s decode.
-        if await Self.waitForExit(of: sessionTask, upTo: Self.loopExitLimit) {
+        if await Self.waitForExit(of: sessionTask, upTo: Self.transcriberStopLimit) {
             trace("stop: loop cancelled+exited in \(msSince(stopStart))ms")
         } else {
             trace("stop: loop still running after \(msSince(stopStart))ms — not waiting for it")
@@ -509,6 +524,8 @@ public actor StreamingTranscriptionService {
 
         let state = lastTranscriberState
         let processor = activeProcessor
+        let wallClock = sessionStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        sessionStartedAt = nil
         streamTranscriber = nil
         interimCallback = nil
         activeProcessor = nil
@@ -521,11 +538,15 @@ public actor StreamingTranscriptionService {
         var promptTerms: [String] = []
         if processor != nil, let baseOptions = activeDecodingOptions {
             let preview = state.map { Self.extractFinalText(from: $0) } ?? ""
-            let final = await finalDecode(
-                samples: samples,
-                previewText: preview,
-                baseOptions: baseOptions
-            )
+            let audioSeconds = Double(samples.count) / Double(Self.sampleRate)
+            let limit = Self.finalDecodeLimit(audioSeconds: audioSeconds)
+            let decoded = await Self.firstResult(within: limit) { [self] in
+                await self.finalDecode(samples: samples, previewText: preview, baseOptions: baseOptions)
+            }
+            if decoded == nil {
+                trace("stop: final decode of \(String(format: "%.1f", audioSeconds))s exceeded \(limit) — using the preview text")
+            }
+            let final = decoded ?? .skipped(.failed)
             promptTerms = final.promptTerms
             if final.outcome == .decoded {
                 trace("stop: flush done in \(msSince(flushStart))ms, total \(msSince(stopStart))ms")
@@ -539,24 +560,64 @@ public actor StreamingTranscriptionService {
         // Fallback: harvest whatever the streaming callbacks captured.
         processor?.purgeAudioSamples(keepingLast: 0)
 
-        guard let state else {
-            throw TranscriptionError.noSpeechDetected
+        let noSpeech = Self.noSpeechError(
+            capturedSeconds: Double(samples.count) / Double(Self.sampleRate),
+            wallClockSeconds: wallClock
+        )
+        if case .recordingInterrupted = noSpeech {
+            trace("stop: only \(samples.count / Self.sampleRate)s of audio for a \(Int(wallClock))s session — capture was interrupted")
         }
+
+        guard let state else { throw noSpeech }
 
         let text = Self.extractFinalText(from: state)
         let cleaned = Self.stripNoiseTokens(from: text)
 
-        guard !cleaned.isEmpty else {
-            throw TranscriptionError.noSpeechDetected
-        }
+        guard !cleaned.isEmpty else { throw noSpeech }
 
         retain(samples: samples, text: cleaned, promptTerms: promptTerms)
         return cleaned
     }
 
-    /// How long a stop waits for the cancelled realtime loop. Normal exits
-    /// are under half a second.
-    static let loopExitLimit: Duration = .milliseconds(1000)
+    /// How long a stop waits for the transcriber to stop and for the
+    /// cancelled realtime loop to exit. Normal stops take under half a second.
+    static let transcriberStopLimit: Duration = .milliseconds(1000)
+
+    /// Time allowed for the stop-time decode before falling back to the
+    /// preview text: half the audio's length, at least 30 s. Qwen3-ASR runs at
+    /// about 0.07 of real time, so this is several times the normal cost.
+    static func finalDecodeLimit(audioSeconds: Double) -> Duration {
+        .milliseconds(Int(max(30, audioSeconds * 0.5) * 1000))
+    }
+
+    /// A session that captured under half its wall-clock time, and lasted at
+    /// least 5 s, lost audio rather than heard silence: on 11-15 a 19 s
+    /// recording reached the decoder as 0.9 s after the capture was rebuilt.
+    static func noSpeechError(capturedSeconds: Double, wallClockSeconds: Double) -> TranscriptionError {
+        guard wallClockSeconds >= 5, capturedSeconds < wallClockSeconds * 0.5 else {
+            return .noSpeechDetected
+        }
+        return .recordingInterrupted(capturedSeconds: Int(capturedSeconds), wallClockSeconds: Int(wallClockSeconds))
+    }
+
+    /// Runs `operation` and returns its result, or nil once `limit` passes.
+    /// The operation is not cancelled: it may be stuck in code that ignores
+    /// cancellation, and its result is simply no longer awaited. Unstructured
+    /// tasks rather than a task group, which would wait for the slow child.
+    static func firstResult<T: Sendable>(
+        within limit: Duration,
+        _ operation: @escaping @Sendable () async -> T
+    ) async -> T? {
+        let (stream, continuation) = AsyncStream<T?>.makeStream()
+        let worker = Task { continuation.yield(await operation()) }
+        let timer = Task {
+            try? await Task.sleep(for: limit)
+            if !Task.isCancelled { continuation.yield(nil) }
+        }
+        defer { timer.cancel(); continuation.finish(); _ = worker }
+        for await result in stream { return result }
+        return nil
+    }
 
     /// Waits for `task` to finish, giving up after `limit`. Returns whether
     /// it finished. Awaiting a task's value ignores the awaiter's own
@@ -564,15 +625,7 @@ public actor StreamingTranscriptionService {
     /// a task group, which would wait for the slow child anyway.
     static func waitForExit(of task: Task<Void, Error>?, upTo limit: Duration) async -> Bool {
         guard let task else { return true }
-        let (stream, continuation) = AsyncStream<Bool>.makeStream()
-        let waiter = Task { _ = try? await task.value; continuation.yield(true) }
-        let timer = Task {
-            try? await Task.sleep(for: limit)
-            if !Task.isCancelled { continuation.yield(false) }
-        }
-        defer { waiter.cancel(); timer.cancel(); continuation.finish() }
-        for await finished in stream { return finished }
-        return true
+        return await firstResult(within: limit) { _ = try? await task.value; return true } ?? false
     }
 
     private func retain(samples: [Float], text: String, promptTerms: [String]) {

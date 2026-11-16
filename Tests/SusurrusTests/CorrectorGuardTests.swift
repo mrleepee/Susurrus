@@ -109,4 +109,33 @@ struct CorrectorGuardTests {
         #expect(correct("the post hog events", terms: ["PostHog"]) == "the PostHog events")
         #expect(correct("the check in desk", terms: ["Check In"]) == "the Check In desk")
     }
+
+    // MARK: - Possessives and mid-sentence casing (daily log, 11-14)
+
+    @Test("A possessive of a vocabulary name keeps its 's")
+    func possessiveKept() {
+        #expect(correct("Kalpesh's performance results", terms: ["Kalpesh"]) == "Kalpesh's performance results")
+        #expect(correct("I read Kalpesh's notes", terms: ["Kalpesh"]) == "I read Kalpesh's notes")
+    }
+
+    @Test("A misspelt possessive is fixed on its stem")
+    func possessiveFuzzy() {
+        #expect(correct("I read Kalpash's notes", terms: ["Kalpesh"]) == "I read Kalpesh's notes")
+        #expect(correct("ask about harnad's plan", terms: ["Harnadh"]) == "ask about Harnadh's plan")
+    }
+
+    @Test("Mid-sentence capitals take the stored lowercase casing")
+    func midSentenceLowercaseTerm() {
+        #expect(correct("we moved it to Dev Full today", terms: ["dev-full"]) == "we moved it to dev-full today")
+        #expect(correct("Dev Full is down.", terms: ["dev-full"]) == "Dev-full is down.")
+        #expect(correct("It works. Dev Full is down", terms: ["dev-full"]) == "It works. Dev-full is down")
+    }
+
+    @Test("Rules keep a capital only at a sentence start")
+    func ruleCasingSentenceStart() {
+        let rule = CorrectionRule(match: "dev four", replacement: "dev-full", hitCount: 2)
+        let correct = { (text: String) in self.corrector.correct(text, vocabulary: [], rules: [rule]).text }
+        #expect(correct("estimate of Dev four") == "estimate of dev-full")
+        #expect(correct("Dev four is ready") == "Dev-full is ready")
+    }
 }

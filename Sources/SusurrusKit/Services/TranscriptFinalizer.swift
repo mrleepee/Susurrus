@@ -59,7 +59,7 @@ public struct TranscriptFinalizer: Sendable {
             return Result(text: "", corrected: "", changes: [], llm: .skipped)
         }
 
-        let outcome = corrector.correct(raw, vocabulary: vocabulary, rules: rules)
+        let outcome = corrector.correct(TextNormalizer.normalize(raw), vocabulary: vocabulary, rules: rules)
         let corrected = outcome.text
 
         guard let llm else {
