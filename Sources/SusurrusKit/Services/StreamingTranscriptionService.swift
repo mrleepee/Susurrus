@@ -949,6 +949,32 @@ public actor StreamingTranscriptionService {
         "The end.", "See you next time.", "Okay."
     ]
 
+    /// The live preview for one interim tick: Whisper's special tokens and
+    /// silence markers stripped from both parts, `correct` applied to the
+    /// confirmed (stable) part only — a half-spoken word in the tail
+    /// shouldn't be fuzzy-matched. `text` is what the review panel shows.
+    public struct Preview: Equatable, Sendable {
+        public let confirmed: String
+        public let tail: String
+        public var text: String {
+            guard !tail.isEmpty else { return confirmed }
+            return confirmed.isEmpty ? tail : "\(confirmed) \(tail)"
+        }
+    }
+
+    public static func preview(
+        confirmed: String,
+        unconfirmed: String,
+        correct: (String) -> String = { $0 }
+    ) -> Preview {
+        let cleanConfirmed = stripNoiseTokens(from: confirmed)
+        let cleanTail = stripNoiseTokens(from: unconfirmed)
+        return Preview(
+            confirmed: cleanConfirmed.isEmpty ? "" : correct(cleanConfirmed),
+            tail: cleanTail
+        )
+    }
+
     /// Strips Whisper special tokens and hallucinated noise from transcribed text.
     /// Public so the app layer can clean the live interim stream for display —
     /// the final text is already cleaned here before it's returned.
