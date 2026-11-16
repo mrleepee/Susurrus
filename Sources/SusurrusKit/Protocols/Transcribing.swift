@@ -28,6 +28,10 @@ public enum TranscriptionError: Error, Sendable, Equatable {
     case emptyAudio
     case transcriptionFailed(String)
     case noSpeechDetected
+    /// Far less audio reached the decoder than the session lasted: the
+    /// capture dropped out (device change, engine rebuild), so "no speech"
+    /// would blame the speaker.
+    case recordingInterrupted(capturedSeconds: Int, wallClockSeconds: Int)
     case audioCaptureFailed
 }
 
@@ -42,8 +46,17 @@ extension TranscriptionError: LocalizedError {
             return "Transcription failed: \(reason)"
         case .noSpeechDetected:
             return "No speech detected."
+        case .recordingInterrupted(let captured, let wallClock):
+            return "Recording was interrupted: only \(captured) s of \(wallClock) s was captured."
         case .audioCaptureFailed:
             return "Audio capture failed. Check the microphone connection and permissions."
         }
+    }
+}
+
+extension TranscriptionError {
+    public var isRecordingInterrupted: Bool {
+        if case .recordingInterrupted = self { return true }
+        return false
     }
 }

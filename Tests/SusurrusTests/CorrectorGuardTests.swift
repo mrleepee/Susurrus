@@ -75,4 +75,67 @@ struct CorrectorGuardTests {
     func misheardNameFixed() {
         #expect(correct("ask Harned about it") == "ask Harnadh about it")
     }
+
+    // MARK: - Multi-word windows (daily log, 2026-11-11 to 11-13)
+
+    private func correct(_ text: String, terms: [String]) -> String {
+        let vocabulary = terms.map { VocabularyEntry(term: $0, category: .custom) }
+        return corrector.correct(text, vocabulary: vocabulary, rules: []).text
+    }
+
+    @Test("A correct term keeps the word next to it")
+    func fuzzyWindowKeepsNeighbour() {
+        #expect(correct("I spoke to Rodney in the morning", terms: ["Rodney"])
+            == "I spoke to Rodney in the morning")
+        #expect(correct("ask Anwar or me", terms: ["Anwar"]) == "ask Anwar or me")
+        #expect(correct("me and Silvia a short update", terms: ["Silvia"])
+            == "me and Silvia a short update")
+    }
+
+    @Test("A split misspelling still fuzzy-joins")
+    func fuzzyJoinStillWorks() {
+        #expect(correct("the dev smal cluster", terms: ["dev-small"]) == "the dev-small cluster")
+        #expect(correct("ask Harnad h today", terms: ["Harnadh"]) == "ask Harnadh today")
+    }
+
+    @Test("Ordinary words are not joined into a one-word term")
+    func ordinaryPhraseNotJoined() {
+        #expect(correct("Check in the SDK", terms: ["checkIn"]) == "Check in the SDK")
+    }
+
+    @Test("Joins with a non-common word, and spaced terms, still apply")
+    func exactJoinsStillWork() {
+        #expect(correct("we use mark logic here", terms: ["MarkLogic"]) == "we use MarkLogic here")
+        #expect(correct("the post hog events", terms: ["PostHog"]) == "the PostHog events")
+        #expect(correct("the check in desk", terms: ["Check In"]) == "the Check In desk")
+    }
+
+    // MARK: - Possessives and mid-sentence casing (daily log, 11-14)
+
+    @Test("A possessive of a vocabulary name keeps its 's")
+    func possessiveKept() {
+        #expect(correct("Kalpesh's performance results", terms: ["Kalpesh"]) == "Kalpesh's performance results")
+        #expect(correct("I read Kalpesh's notes", terms: ["Kalpesh"]) == "I read Kalpesh's notes")
+    }
+
+    @Test("A misspelt possessive is fixed on its stem")
+    func possessiveFuzzy() {
+        #expect(correct("I read Kalpash's notes", terms: ["Kalpesh"]) == "I read Kalpesh's notes")
+        #expect(correct("ask about harnad's plan", terms: ["Harnadh"]) == "ask about Harnadh's plan")
+    }
+
+    @Test("Mid-sentence capitals take the stored lowercase casing")
+    func midSentenceLowercaseTerm() {
+        #expect(correct("we moved it to Dev Full today", terms: ["dev-full"]) == "we moved it to dev-full today")
+        #expect(correct("Dev Full is down.", terms: ["dev-full"]) == "Dev-full is down.")
+        #expect(correct("It works. Dev Full is down", terms: ["dev-full"]) == "It works. Dev-full is down")
+    }
+
+    @Test("Rules keep a capital only at a sentence start")
+    func ruleCasingSentenceStart() {
+        let rule = CorrectionRule(match: "dev four", replacement: "dev-full", hitCount: 2)
+        let correct = { (text: String) in self.corrector.correct(text, vocabulary: [], rules: [rule]).text }
+        #expect(correct("estimate of Dev four") == "estimate of dev-full")
+        #expect(correct("Dev four is ready") == "Dev-full is ready")
+    }
 }

@@ -11,6 +11,7 @@ struct PreferencesView: View {
     @AppStorage("llmEnabled") private var llmEnabled = false
     @AppStorage("autoPasteEnabled") private var autoPasteEnabled = true
     @AppStorage("pauseMediaOnRecord") private var pauseMediaOnRecord = true
+    @AppStorage(AudioDeviceService.useSystemDefaultInputKey) private var useSystemDefaultInput = false
     @State private var axTrusted = false
     @AppStorage("llmModel") private var llmModel: String = "MiniMax-M2.5"
     @AppStorage("llmEndpoint") private var llmEndpoint: String = "https://api.minimax.io/anthropic/v1/messages"
@@ -42,6 +43,8 @@ struct PreferencesView: View {
     /// True while a model reload is in flight — greys out the model picker.
     @State private var modelReloading = false
     @State private var importReplaceExisting = false
+    /// Outcome of the last CSV import, shown under the Import/Export buttons.
+    @State private var importMessage: String?
 
     private let modelOptions: [(id: String, label: String, detail: String)] = [
         (ParakeetTranscriber.Variant.v2.rawValue, "Parakeet v2 (NVIDIA)",
@@ -70,12 +73,14 @@ struct PreferencesView: View {
         .onAppear {
             loadCachedModels()
             axTrusted = PasteboardClipboardService.isAccessibilityTrusted()
+            // Only close our own window: other key windows (e.g. the dictation
+            // review panel) must not be closed by Escape meant for Preferences.
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if event.keyCode == 53 { // Escape
-                    NSApp.keyWindow?.close()
-                    return nil
-                }
-                return event
+                guard event.keyCode == 53, // Escape
+                      let window = event.window,
+                      window.title == "Susurrus Preferences" else { return event }
+                window.close()
+                return nil
             }
             // Observe modelReloading state to disable picker during reload
             observeModelReloading()
@@ -154,6 +159,13 @@ struct PreferencesView: View {
                     }
                 }
             }
+
+            Toggle("Use Mac's Default Microphone", isOn: $useSystemDefaultInput)
+            Text(useSystemDefaultInput
+                ? "Records from whatever is selected in System Settings > Sound > Input, including a Bluetooth speaker or headset that takes over the input when it connects."
+                : "Records from the Studio Display microphone when the display is connected, otherwise the MacBook's built-in microphone. Bluetooth speakers and headsets are never used, even if macOS switches its input to them. Turn this on to use the Mac's default input instead.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Toggle("Pause Media While Recording", isOn: $pauseMediaOnRecord)
             if pauseMediaOnRecord {
@@ -331,6 +343,11 @@ struct PreferencesView: View {
                         .toggleStyle(.checkbox)
                         .help("When checked, importing replaces all entries. Otherwise entries are merged.")
                 }
+                if let importMessage {
+                    Text(importMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
@@ -362,12 +379,26 @@ struct PreferencesView: View {
         panel.message = "Select a CSV file with Word,Category columns"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let csv = try? String(contentsOf: url, encoding: .utf8) else { return }
+        guard let csv = try? String(contentsOf: url, encoding: .utf8) else {
+            importMessage = "Couldn't read file"
+            return
+        }
+        // Parse before touching storage so a bad file can't wipe the vocabulary.
+        let parsed = manager.parseCSV(csv)
+        guard !parsed.isEmpty else {
+            importMessage = "No terms found in file — vocabulary unchanged"
+            return
+        }
         if importReplaceExisting {
             manager.setEntries([])
         }
-        let count = manager.importCSV(csv)
+        let added = manager.importCSV(csv)
         withAnimation { entries = manager.entries() }
+        if added == 0 {
+            importMessage = "No new terms: all \(parsed.count) already in vocabulary"
+        } else {
+            importMessage = "Imported \(added) term\(added == 1 ? "" : "s")"
+        }
     }
 
     private func exportCSV(_ manager: VocabularyManager) {

@@ -43,6 +43,6 @@ public final class HotkeyStorage: @unchecked Sendable {
     /// Create an isolated HotkeyStorage for testing purposes.
     /// Uses a unique UserDefaults suite to avoid polluting real defaults.
     public static func createForTesting() -> HotkeyStorage {
-        HotkeyStorage(defaults: UserDefaults(suiteName: "com.susurrus.test.\(UUID().uuidString)")!)
+        HotkeyStorage(defaults: EphemeralDefaults.make("hotkey"))
     }
 }

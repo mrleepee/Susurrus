@@ -9,7 +9,7 @@ struct CorrectionRuleLearningTests {
         let vocab = VocabularyManager.createForTesting()
         let mgr = CorrectionLearningManager(
             vocabularyManager: vocab,
-            defaults: UserDefaults(suiteName: "com.susurrus.rulelearn.test.\(UUID().uuidString)")!
+            defaults: EphemeralDefaults.make("rulelearn")
         )
         return (mgr, vocab)
     }
@@ -384,5 +384,24 @@ struct CorrectionRuleLearningTests {
         #expect(regions.count == 1)
         #expect(regions[0].0 == 1..<3)
         #expect(regions[0].1 == 1..<2)
+    }
+
+    @Test("Unit signs survive in a learned replacement")
+    func unitSignsKept() {
+        let (mgr, _) = makeManagers()
+        mgr.recordCorrection(
+            raw: "I 1 hundred percent appreciate it",
+            edited: "I 100% appreciate it"
+        )
+        let rule = mgr.rules().first { $0.match == "1 hundred percent" }
+        #expect(rule?.replacement == "100%")
+        #expect(!mgr.rules().contains { $0.replacement == "100" })
+    }
+
+    @Test("Edit tokens keep unit signs for display, not for matching")
+    func tokenizeUnitSigns() {
+        let tokens = CorrectionLearningManager.tokenize("costs £70, up 5% (roughly).")
+        #expect(tokens.map(\.display) == ["costs", "£70", "up", "5%", "roughly"])
+        #expect(tokens.map(\.key) == ["costs", "70", "up", "5", "roughly"])
     }
 }

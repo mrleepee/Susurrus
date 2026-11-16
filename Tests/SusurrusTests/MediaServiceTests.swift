@@ -81,7 +81,7 @@ struct MediaServiceTests {
 struct MediaServicePreferenceTests {
 
     private func defaults(_ suite: String = UUID().uuidString) -> UserDefaults {
-        UserDefaults(suiteName: "com.susurrus.media.test.\(suite)")!
+        EphemeralDefaults.make("media")
     }
 
     @Test("Absent key defaults to enabled")
@@ -115,5 +115,26 @@ struct MediaServicePreferenceTests {
         #expect(!MediaService.shouldPause(defaults: d))
         d.set(true, forKey: "pauseMediaOnRecord")
         #expect(MediaService.shouldPause(defaults: d))
+    }
+}
+
+/// Each media app has its own scripting dictionary. A term the app doesn't
+/// define is a compile error (-2741), which fired 24 times a day for VLC.
+@Suite("MediaService script Tests")
+struct MediaServiceScriptTests {
+
+    @Test("VLC and QuickTime don't use Spotify's player state")
+    func perAppPlayingExpression() {
+        for app in MediaService.knownApps where ["VLC", "QuickTime Player"].contains(app.name) {
+            #expect(!MediaService.isPlayingScript(for: app).contains("player state"))
+            #expect(app.isPlayingExpression.contains("playing"))
+        }
+    }
+
+    @Test("VLC's toggle is guarded by the playing state in both directions")
+    func vlcToggleGuarded() throws {
+        let vlc = try #require(MediaService.knownApps.first { $0.name == "VLC" })
+        #expect(vlc.pauseScript == "if playing then play")
+        #expect(vlc.resumeScript == "if not playing then play")
     }
 }

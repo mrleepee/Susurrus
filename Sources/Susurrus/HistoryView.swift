@@ -88,17 +88,19 @@ struct HistoryView: View {
         .onAppear {
             historyManager.correctionManager = correctionManager
             loadItems()
-            // Close on Escape via local event monitor
+            // Close on Escape via local event monitor. Only act on Escape
+            // delivered to our own window; other key windows (e.g. the
+            // dictation review panel) must be left alone.
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if event.keyCode == 53 { // Escape
-                    if editingID != nil {
-                        editingID = nil
-                        return nil
-                    }
-                    NSApp.keyWindow?.close()
+                guard event.keyCode == 53, // Escape
+                      let window = event.window,
+                      window.title == "History" else { return event }
+                if editingID != nil {
+                    editingID = nil
                     return nil
                 }
-                return event
+                window.close()
+                return nil
             }
         }
         .onDisappear {

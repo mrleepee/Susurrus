@@ -82,6 +82,23 @@ rewrite a common English word) plus `CommonWords.domainStoplist` (explicit
 fragments of multi-word vocab terms, e.g. "mark", "logic"). Multi-word
 joins that normalize exactly to a vocab term bypass the guard by design.
 
+Two multi-word exceptions, both from production false fires:
+
+- A fuzzy window is skipped when one of its words already *is* a vocabulary
+  term. "Rodney in" is 2 edits from "rodney", and matching it deleted the
+  "in" (6 cases, all approved in the panel without being noticed).
+- An exact join is skipped when every word is in `CommonWords.top` and the
+  term is stored as one word: "Check in the SDK" must not become "checkIn
+  the SDK". `domainStoplist` words don't count, so "mark logic" still joins,
+  and a term stored with spaces ("Trust Signals") is still recased.
+
+A possessive is matched on its stem and keeps its `'s` ("Kalpash's" →
+"Kalpesh's", never "Kalpesh"). A lowercase term is capitalised only at a
+sentence start, so mid-sentence "Dev Full" becomes the stored "dev-full".
+
+Before the corrector, `TextNormalizer` writes "U.K."/"U K."/"U.S." as
+"UK"/"US", keeping the final dot only where it also ends the sentence.
+
 That bypass is a **guarantee, not an incidental detail**: the `CommonWords`
 check in `applyVocabulary` is gated on `isSingleWord`, which is what makes
 "mark logic" → "MarkLogic" work with no rule involved. Layer 3 relies on

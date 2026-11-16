@@ -23,7 +23,14 @@ struct SusurrusApp: App {
     @State private var appState = AppState()
     @State private var pulseOn = false
     @State private var pulseTimer: Timer?
-    @State private var modelLoading = false
+    /// Process-wide, not `@State`: `init()` and the menu's `onAppear` both
+    /// call `startModelLoadingIfNeeded()`, and `@State` written from `init`
+    /// doesn't persist — that guard let every launch load the models twice.
+    @MainActor private static var modelLoadStarted = false
+    /// Bumped per model-picker change; only the newest reload may touch app
+    /// state, and each waits for the previous one so they never interleave.
+    @MainActor private static var reloadGeneration = 0
+    @MainActor private static var windowCloseObserved = false
     /// Live observation of recordingMode preference (fixes #9).
     @AppStorage("recordingMode") private var recordingMode = "push-to-talk"
     @Environment(\.openWindow) private var openWindow
@@ -82,10 +89,6 @@ struct SusurrusApp: App {
 
     // Recording duration timer
     @State private var durationTimer: Timer?
-
-    // Throttle: minimum interval between overlay updates (ms)
-    private let overlayThrottleInterval: TimeInterval = 0.1
-    @State private var lastOverlayUpdate: Date = .distantPast
 
     /// Set to true while a model reload is in flight; disables model picker in UI.
     @State private var modelReloading = false
@@ -202,9 +205,6 @@ struct SusurrusApp: App {
         .onChange(of: appState.recordingState) { _, newState in
             handleStateChange(newState)
         }
-        .onChange(of: appState.interimText) { _, newInterim in
-            handleInterimTextChange(newInterim)
-        }
         .onChange(of: recordingMode) { _, newMode in
             // Sync live preference change to AppState (fixes #9)
             if let mode = RecordingMode(rawValue: newMode) {
@@ -216,12 +216,20 @@ struct SusurrusApp: App {
             PreferencesView()
         }
         .onChange(of: preferences.selectedModel()) { _, newModel in
-            // Cancel any in-flight reload before starting a new one
-            currentModelReloadTask?.cancel()
+            // Reloads run one at a time: each waits for the previous, and
+            // a superseded one skips itself, so two loads never interleave
+            // on the streaming actor and an older one can't clear the
+            // "reloading" flag or mark the model ready under a newer one.
+            Self.reloadGeneration += 1
+            let generation = Self.reloadGeneration
+            let previous = currentModelReloadTask
+            modelReloading = true
+            UserDefaults.standard.set(true, forKey: "modelReloading")
             let task = Task { @MainActor in
-                modelReloading = true
-                UserDefaults.standard.set(true, forKey: "modelReloading")
-                await reloadModel(newModel)
+                await previous?.value
+                guard generation == Self.reloadGeneration else { return }
+                await reloadModel(newModel, generation: generation)
+                guard generation == Self.reloadGeneration else { return }
                 modelReloading = false
                 UserDefaults.standard.set(false, forKey: "modelReloading")
             }
@@ -246,6 +254,9 @@ struct SusurrusApp: App {
     /// Observes window close notifications to revert to .accessory policy
     /// when no visible windows remain (keeps menu bar icon clean).
     private func observeWindowClose() {
+        // Called from the menu's onAppear, which fires on every menu open.
+        guard !Self.windowCloseObserved else { return }
+        Self.windowCloseObserved = true
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: nil,
@@ -272,8 +283,11 @@ struct SusurrusApp: App {
     // MARK: - Setup
 
     private func startModelLoadingIfNeeded() {
-        guard !modelLoading else { return }
-        modelLoading = true
+        guard !Self.modelLoadStarted else { return }
+        Self.modelLoadStarted = true
+        // A quit mid-reload leaves this persisted flag set, which would grey
+        // out the model picker on every later launch.
+        UserDefaults.standard.set(false, forKey: "modelReloading")
         traceApp("startModelLoadingIfNeeded: starting model load")
         Task {
             await preloadModel()
@@ -315,17 +329,24 @@ struct SusurrusApp: App {
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
             traceApp("preloadModel: FAILED: \(error)")
-            modelLoading = false
+            // Cleared so the next menu open retries the load.
+            Self.modelLoadStarted = false
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
+            notificationService.showNotification(
+                title: "Couldn't load the speech model",
+                body: "\(error.localizedDescription) Open the menu to retry, or pick another model in Preferences > Model."
+            )
         }
     }
 
-    private func reloadModel(_ modelName: String) async {
+    /// `generation` is the model-picker change this reload serves; a reload
+    /// superseded while it was loading leaves app state to the newer one.
+    private func reloadModel(_ modelName: String, generation: Int) async {
         let state = appState
         let streaming = streamingService
         state.modelReady = false
-        modelLoading = true
+        Self.modelLoadStarted = true
         state.modelLoadProgress = 0
         UserDefaults.standard.set(modelName, forKey: "modelDownloadingName")
         UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
@@ -340,14 +361,20 @@ struct SusurrusApp: App {
                     }
                 }
             )
+            guard generation == Self.reloadGeneration else { return }
             state.modelReady = true
             startKeepWarmTimer()
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         } catch {
-            modelLoading = false
+            traceApp("reloadModel: FAILED for '\(modelName)': \(error)")
+            guard generation == Self.reloadGeneration else { return }
             UserDefaults.standard.set("", forKey: "modelDownloadingName")
             UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
+            notificationService.showNotification(
+                title: "Couldn't load \(modelName)",
+                body: "\(error.localizedDescription) Pick another model in Preferences > Model."
+            )
         }
     }
 
@@ -433,9 +460,12 @@ struct SusurrusApp: App {
                     combo: combo,
                     onKeyDown: {
                         Task { @MainActor in
-                            state.forceLLM = true
+                            // Only once a session actually started: set
+                            // before, a press while the model is loading
+                            // left the flag on for the next dictation.
                             let started = state.handleHotkeyDown()
                             if started {
+                                state.forceLLM = true
                                 if state.micPermission == .undetermined {
                                     let perm = await micManager.requestPermission()
                                     state.micPermission = perm
@@ -540,16 +570,6 @@ struct SusurrusApp: App {
         case .recording, .processing:
             break
         }
-    }
-
-    /// Called whenever appState.interimText changes.
-    /// Throttled to avoid rebuilding the overlay on every audio callback (~10/sec).
-    private func handleInterimTextChange(_ interim: InterimTranscript?) {
-        guard let interim else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastOverlayUpdate) >= overlayThrottleInterval else { return }
-        lastOverlayUpdate = now
-        overlayWindow?.show(confirmed: interim.confirmed, unconfirmed: interim.unconfirmed)
     }
 
     // MARK: - Streaming session
@@ -657,35 +677,26 @@ struct SusurrusApp: App {
             }
         }
 
-        // Resolve preferred device name to a current Core Audio device ID.
-        // If the user has no preference, or the saved device is disconnected,
-        // `resolvedDeviceID` is nil and streaming uses the system default.
-        let preferredName = preferences.selectedInputDeviceName()
-        let resolution = audioDeviceService.resolve(preferredName: preferredName)
+        // Record from the Studio Display mic when connected, otherwise the
+        // built-in mic — never Bluetooth or whatever else macOS has selected
+        // (see AudioDeviceService.dictationInput) — unless Settings says to
+        // use the Mac's default input. Re-picked if the hardware changes
+        // mid-session.
+        let devices = audioDeviceService
+        let useSystemDefault = UserDefaults.standard.bool(forKey: AudioDeviceService.useSystemDefaultInputKey)
         var resolvedDeviceID: UInt32?
-        switch resolution {
-        case .specific(let id, let name):
-            traceApp("startStreamingSession: routing to device '\(name)' (id \(id))")
-            resolvedDeviceID = id
-        case .systemDefault:
-            resolvedDeviceID = nil
-        case .unavailable(let requestedName):
-            traceApp("startStreamingSession: preferred device '\(requestedName)' unavailable — falling back to system default")
-            notificationService.showNotification(
-                title: "Preferred microphone not connected",
-                body: "'\(requestedName)' is unavailable. Using the system default input."
-            )
-            resolvedDeviceID = nil
-        }
-        // Pin "system default" to a concrete device at session start, so
-        // capture always runs on a fresh processor bound to the device that
-        // is current now, and a Bluetooth mic that hijacked the default is
-        // skipped (see AudioDeviceService.sessionDefaultInput).
-        if resolvedDeviceID == nil, let input = audioDeviceService.sessionDefaultInput() {
-            let systemDefault = AudioDeviceService.systemDefaultInputID()
-            let note = input.id == systemDefault ? "system default" : "skipping Bluetooth default \(systemDefault.map(String.init) ?? "?")"
-            traceApp("startStreamingSession: routing to '\(input.name)' (id \(input.id), \(note))")
+        if let input = devices.dictationInput(useSystemDefault: useSystemDefault) {
+            traceApp("startStreamingSession: routing to '\(input.name)' (id \(input.id)\(useSystemDefault ? ", Mac default input" : ""))")
             resolvedDeviceID = input.id
+        } else if !useSystemDefault {
+            traceApp("startStreamingSession: no Studio Display or built-in mic — using system default")
+            notificationService.showNotification(
+                title: "Microphone not found",
+                body: "Neither the Studio Display nor the built-in microphone is available. Using the system default input."
+            )
+        }
+        let reselectDevice: @Sendable () -> UInt32? = {
+            devices.dictationInput(useSystemDefault: useSystemDefault)?.id
         }
 
         // Capture reference types only for the streaming Task
@@ -695,12 +706,24 @@ struct SusurrusApp: App {
         let panel = reviewPanel
 
         // Review-panel mode streams into the editable panel instead of the
-        // overlay; open it now (non-key, so it doesn't steal focus while the
-        // user is still holding the hotkey).
+        // overlay; open it now. It takes keyboard focus so its shortcuts work
+        // over apps that capture the keyboard (WorkSpaces).
         let toPanel = appState.dictationDestination == .reviewPanel
         let overlay = toPanel ? nil : overlayWindow
         if toPanel {
             registerPanelFinishKeys()
+            // The footer buttons do what their shortcuts do.
+            panel.onFinishRecording = { finish in
+                guard state.recordingState == .streaming,
+                      state.dictationDestination == .reviewPanel else { return }
+                traceApp("Review panel: footer \(finish.map { "\($0)" } ?? "review")")
+                panel.quickFinish = finish
+                state.stopStreaming()
+            }
+            panel.onCancelRecording = {
+                traceApp("Review panel: footer cancel")
+                state.requestCancel()
+            }
             panel.beginRecording(
                 targetApp: panel.targetApp,
                 isPushToTalk: appState.recordingMode == .pushToTalk,
@@ -718,7 +741,10 @@ struct SusurrusApp: App {
         Task {
             do {
                 traceApp("startStreamingSession: calling startStreamTranscription (panel=\(toPanel))")
-                try await streaming.startStreamTranscription(deviceID: resolvedDeviceID) { transcript in
+                try await streaming.startStreamTranscription(
+                    deviceID: resolvedDeviceID,
+                    reselectDevice: reselectDevice
+                ) { transcript in
                     // Strip Whisper's special tokens / silence markers first
                     // (<|startoftranscript|>, [ Silence ], …) so neither the
                     // corrector fuzzy-matches them nor the preview shows them.
@@ -726,28 +752,37 @@ struct SusurrusApp: App {
                     // preview shows the same fixes the final text gets; the
                     // unconfirmed tail stays raw of correction — a half-spoken
                     // word shouldn't be fuzzy-matched — but is still cleaned.
-                    let cleanConfirmed = StreamingTranscriptionService.stripNoiseTokens(from: transcript.confirmed)
-                    let cleanTail = StreamingTranscriptionService.stripNoiseTokens(from: transcript.unconfirmed)
                     // Preview only — never record fires from here. This runs at
                     // ~10 Hz on partial text; crediting it would swamp the real
                     // per-dictation counts recorded in stopStreamingSession.
-                    let confirmed = cleanConfirmed.isEmpty
-                        ? ""
-                        : corrector.correct(cleanConfirmed, vocabulary: sessionVocab, rules: sessionRules).text
+                    let preview = StreamingTranscriptionService.preview(
+                        confirmed: transcript.confirmed,
+                        unconfirmed: transcript.unconfirmed
+                    ) { corrector.correct($0, vocabulary: sessionVocab, rules: sessionRules).text }
                     Task { @MainActor in
                         if toPanel {
-                            let tail = cleanTail.isEmpty ? "" : (confirmed.isEmpty ? cleanTail : " \(cleanTail)")
-                            panel.updateStreaming(confirmed + tail)
+                            panel.updateStreaming(preview.text)
                         } else {
-                            state.interimText = transcript
-                            overlay?.show(confirmed: confirmed, unconfirmed: cleanTail)
+                            // The only overlay writer: an onChange(of:
+                            // interimText) path used to repaint it with the
+                            // raw, uncorrected transcript right after this.
+                            overlay?.show(confirmed: preview.confirmed, unconfirmed: preview.tail)
                         }
                     }
                 }
             } catch {
                 traceApp("startStreamingSession: streaming failed: \(error.localizedDescription)")
                 Task { @MainActor in
-                    state.cancel()
+                    // Only a session that is still recording failed here;
+                    // once it has moved on to finalizing or idle, the stop
+                    // or cancel path owns cleanup.
+                    guard state.recordingState == .streaming else { return }
+                    // Route through the Esc-cancel path so the session is
+                    // torn down completely: the global Esc and panel finish
+                    // keys unregistered (they would otherwise keep
+                    // swallowing those keys in every app), the review panel
+                    // closed, paused media resumed, the timer stopped.
+                    state.requestCancel()
                     notifications.showNotification(
                         title: "Recording failed",
                         body: "\(error.localizedDescription) Try again — if it keeps happening, check the input device in Preferences > Audio."
@@ -869,10 +904,11 @@ struct SusurrusApp: App {
         let panel = reviewPanel
         let panelInsert = panelInsertHotkeyService
         let panelCopy = panelCopyHotkeyService
-        // Opt-in accuracy-testing capture (tier C): only panel dictations
-        // the user reviewed, because only they end in an approved text —
-        // a quick copy was never looked at.
-        let keepRecording = toPanel && quickFinish == nil && UserDefaults.standard.bool(forKey: EvalCaptureStore.enabledKey)
+        // Opt-in accuracy-testing capture (tier C): panel dictations only.
+        // Quick finishes count too, now that nearly every dictation ends in
+        // one: every capture is saved unverified, so text the user never
+        // looked at stays out of the headline numbers until reviewed.
+        let keepRecording = toPanel && UserDefaults.standard.bool(forKey: EvalCaptureStore.enabledKey)
 
         Task {
             do {
@@ -923,6 +959,7 @@ struct SusurrusApp: App {
                     await MainActor.run {
                         let targetApp = panel.targetApp
                         let deliver: (String, Bool) -> Void = { edited, shouldPaste in
+                            panel.releaseFocus()
                             let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !final.isEmpty else {
                                 panel.cancel()
@@ -1089,6 +1126,13 @@ struct SusurrusApp: App {
                     // instead, which is guaranteed to actually render.
                     overlay?.showMessage("No speech detected — check the input device in Preferences.")
                 }
+            } catch let error as TranscriptionError where error.isRecordingInterrupted {
+                traceApp("stopStreamingSession: \(error.localizedDescription)")
+                if toPanel {
+                    await MainActor.run { panel.cancel() }
+                }
+                // Overlay, not a notification: see the no-speech case below.
+                overlay?.showMessage("\(error.localizedDescription) Please dictate it again.")
             } catch TranscriptionError.noSpeechDetected {
                 traceApp("stopStreamingSession: no speech detected")
                 // Panel mode: nothing to edit — just close, no nagging banner.
@@ -1174,7 +1218,7 @@ struct SusurrusApp: App {
                 if state.enforceDurationCap() {
                     notifications.showNotification(
                         title: "Recording stopped",
-                        body: "Maximum recording duration reached."
+                        body: "Recordings stop after \(Int(AppState.maxRecordingDuration / 60)) minutes. The text so far is being transcribed."
                     )
                 }
             }

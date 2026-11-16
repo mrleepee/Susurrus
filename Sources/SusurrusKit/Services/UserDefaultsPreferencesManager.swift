@@ -26,7 +26,7 @@ public final class UserDefaultsPreferencesManager: PreferencesManaging, @uncheck
 
     /// Factory for testing with an isolated UserDefaults suite.
     public static func createForTesting() -> UserDefaultsPreferencesManager {
-        UserDefaultsPreferencesManager(defaults: UserDefaults(suiteName: "com.susurrus.prefs.test.\(UUID().uuidString)")!)
+        UserDefaultsPreferencesManager(defaults: EphemeralDefaults.make("prefs"))
     }
 
     public func recordingMode() -> RecordingMode {

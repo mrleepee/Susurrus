@@ -9,9 +9,13 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
     /// Optional injection point for tests — supply a closure that returns
     /// `AudioInputDevice` values directly instead of calling Core Audio.
     private let devicesProvider: () -> [AudioInputDevice]
-    private let defaultInputProvider: () -> UInt32?
-    private let isBluetoothProvider: (UInt32) -> Bool
     private let isBuiltInProvider: (UInt32) -> Bool
+    private let defaultInputProvider: () -> UInt32?
+
+    /// UserDefaults key for the Settings override: record from whatever
+    /// macOS has selected as its input instead of the Studio Display /
+    /// built-in rule.
+    public static let useSystemDefaultInputKey = "useSystemDefaultInput"
 
     public init() {
         self.devicesProvider = {
@@ -19,26 +23,19 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
                 AudioInputDevice(id: $0.id, name: $0.name)
             }
         }
-        self.defaultInputProvider = { Self.systemDefaultInputID() }
-        self.isBluetoothProvider = { id in
-            let transport = Self.transportType(of: id)
-            return transport == kAudioDeviceTransportTypeBluetooth
-                || transport == kAudioDeviceTransportTypeBluetoothLE
-        }
         self.isBuiltInProvider = { Self.transportType(of: $0) == kAudioDeviceTransportTypeBuiltIn }
+        self.defaultInputProvider = { Self.systemDefaultInputID() }
     }
 
     /// Test-only initialiser accepting a fixed device list.
     internal init(
         devicesProvider: @escaping () -> [AudioInputDevice],
-        defaultInputProvider: @escaping () -> UInt32? = { nil },
-        isBluetooth: @escaping (UInt32) -> Bool = { _ in false },
-        isBuiltIn: @escaping (UInt32) -> Bool = { _ in false }
+        isBuiltIn: @escaping (UInt32) -> Bool = { _ in false },
+        defaultInputProvider: @escaping () -> UInt32? = { nil }
     ) {
         self.devicesProvider = devicesProvider
-        self.defaultInputProvider = defaultInputProvider
-        self.isBluetoothProvider = isBluetooth
         self.isBuiltInProvider = isBuiltIn
+        self.defaultInputProvider = defaultInputProvider
     }
 
     public func availableInputs() -> [AudioInputDevice] {
@@ -55,30 +52,46 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
         return .unavailable(requestedName: preferredName)
     }
 
-    /// The input to record from when the user hasn't picked one: the system
-    /// default, except that a Bluetooth default is passed over for the
-    /// built-in mic. Connecting a Bluetooth speaker or headset can make its
-    /// microphone the system default input without the user noticing —
-    /// switching output back in the Sound menu doesn't undo it — and that
-    /// mic is across the room (near-silent capture) and forces the device
-    /// into its low-quality call profile. Users who want a Bluetooth mic can
-    /// still select it explicitly in Preferences.
+    /// The microphone dictation records from. Only two are ever used: the
+    /// Studio Display's mic when the display is connected, otherwise the Mac's
+    /// built-in mic. Whatever macOS has selected as its input is ignored, so a
+    /// Bluetooth speaker or headset that grabs the default input when it
+    /// connects (and drops into its low-quality call profile) is never used.
     ///
-    /// Returns `nil` only if Core Audio reports no usable default input.
-    public func sessionDefaultInput() -> AudioInputDevice? {
+    /// With `useSystemDefault` (the Settings override) it is instead whatever
+    /// macOS has selected in System Settings > Sound > Input, Bluetooth
+    /// included.
+    ///
+    /// Returns `nil` only if the chosen microphone is not present.
+    public func dictationInput(useSystemDefault: Bool = false) -> AudioInputDevice? {
         let devices = devicesProvider()
-        guard let defaultID = defaultInputProvider(),
-              let current = devices.first(where: { $0.id == defaultID }) else {
-            return nil
+        if useSystemDefault {
+            guard let defaultID = defaultInputProvider() else { return nil }
+            return devices.first(where: { $0.id == defaultID })
         }
-        guard isBluetoothProvider(current.id),
-              let builtIn = devices.first(where: { isBuiltInProvider($0.id) }) else {
-            return current
+        if let studio = devices.first(where: { Self.isStudioDisplay($0.name) }) {
+            return studio
         }
-        return builtIn
+        return devices.first(where: { isBuiltInProvider($0.id) })
+    }
+
+    static func isStudioDisplay(_ name: String) -> Bool {
+        name.localizedCaseInsensitiveContains("Studio Display")
     }
 
     // MARK: - Core Audio
+
+    static func transportType(of deviceID: UInt32) -> UInt32 {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport = UInt32(0)
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
+        return status == noErr ? transport : 0
+    }
 
     public static func systemDefaultInputID() -> UInt32? {
         var address = AudioObjectPropertyAddress(
@@ -93,17 +106,5 @@ public final class AudioDeviceService: AudioDeviceEnumerating, @unchecked Sendab
         )
         guard status == noErr, deviceID != kAudioObjectUnknown else { return nil }
         return deviceID
-    }
-
-    static func transportType(of deviceID: UInt32) -> UInt32 {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyTransportType,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var transport = UInt32(0)
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
-        return status == noErr ? transport : 0
     }
 }

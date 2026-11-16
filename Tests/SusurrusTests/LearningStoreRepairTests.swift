@@ -14,7 +14,7 @@ struct LearningStoreRepairTests {
         vocab.setEntries([])
         let mgr = CorrectionLearningManager(
             vocabularyManager: vocab,
-            defaults: UserDefaults(suiteName: "com.susurrus.repair.test.\(UUID().uuidString)")!
+            defaults: EphemeralDefaults.make("repair")
         )
         return (mgr, vocab)
     }
@@ -218,7 +218,7 @@ struct LearningStoreRepairTests {
     func seedHasNoDuplicate() {
         // createForTesting() skips seeding, so build one that actually seeds.
         let vocab = VocabularyManager(
-            defaults: UserDefaults(suiteName: "com.susurrus.seed.test.\(UUID().uuidString)")!
+            defaults: EphemeralDefaults.make("seed")
         )
         let terms = vocab.entries().map(\.term)
         #expect(terms.contains("Harnadh"))
