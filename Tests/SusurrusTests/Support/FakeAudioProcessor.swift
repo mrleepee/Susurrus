@@ -22,6 +22,7 @@ final class FakeAudioProcessor: AudioProcessing, @unchecked Sendable {
     private let stateLock = NSLock()
     private var _audioSamples = ContiguousArray<Float>()
     private var _relativeEnergy = [Float]()
+    private var _avgEnergy = [Float]()
     var relativeEnergyWindow: Int = 20
 
     private var replayTask: Task<Void, Never>?
@@ -180,7 +181,12 @@ final class FakeAudioProcessor: AudioProcessing, @unchecked Sendable {
 
             stateLock.withLock {
                 _audioSamples.append(contentsOf: chunk)
-                _relativeEnergy.append(Self.rmsEnergy(chunk))
+                // Same normalisation as WhisperKit's AudioProcessor.processBuffer:
+                // dB relative to the quietest of the last 20 buffers, clamped
+                // to 0...1 — the scale its VAD's silenceThreshold is set for.
+                let floor = _avgEnergy.suffix(20).min()
+                _relativeEnergy.append(AudioProcessor.calculateRelativeEnergy(of: chunk, relativeTo: floor))
+                _avgEnergy.append(Self.rmsEnergy(chunk))
                 if _relativeEnergy.count > relativeEnergyWindow {
                     _relativeEnergy.removeFirst(_relativeEnergy.count - relativeEnergyWindow)
                 }

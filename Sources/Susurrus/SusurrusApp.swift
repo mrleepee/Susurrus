@@ -706,12 +706,24 @@ struct SusurrusApp: App {
         let panel = reviewPanel
 
         // Review-panel mode streams into the editable panel instead of the
-        // overlay; open it now (non-key, so it doesn't steal focus while the
-        // user is still holding the hotkey).
+        // overlay; open it now. It takes keyboard focus so its shortcuts work
+        // over apps that capture the keyboard (WorkSpaces).
         let toPanel = appState.dictationDestination == .reviewPanel
         let overlay = toPanel ? nil : overlayWindow
         if toPanel {
             registerPanelFinishKeys()
+            // The footer buttons do what their shortcuts do.
+            panel.onFinishRecording = { finish in
+                guard state.recordingState == .streaming,
+                      state.dictationDestination == .reviewPanel else { return }
+                traceApp("Review panel: footer \(finish.map { "\($0)" } ?? "review")")
+                panel.quickFinish = finish
+                state.stopStreaming()
+            }
+            panel.onCancelRecording = {
+                traceApp("Review panel: footer cancel")
+                state.requestCancel()
+            }
             panel.beginRecording(
                 targetApp: panel.targetApp,
                 isPushToTalk: appState.recordingMode == .pushToTalk,
@@ -740,23 +752,21 @@ struct SusurrusApp: App {
                     // preview shows the same fixes the final text gets; the
                     // unconfirmed tail stays raw of correction — a half-spoken
                     // word shouldn't be fuzzy-matched — but is still cleaned.
-                    let cleanConfirmed = StreamingTranscriptionService.stripNoiseTokens(from: transcript.confirmed)
-                    let cleanTail = StreamingTranscriptionService.stripNoiseTokens(from: transcript.unconfirmed)
                     // Preview only — never record fires from here. This runs at
                     // ~10 Hz on partial text; crediting it would swamp the real
                     // per-dictation counts recorded in stopStreamingSession.
-                    let confirmed = cleanConfirmed.isEmpty
-                        ? ""
-                        : corrector.correct(cleanConfirmed, vocabulary: sessionVocab, rules: sessionRules).text
+                    let preview = StreamingTranscriptionService.preview(
+                        confirmed: transcript.confirmed,
+                        unconfirmed: transcript.unconfirmed
+                    ) { corrector.correct($0, vocabulary: sessionVocab, rules: sessionRules).text }
                     Task { @MainActor in
                         if toPanel {
-                            let tail = cleanTail.isEmpty ? "" : (confirmed.isEmpty ? cleanTail : " \(cleanTail)")
-                            panel.updateStreaming(confirmed + tail)
+                            panel.updateStreaming(preview.text)
                         } else {
                             // The only overlay writer: an onChange(of:
                             // interimText) path used to repaint it with the
                             // raw, uncorrected transcript right after this.
-                            overlay?.show(confirmed: confirmed, unconfirmed: cleanTail)
+                            overlay?.show(confirmed: preview.confirmed, unconfirmed: preview.tail)
                         }
                     }
                 }
@@ -947,6 +957,7 @@ struct SusurrusApp: App {
                     await MainActor.run {
                         let targetApp = panel.targetApp
                         let deliver: (String, Bool) -> Void = { edited, shouldPaste in
+                            panel.releaseFocus()
                             let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !final.isEmpty else {
                                 panel.cancel()
