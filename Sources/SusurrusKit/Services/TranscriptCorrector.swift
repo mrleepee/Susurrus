@@ -108,7 +108,8 @@ public struct TranscriptCorrector: TranscriptCorrecting {
             // Preserve sentence-initial capitalization, but only when the
             // replacement carries no intentional casing of its own.
             if replacement == replacement.lowercased(),
-               let first = original.first, first.isUppercase {
+               let first = original.first, first.isUppercase,
+               Self.isSentenceStart(window.range.lowerBound, in: text) {
                 replacement = replacement.prefix(1).uppercased() + replacement.dropFirst()
             }
             // A no-op still claims its span (matching applyVocabulary) so
@@ -175,9 +176,15 @@ public struct TranscriptCorrector: TranscriptCorrecting {
             guard !Self.overlapsAny(window.span, claimed) else { continue }
 
             let original = String(text[window.range])
-            let candidateNorm = Self.normalize(original)
-            guard candidateNorm.count >= 2 else { continue }
             let isSingleWord = window.words.count == 1
+            // Match a possessive on its stem and put the "'s" back:
+            // "Kalpesh's" normalizes to "kalpeshs", one edit from "kalpesh",
+            // and was being rewritten to plain "Kalpesh".
+            let possessive = isSingleWord && byNormalized[Self.normalize(original)] == nil
+                ? Self.possessiveSuffix(of: original) : nil
+            let stem = possessive.map { String(original.dropLast($0.count)) } ?? original
+            let candidateNorm = Self.normalize(stem)
+            guard candidateNorm.count >= 2 else { continue }
 
             var matched: VocabCandidate?
 
@@ -189,7 +196,7 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                     matched = exact
                 }
             } else if candidateNorm.count >= Self.minFuzzyLength,
-                      !vocabTermsLowercased.contains(original.lowercased()),
+                      !vocabTermsLowercased.contains(stem.lowercased()),
                       // A window that already holds a correctly spelled term
                       // is that term plus a neighbour, not a misspelling:
                       // "Rodney in" is 2 edits from "rodney", and matching it
@@ -208,10 +215,10 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                 matched = best?.candidate
             }
 
-            guard let matched, matched.displayTerm != original else {
+            guard let matched, matched.displayTerm != stem else {
                 // Identical text still claims the span so sub-windows of a
                 // correct multi-word term aren't re-matched piecemeal.
-                if let m = matched, m.displayTerm == original {
+                if let m = matched, m.displayTerm == stem {
                     claimed.append(window.span)
                 }
                 continue
@@ -219,13 +226,17 @@ public struct TranscriptCorrector: TranscriptCorrecting {
 
             // Preserve sentence-initial capitalization for terms with no
             // intentional casing of their own (e.g. "prescribers"), matching
-            // the rule pass. Terms with deliberate casing (MarkLogic, SPARQL,
-            // names) are left exactly as stored.
+            // the rule pass. Only at a sentence start: mid-sentence "Dev Full"
+            // must become the stored "dev-full", not "Dev-full". Terms with
+            // deliberate casing (MarkLogic, SPARQL, names) are left exactly
+            // as stored.
             var replacement = matched.displayTerm
             if replacement == replacement.lowercased(),
-               let first = original.first, first.isUppercase {
+               let first = original.first, first.isUppercase,
+               Self.isSentenceStart(window.range.lowerBound, in: text) {
                 replacement = replacement.prefix(1).uppercased() + replacement.dropFirst()
             }
+            replacement += possessive ?? ""
 
             // Sentence-initial re-capitalization can round-trip back to the
             // original (e.g. "Prescribers" → "prescribers" → "Prescribers");
@@ -280,6 +291,23 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                 span: match.range.location..<(match.range.location + match.range.length)
             )
         }
+    }
+
+    /// The "'s" ending of a possessive word, if it has one and a stem of at
+    /// least 2 characters. Only the straight apostrophe: the word regex
+    /// splits on a curly one, so "Kalpesh’s" never reaches here as one word.
+    private static func possessiveSuffix(of word: String) -> String? {
+        for suffix in ["'s", "'S"] where word.hasSuffix(suffix) && word.count >= suffix.count + 2 {
+            return suffix
+        }
+        return nil
+    }
+
+    /// Whether `index` starts a sentence: start of text, or the previous
+    /// non-space character ends a sentence or a line.
+    static func isSentenceStart(_ index: String.Index, in text: String) -> Bool {
+        guard let previous = text[..<index].last(where: { $0 != " " && $0 != "\t" }) else { return true }
+        return ".?!\n".contains(previous)
     }
 
     /// Whether `words` is plain English that only collides with a one-word

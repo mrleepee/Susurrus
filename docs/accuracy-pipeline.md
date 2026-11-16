@@ -91,6 +91,13 @@ Two multi-word exceptions, both from production false fires:
   the SDK". `domainStoplist` words don't count, so "mark logic" still joins,
   and a term stored with spaces ("Trust Signals") is still recased.
 
+A possessive is matched on its stem and keeps its `'s` ("Kalpash's" →
+"Kalpesh's", never "Kalpesh"). A lowercase term is capitalised only at a
+sentence start, so mid-sentence "Dev Full" becomes the stored "dev-full".
+
+Before the corrector, `TextNormalizer` writes "U.K."/"U K."/"U.S." as
+"UK"/"US", keeping the final dot only where it also ends the sentence.
+
 That bypass is a **guarantee, not an incidental detail**: the `CommonWords`
 check in `applyVocabulary` is gated on `isSingleWord`, which is what makes
 "mark logic" → "MarkLogic" work with no rule involved. Layer 3 relies on

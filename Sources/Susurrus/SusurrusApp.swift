@@ -894,10 +894,11 @@ struct SusurrusApp: App {
         let panel = reviewPanel
         let panelInsert = panelInsertHotkeyService
         let panelCopy = panelCopyHotkeyService
-        // Opt-in accuracy-testing capture (tier C): only panel dictations
-        // the user reviewed, because only they end in an approved text —
-        // a quick copy was never looked at.
-        let keepRecording = toPanel && quickFinish == nil && UserDefaults.standard.bool(forKey: EvalCaptureStore.enabledKey)
+        // Opt-in accuracy-testing capture (tier C): panel dictations only.
+        // Quick finishes count too, now that nearly every dictation ends in
+        // one: every capture is saved unverified, so text the user never
+        // looked at stays out of the headline numbers until reviewed.
+        let keepRecording = toPanel && UserDefaults.standard.bool(forKey: EvalCaptureStore.enabledKey)
 
         Task {
             do {
@@ -1112,6 +1113,13 @@ struct SusurrusApp: App {
                     // instead, which is guaranteed to actually render.
                     overlay?.showMessage("No speech detected — check the input device in Preferences.")
                 }
+            } catch let error as TranscriptionError where error.isRecordingInterrupted {
+                traceApp("stopStreamingSession: \(error.localizedDescription)")
+                if toPanel {
+                    await MainActor.run { panel.cancel() }
+                }
+                // Overlay, not a notification: see the no-speech case below.
+                overlay?.showMessage("\(error.localizedDescription) Please dictate it again.")
             } catch TranscriptionError.noSpeechDetected {
                 traceApp("stopStreamingSession: no speech detected")
                 // Panel mode: nothing to edit — just close, no nagging banner.
@@ -1197,7 +1205,7 @@ struct SusurrusApp: App {
                 if state.enforceDurationCap() {
                     notifications.showNotification(
                         title: "Recording stopped",
-                        body: "Maximum recording duration reached."
+                        body: "Recordings stop after \(Int(AppState.maxRecordingDuration / 60)) minutes. The text so far is being transcribed."
                     )
                 }
             }
