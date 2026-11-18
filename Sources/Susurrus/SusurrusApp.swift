@@ -1008,7 +1008,7 @@ struct SusurrusApp: App {
                                     panel.showFinished(final, message: "Copied to Clipboard", detail: "No text field to insert into")
                                     return
                                 }
-                                let pasted = clip.simulatePaste()
+                                let pasted = clip.simulatePaste(into: targetApp?.bundleIdentifier)
                                 traceApp("reviewInsert: pasted=\(pasted) into \(target) (field: \(verdict))")
                                 if pasted {
                                     panel.showFinished(final, message: "Inserted")
@@ -1106,7 +1106,7 @@ struct SusurrusApp: App {
                         if verdict == .notEditable {
                             traceApp("stopStreamingSession: no text field focused in \(front?.bundleIdentifier ?? "?"), copied only")
                             overlay?.showMessage("Copied to clipboard — no text field to insert into", duration: 2.2)
-                        } else if !clip.simulatePaste() {
+                        } else if !clip.simulatePaste(into: front?.bundleIdentifier) {
                             notifications.showNotification(
                                 title: "Auto-paste blocked — text is on the clipboard",
                                 body: "Grant System Settings → Privacy & Security → Accessibility. If Susurrus is already listed, remove and re-add it."
