@@ -14,6 +14,55 @@ public protocol ClipboardManaging: Sendable {
     /// Returns true if the paste was sent, false if accessibility permissions are missing.
     @discardableResult
     func simulatePaste() -> Bool
+
+    /// Paste into a known app, using the keystroke shape that app needs
+    /// (see `PasteKeystroke`). Returns false if accessibility is missing.
+    @discardableResult
+    func simulatePaste(into bundleID: String?) -> Bool
+}
+
+public extension ClipboardManaging {
+    @discardableResult
+    func simulatePaste(into bundleID: String?) -> Bool { simulatePaste() }
+}
+
+/// One key event in a simulated paste.
+public struct PasteKeystroke: Equatable, Sendable {
+    public let keyCode: UInt16
+    public let keyDown: Bool
+    public let command: Bool
+    /// Pause after posting, in microseconds.
+    public let pauseAfter: UInt32
+
+    static let vKey: UInt16 = 0x09
+    static let commandKey: UInt16 = 0x37
+
+    /// Apps that track modifier keys from their own down/up events rather
+    /// than the flags on each key event. Remote-desktop clients forward keys
+    /// to another machine this way, so a bare ⌘-flagged V arrives as "v".
+    /// Amazon WorkSpaces: a flagged V typed a literal "v" (2026-11).
+    public static let explicitModifierApps: Set<String> = [
+        "com.amazon.workspaces",
+    ]
+
+    /// The events for ⌘V into `bundleID`. Most apps get the long-standing
+    /// flagged V down/up; apps in `explicitModifierApps` get the sequence a
+    /// real keyboard produces — Command down, V down, V up, Command up —
+    /// paced so the client forwards Command before V.
+    public static func paste(into bundleID: String?) -> [PasteKeystroke] {
+        if let bundleID, explicitModifierApps.contains(bundleID) {
+            return [
+                PasteKeystroke(keyCode: commandKey, keyDown: true, command: true, pauseAfter: 30_000),
+                PasteKeystroke(keyCode: vKey, keyDown: true, command: true, pauseAfter: 50_000),
+                PasteKeystroke(keyCode: vKey, keyDown: false, command: true, pauseAfter: 30_000),
+                PasteKeystroke(keyCode: commandKey, keyDown: false, command: false, pauseAfter: 0),
+            ]
+        }
+        return [
+            PasteKeystroke(keyCode: vKey, keyDown: true, command: true, pauseAfter: 50_000),
+            PasteKeystroke(keyCode: vKey, keyDown: false, command: true, pauseAfter: 0),
+        ]
+    }
 }
 
 /// Errors during clipboard operations.
