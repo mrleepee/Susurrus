@@ -305,3 +305,106 @@ struct DictationReviewPanelDiscardTests {
         #expect(panel.model.phase == .editing)
     }
 }
+
+/// Reopening the panel after an accidental Esc offers the discarded
+/// dictation back while listening.
+@Suite("DictationReviewPanel — restore while listening", .serialized)
+@MainActor
+struct DictationReviewPanelRestoreOfferTests {
+
+    private func makeListeningPanel() -> DictationReviewPanel {
+        let panel = DictationReviewPanel()
+        panel.activateApp = {}
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        return panel
+    }
+
+    @Test("The offer and its handler reach the view's model")
+    func offerReachesModel() {
+        let panel = makeListeningPanel()
+        defer { panel.cancel() }
+        var restores = 0
+        panel.restoreOffer = "what I said before"
+        panel.onRestoreLast = { restores += 1 }
+
+        #expect(panel.model.restoreOffer == "what I said before")
+        panel.model.onRestoreLast?()
+        #expect(restores == 1)
+    }
+
+    @Test("A new dictation starts with no stale offer")
+    func newSessionClearsOffer() {
+        let panel = makeListeningPanel()
+        defer { panel.cancel() }
+        panel.restoreOffer = "old"
+        panel.onRestoreLast = { Issue.record("stale restore handler") }
+
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        #expect(panel.model.restoreOffer == nil)
+        #expect(panel.model.onRestoreLast == nil)
+    }
+
+    @Test("Restoring puts the old text first and keeps listening")
+    func restoreKeepsListening() {
+        let panel = makeListeningPanel()
+        defer { panel.cancel() }
+        panel.restoreOffer = "where I was cut"
+        panel.updateStreaming("and carrying")
+
+        panel.showRestored("where I was cut off")
+        #expect(panel.model.phase == .recording)
+        #expect(panel.model.text == "where I was cut off and carrying")
+        #expect(panel.model.restoreOffer == nil, "the Restore button goes once used")
+
+        panel.updateStreaming("and carrying on")
+        #expect(panel.model.text == "where I was cut off and carrying on")
+        #expect(panel.livePreviewText == "and carrying on")
+    }
+
+    @Test("Better restored text replaces the preview without touching new speech")
+    func restoredTextUpgrades() {
+        let panel = makeListeningPanel()
+        defer { panel.cancel() }
+        panel.showRestored("prevew text")
+        panel.updateStreaming("new words")
+
+        panel.showRestored("preview text")
+        #expect(panel.model.text == "preview text new words")
+    }
+
+    @Test("A late restore after listening ended changes nothing")
+    func lateRestoreIgnored() {
+        let panel = makeListeningPanel()
+        defer { panel.cancel() }
+        panel.updateStreaming("spoken")
+        panel.beginProcessing()
+
+        panel.showRestored("too late")
+        #expect(panel.model.text == "spoken")
+    }
+
+    @Test("A new dictation starts without the last one's restored text")
+    func newSessionClearsRestored() {
+        let panel = makeListeningPanel()
+        defer { panel.cancel() }
+        let first = panel.sessionID
+        panel.showRestored("restored")
+        panel.restoredPrefix = Task { RestoredPrefix(text: "restored", raw: "restored") }
+
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        panel.updateStreaming("fresh")
+        #expect(panel.model.text == "fresh")
+        #expect(panel.restoredPrefix == nil)
+        #expect(panel.sessionID != first)
+    }
+
+    @Test("The offer goes away once listening ends")
+    func processingClearsOffer() {
+        let panel = makeListeningPanel()
+        defer { panel.cancel() }
+        panel.restoreOffer = ""
+
+        panel.beginProcessing()
+        #expect(panel.model.restoreOffer == nil)
+    }
+}
