@@ -738,6 +738,39 @@ struct SusurrusApp: App {
                 isPushToTalk: appState.recordingMode == .pushToTalk,
                 editCombo: hotkeyStorage.loadCombo()
             )
+            // An earlier dictation was discarded: offer it back. Restoring
+            // puts its text ahead of this one and keeps listening, so the
+            // user can carry on from where they were cut off.
+            let discarded = Self.sharedDiscarded
+            panel.restoreOffer = discarded.snippet
+            let finalizer = transcriptFinalizer
+            let vocab = vocabularyManager
+            let corrections = correctionManager
+            panel.onRestoreLast = {
+                guard state.recordingState == .streaming,
+                      state.dictationDestination == .reviewPanel,
+                      let item = discarded.take() else { return }
+                let session = panel.sessionID
+                switch item.content {
+                case .text(let edited, _, let raw):
+                    traceApp("Review panel: restored \(edited.count) chars of edited text, still listening")
+                    let prefix = RestoredPrefix(text: edited, raw: raw)
+                    panel.showRestored(edited)
+                    panel.restoredPrefix = Task { prefix }
+                case .audio(let samples, let preview, let before):
+                    traceApp("Review panel: restoring \(String(format: "%.1f", Double(samples.count) / 16_000))s of discarded audio, still listening")
+                    // The preview shows at once; the final decode replaces it.
+                    panel.showRestored(RestoredPrefix.join(before?.text, preview))
+                    panel.restoredPrefix = Task { @MainActor in
+                        let prefix = await Self.decodeDiscarded(
+                            samples: samples, preview: preview, before: before,
+                            streaming: streaming, finalizer: finalizer, vocab: vocab, corrections: corrections
+                        )
+                        if panel.sessionID == session { panel.showRestored(prefix.text) }
+                        return prefix
+                    }
+                }
+            }
         }
 
         // Snapshot vocab and rules once per session so the interim callback
@@ -828,6 +861,7 @@ struct SusurrusApp: App {
     /// a quick finish, straight to copy / insert.
     private static func finishInPanel(
         rawText text: String,
+        prefix: RestoredPrefix? = nil,
         retained: StreamingTranscriptionService.RetainedSession?,
         quickFinish: DictationReviewPanel.QuickFinish?,
         deps: PanelDeps
@@ -843,7 +877,10 @@ struct SusurrusApp: App {
             vocabulary: vocab.entries(),
             rules: corrections.activeRules()
         )
-        let corrected = panelOutcome.corrected
+        // Restored text comes first, as it was (already corrected or edited
+        // by hand); only the newly spoken part goes through the corrector.
+        let corrected = RestoredPrefix.join(prefix?.text, panelOutcome.corrected)
+        let rawASR = RestoredPrefix.join(prefix?.raw, text)
         if !panelOutcome.changes.isEmpty {
             let summary = panelOutcome.changes
                 .map { "\($0.original)→\($0.corrected)" }
@@ -867,8 +904,12 @@ struct SusurrusApp: App {
         }
         await MainActor.run {
             presentInPanel(
-                initialText: corrected, corrected: corrected, rawASR: text,
-                casing: casing, retained: retained, quickFinish: quickFinish, deps: deps
+                initialText: corrected, corrected: corrected, rawASR: rawASR,
+                casing: casing,
+                // An accuracy capture pairs audio with its text; with restored
+                // text in front the two no longer match, so skip it.
+                retained: prefix == nil ? retained : nil,
+                quickFinish: quickFinish, deps: deps
             )
         }
     }
@@ -971,12 +1012,52 @@ struct SusurrusApp: App {
         }
     }
 
+    /// Final-decode discarded audio while a new dictation is listening, for
+    /// use as restored text. Falls back to the preview it showed if the
+    /// decode fails or hears nothing.
+    @MainActor
+    private static func decodeDiscarded(
+        samples: [Float],
+        preview: String,
+        before: RestoredPrefix?,
+        streaming: StreamingTranscriptionService,
+        finalizer: TranscriptFinalizer,
+        vocab: VocabularyManager,
+        corrections: CorrectionLearningManager
+    ) async -> RestoredPrefix {
+        var raw = preview
+        if samples.count >= DiscardedDictationStore.minAudioSamples {
+            do {
+                let transcript = try await streaming.transcribeOffline(samples: samples, previewText: preview)
+                if !transcript.text.isEmpty { raw = transcript.text }
+            } catch {
+                traceApp("restore: decode of discarded audio failed, using its preview: \(error)")
+            }
+        }
+        let corrected = await finalizer.finalize(raw, vocabulary: vocab.entries(), rules: corrections.activeRules()).corrected
+        return RestoredPrefix(
+            text: RestoredPrefix.join(before?.text, corrected),
+            raw: RestoredPrefix.join(before?.raw, raw)
+        )
+    }
+
     /// "Restore Discarded Dictation": reopen the last discarded dictation in
     /// the editor — decoding its audio first if it was discarded while still
     /// listening. One-shot: the kept copy is gone once restored.
     @MainActor
     private static func restoreDiscarded(deps: PanelDeps, streaming: StreamingTranscriptionService, state: AppState) {
         guard state.recordingState == .idle, let item = deps.discarded.take() else { return }
+        restore(item, deps: deps, streaming: streaming, state: state)
+    }
+
+    /// Reopen `item` (already taken from the store) in the editor.
+    @MainActor
+    private static func restore(
+        _ item: DiscardedDictationStore.Item,
+        deps: PanelDeps,
+        streaming: StreamingTranscriptionService,
+        state: AppState
+    ) {
         let panel = deps.panel
         switch item.content {
         case .text(let edited, let corrected, let raw):
@@ -986,7 +1067,7 @@ struct SusurrusApp: App {
                 initialText: edited, corrected: corrected, rawASR: raw,
                 casing: [], retained: nil, quickFinish: nil, deps: deps
             )
-        case .audio(let samples, let preview):
+        case .audio(let samples, let preview, let before):
             traceApp("restoreDiscarded: decoding \(String(format: "%.1f", Double(samples.count) / 16_000))s of discarded audio")
             panel.beginRestoring(targetApp: item.targetApp)
             Task { @MainActor in
@@ -999,7 +1080,7 @@ struct SusurrusApp: App {
                         return
                     }
                     let text = transcript.text.isEmpty ? preview : transcript.text
-                    await finishInPanel(rawText: text, retained: nil, quickFinish: nil, deps: deps)
+                    await finishInPanel(rawText: text, prefix: before, retained: nil, quickFinish: nil, deps: deps)
                 } catch {
                     traceApp("restoreDiscarded: decode failed: \(error)")
                     deps.discarded.keep(item.content, targetApp: item.targetApp)
@@ -1068,7 +1149,8 @@ struct SusurrusApp: App {
         // bar ("Restore Discarded Dictation"). Memory only, never history.
         let discarded = Self.sharedDiscarded
         let toPanel = state.dictationDestination == .reviewPanel
-        let preview = toPanel ? reviewPanel.model.text : ""
+        let preview = toPanel ? reviewPanel.livePreviewText : ""
+        let restored = toPanel ? reviewPanel.restoredPrefix : nil
         let target = toPanel ? reviewPanel.targetApp : NSWorkspace.shared.frontmostApplication
 
         stopDurationTimer()
@@ -1079,7 +1161,8 @@ struct SusurrusApp: App {
 
         Task {
             let samples = await streaming.sessionAudio()
-            if discarded.keep(.audio(samples: samples, preview: preview), targetApp: target) {
+            let before = await restored?.value
+            if discarded.keep(.audio(samples: samples, preview: preview, before: before), targetApp: target) {
                 traceApp("cancelActiveDictation: kept \(String(format: "%.1f", Double(samples.count) / 16_000))s for restore")
             }
             await streaming.cancelStreamTranscription()
@@ -1103,6 +1186,8 @@ struct SusurrusApp: App {
         appState.dictationDestination = .clipboard
         let quickFinish = toPanel ? reviewPanel.quickFinish : nil
         reviewPanel.quickFinish = nil
+        let restoredPrefix = toPanel ? reviewPanel.restoredPrefix : nil
+        reviewPanel.restoredPrefix = nil
 
         // Keep the overlay up in a dimmed "Finalizing…" state through the
         // whole-buffer decode (1–8s) — it hides once the text is delivered.
@@ -1156,7 +1241,8 @@ struct SusurrusApp: App {
 
                 if toPanel {
                     let retained = await streaming.takeRetainedSession()
-                    await Self.finishInPanel(rawText: text, retained: retained, quickFinish: quickFinish, deps: panelDeps)
+                    let prefix = await restoredPrefix?.value
+                    await Self.finishInPanel(rawText: text, prefix: prefix, retained: retained, quickFinish: quickFinish, deps: panelDeps)
                 } else if !text.isEmpty {
                     // Layer 1 (deterministic corrections — learned rules,
                     // fuzzy vocabulary, casing; always on, ~0ms), then the

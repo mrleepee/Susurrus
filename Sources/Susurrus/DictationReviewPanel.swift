@@ -41,6 +41,13 @@ final class DictationReviewModel: ObservableObject {
     var onFinishRecording: ((DictationReviewPanel.QuickFinish?) -> Void)?
     var onCancelRecording: (() -> Void)?
 
+    /// Set while listening when an earlier dictation was discarded and can be
+    /// brought back: the start of its text ("" when nothing was transcribed
+    /// yet). nil hides the Restore button.
+    @Published var restoreOffer: String?
+    /// Stop this recording and reopen the discarded one instead.
+    var onRestoreLast: (() -> Void)?
+
     /// Apply one suggestion and retire its chip. The chip goes away either
     /// way: if the user has already edited that span by hand, the range no
     /// longer matches and there is nothing left to offer.
@@ -111,7 +118,17 @@ struct DictationReviewView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                         .padding(.horizontal, 22)
-                        .padding(.vertical, 12)
+                        .padding(.top, 12)
+                        .padding(.bottom, restoreLine == nil ? 12 : 4)
+                    if let restoreLine {
+                        Text(restoreLine)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 22)
+                            .padding(.bottom, 12)
+                    }
                     Color.clear.frame(height: 1).id("end")
                 }
                 .scrollIndicators(.never)
@@ -150,6 +167,13 @@ struct DictationReviewView: View {
         }
     }
 
+    /// Until the user starts speaking, name the discarded dictation the
+    /// Restore button would bring back.
+    private var restoreLine: String? {
+        guard model.phase == .recording, model.text.isEmpty, let offer = model.restoreOffer else { return nil }
+        return offer.isEmpty ? "⌘Z brings back the dictation you discarded" : "⌘Z brings back: “\(offer)”"
+    }
+
     // MARK: - Footer
 
     @ViewBuilder
@@ -172,6 +196,11 @@ struct DictationReviewView: View {
                     }
                     KeyHintButton(keys: "esc", label: "Cancel") { model.onCancelRecording?() }
                         .help("Discard this dictation")
+                    if model.restoreOffer != nil {
+                        KeyHintButton(keys: "⌘Z", label: "Restore last") { model.onRestoreLast?() }
+                            .keyboardShortcut("z", modifiers: .command)
+                            .help("Stop this recording and bring back the one you discarded")
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
@@ -487,6 +516,28 @@ final class DictationReviewPanel: NSPanel {
     /// closes at once.
     var onDiscardEdits: ((String) -> Void)?
 
+    /// See `DictationReviewModel.restoreOffer`; set after `beginRecording`.
+    var restoreOffer: String? {
+        get { model.restoreOffer }
+        set { model.restoreOffer = newValue }
+    }
+    var onRestoreLast: (() -> Void)? {
+        get { model.onRestoreLast }
+        set { model.onRestoreLast = newValue }
+    }
+
+    /// Text restored into this dictation, resolved once any discarded audio
+    /// has been decoded. Comes before the new speech when finishing.
+    var restoredPrefix: Task<RestoredPrefix?, Never>?
+
+    /// Identifies the current session, so late work for an earlier one
+    /// (a restore still decoding) can tell it's stale.
+    var sessionID: Int { session }
+
+    /// What the mic has produced this session, without any restored text.
+    private(set) var livePreviewText = ""
+    private var restoredText = ""
+
     /// Per-session live-preview diagnostics, logged when listening ends. The
     /// preview sometimes stays blank while dictation itself works; these say
     /// whether text reached the panel and whether macOS considered the panel
@@ -602,6 +653,11 @@ final class DictationReviewPanel: NSPanel {
         self.targetApp = targetApp
         quickFinish = nil
         onDiscardEdits = nil
+        model.restoreOffer = nil
+        model.onRestoreLast = nil
+        restoredPrefix = nil
+        restoredText = ""
+        livePreviewText = ""
         model.onInsert = nil
         model.onCopy = nil
         model.text = ""
@@ -628,12 +684,23 @@ final class DictationReviewPanel: NSPanel {
             previewUpdates += 1
             if firstPreviewAfter == nil { firstPreviewAfter = Date().timeIntervalSince(recordingStart) }
         }
-        model.text = text
+        livePreviewText = text
+        model.text = RestoredPrefix.join(restoredText, text)
+    }
+
+    /// Show restored text ahead of the live speech and keep listening. Called
+    /// again with the better text once discarded audio has been decoded.
+    func showRestored(_ text: String) {
+        guard model.phase == .recording else { return }
+        model.restoreOffer = nil
+        restoredText = text
+        model.text = RestoredPrefix.join(restoredText, livePreviewText)
     }
 
     /// The mic has closed; show that the final decode is running.
     func beginProcessing() {
         guard model.phase == .recording else { return }
+        model.restoreOffer = nil
         logPreviewSummary()
         model.phase = .processing
     }

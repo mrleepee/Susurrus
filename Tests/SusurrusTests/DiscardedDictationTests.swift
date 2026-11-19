@@ -14,8 +14,8 @@ struct DiscardedDictationStoreTests {
     @Test("Keeps audio discarded while listening")
     func keepsAudio() {
         let store = DiscardedDictationStore()
-        #expect(store.keep(.audio(samples: speech, preview: "hello"), targetApp: .current))
-        #expect(store.item?.content == .audio(samples: speech, preview: "hello"))
+        #expect(store.keep(.audio(samples: speech, preview: "hello", before: nil), targetApp: .current))
+        #expect(store.item?.content == .audio(samples: speech, preview: "hello", before: nil))
         #expect(store.item?.targetApp == .current)
     }
 
@@ -31,7 +31,7 @@ struct DiscardedDictationStoreTests {
         let store = DiscardedDictationStore()
         store.keep(.text(edited: "worth keeping", corrected: "", raw: ""), targetApp: nil)
 
-        #expect(!store.keep(.audio(samples: [0.1, 0.2], preview: ""), targetApp: nil))
+        #expect(!store.keep(.audio(samples: [0.1, 0.2], preview: "", before: nil), targetApp: nil))
         #expect(!store.keep(.text(edited: "  \n", corrected: "", raw: ""), targetApp: nil))
         #expect(store.item?.content == .text(edited: "worth keeping", corrected: "", raw: ""))
     }
@@ -51,6 +51,39 @@ struct DiscardedDictationStoreTests {
         #expect(store.take()?.content == .text(edited: "once", corrected: "", raw: ""))
         #expect(store.take() == nil)
         #expect(!store.hasItem)
+    }
+
+    @Test("Snippet names what Restore would bring back")
+    func snippet() {
+        let store = DiscardedDictationStore()
+        #expect(store.snippet == nil)
+
+        store.keep(.text(edited: "  edited\n text  ", corrected: "", raw: ""), targetApp: nil)
+        #expect(store.snippet == "edited text")
+
+        store.keep(.audio(samples: speech, preview: "", before: nil), targetApp: nil)
+        #expect(store.snippet == "", "audio discarded before any preview text")
+    }
+
+    @Test("Esc after a restore keeps the restored text too, even with no new speech")
+    func keepsRestoredBefore() {
+        let store = DiscardedDictationStore()
+        let before = RestoredPrefix(text: "first half", raw: "first half")
+        #expect(store.keep(.audio(samples: [], preview: "", before: before), targetApp: nil))
+        #expect(store.snippet == "first half")
+
+        store.keep(.audio(samples: speech, preview: "second half", before: before), targetApp: nil)
+        #expect(store.snippet == "first half second half")
+    }
+
+    @Test("Long snippets are cut short")
+    func longSnippet() {
+        let store = DiscardedDictationStore()
+        let long = String(repeating: "word ", count: 40)
+        store.keep(.text(edited: long, corrected: "", raw: ""), targetApp: nil)
+        let snippet = try? #require(store.snippet)
+        #expect(snippet?.hasSuffix("…") == true)
+        #expect((snippet?.count ?? 0) == DiscardedDictationStore.snippetLength + 1)
     }
 
     @Test("Reports availability so the menu item can show and hide")
@@ -82,5 +115,18 @@ struct RestoreDiscardedStateTests {
         state.canRestoreDiscarded = true
         state.requestRestoreDiscarded()
         #expect(restores == 1)
+    }
+}
+
+@Suite("Restored prefix")
+struct RestoredPrefixTests {
+
+    @Test("Joins restored and new text with one space, skipping empties")
+    func join() {
+        #expect(RestoredPrefix.join("first half.", "second half") == "first half. second half")
+        #expect(RestoredPrefix.join("  first  ", "\nsecond ") == "first second")
+        #expect(RestoredPrefix.join(nil, "only new") == "only new")
+        #expect(RestoredPrefix.join("only restored", "") == "only restored")
+        #expect(RestoredPrefix.join(nil, nil) == "")
     }
 }
