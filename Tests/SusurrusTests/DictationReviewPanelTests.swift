@@ -222,3 +222,86 @@ struct DictationReviewPanelTests {
         #expect(cancels.value == 1)
     }
 }
+
+/// Esc in the editor hands the text over to be kept for a restore, and the
+/// panel still closes at once — no lingering undo prompt.
+@Suite("DictationReviewPanel — discard and restore", .serialized)
+@MainActor
+struct DictationReviewPanelDiscardTests {
+
+    private func makeEditingPanel(text: String) -> DictationReviewPanel {
+        let panel = DictationReviewPanel()
+        panel.activateApp = {}
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        panel.beginProcessing()
+        panel.enterEditing(finalText: text) { _, _ in }
+        return panel
+    }
+
+    @Test("Esc in the editor reports the edited text and closes immediately")
+    func escInEditorReportsText() {
+        let panel = makeEditingPanel(text: "as transcribed")
+        var kept: [String] = []
+        panel.onDiscardEdits = { kept.append($0) }
+        panel.model.text = "as the user fixed it"
+
+        panel.cancelOperation(nil)
+        #expect(kept == ["as the user fixed it"])
+        #expect(!panel.isVisible)
+    }
+
+    @Test("The editor's Cancel button reports the text too")
+    func cancelButtonReportsText() {
+        let panel = makeEditingPanel(text: "some text")
+        var kept: [String] = []
+        panel.onDiscardEdits = { kept.append($0) }
+
+        panel.model.onCancel?()
+        #expect(kept == ["some text"])
+        #expect(!panel.isVisible)
+    }
+
+    @Test("Esc while listening doesn't report editor text — the app keeps the audio")
+    func escWhileListeningNotEdits() {
+        let panel = DictationReviewPanel()
+        panel.activateApp = {}
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        defer { panel.cancel() }
+        var kept: [String] = []
+        panel.onDiscardEdits = { kept.append($0) }
+        panel.onCancelRecording = {}
+
+        panel.cancelOperation(nil)
+        #expect(kept.isEmpty)
+    }
+
+    @Test("A new dictation drops the previous session's discard hook")
+    func newSessionClearsHook() {
+        let panel = makeEditingPanel(text: "old")
+        panel.onDiscardEdits = { _ in Issue.record("stale hook fired") }
+
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        panel.beginProcessing()
+        panel.enterEditing(finalText: "new") { _, _ in }
+        panel.cancelOperation(nil)
+    }
+
+    @Test("Restoring reopens the panel processing, focused, pasting to the original app")
+    func beginRestoring() {
+        let panel = DictationReviewPanel()
+        var activations = 0
+        panel.activateApp = { activations += 1 }
+        defer { panel.cancel() }
+
+        panel.beginRestoring(targetApp: .current)
+        #expect(panel.model.phase == .processing)
+        #expect(panel.targetApp == .current)
+        #expect(panel.isVisible)
+        #expect(panel.holdsFocus)
+        #expect(activations == 1)
+
+        panel.enterEditing(finalText: "restored") { _, _ in }
+        #expect(panel.model.text == "restored")
+        #expect(panel.model.phase == .editing)
+    }
+}

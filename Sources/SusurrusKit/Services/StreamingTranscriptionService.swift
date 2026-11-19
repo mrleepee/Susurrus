@@ -838,6 +838,13 @@ public actor StreamingTranscriptionService {
         return Self.stripNoiseTokens(from: results.map(\.text).joined(separator: " "))
     }
 
+    /// A copy of the live session's audio so far (16 kHz mono), or empty
+    /// when no session is running. Taken before a cancel so a discarded
+    /// dictation can still be restored.
+    public func sessionAudio() -> [Float] {
+        activeProcessor.map { Array($0.audioSamples) } ?? []
+    }
+
     /// Abandon the in-flight session with no output: no whole-buffer decode,
     /// nothing returned, nothing thrown. Used for a deliberate user cancel
     /// (Esc, wired in SusurrusApp.cancelActiveDictation) rather than a normal

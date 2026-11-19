@@ -35,11 +35,18 @@ public final class PasteboardClipboardService: ClipboardManaging, @unchecked Sen
     /// "open System Settings" dialog after each recording.
     private nonisolated(unsafe) static var hasPromptedAccessibility = false
 
-    /// Simulate Cmd+V keystroke to paste clipboard contents at cursor.
-    /// Requires macOS Accessibility permissions (System Settings > Privacy & Security > Accessibility).
-    /// Returns true if the event was posted, false if accessibility permissions are missing.
+    /// Simulate Cmd+V into the frontmost app.
     @discardableResult
     public func simulatePaste() -> Bool {
+        simulatePaste(into: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+    }
+
+    /// Simulate Cmd+V keystroke to paste clipboard contents at cursor, shaped
+    /// for `bundleID` (see `PasteKeystroke.paste(into:)`).
+    /// Requires macOS Accessibility permissions (System Settings > Privacy & Security > Accessibility).
+    /// Returns true if the events were posted, false if accessibility permissions are missing.
+    @discardableResult
+    public func simulatePaste(into bundleID: String?) -> Bool {
         let trusted = AXIsProcessTrusted()
         Self.logger.info("simulatePaste: AXIsProcessTrusted = \(trusted)")
         guard trusted else {
@@ -53,18 +60,26 @@ public final class PasteboardClipboardService: ClipboardManaging, @unchecked Sen
         }
 
         let source = CGEventSource(stateID: .combinedSessionState)
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false) else {
+        let keystrokes = PasteKeystroke.paste(into: bundleID)
+        let events = keystrokes.compactMap { stroke -> CGEvent? in
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: stroke.keyCode, keyDown: stroke.keyDown) else {
+                return nil
+            }
+            // Explicit flags, so a modifier the user is still holding (⌥ from
+            // ⌥⌘⏎) doesn't turn this into a different shortcut.
+            event.flags = stroke.command ? .maskCommand : []
+            return event
+        }
+        guard events.count == keystrokes.count else {
             Self.logger.error("simulatePaste: could not create CGEvents")
             return false
         }
 
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-        keyDown.post(tap: .cghidEventTap)
-        usleep(50_000)
-        keyUp.post(tap: .cghidEventTap)
-        Self.logger.info("simulatePaste: posted Cmd+V via cghidEventTap")
+        for (event, stroke) in zip(events, keystrokes) {
+            event.post(tap: .cghidEventTap)
+            if stroke.pauseAfter > 0 { usleep(stroke.pauseAfter) }
+        }
+        Self.logger.info("simulatePaste: posted Cmd+V (\(keystrokes.count) events) via cghidEventTap")
         return true
     }
 

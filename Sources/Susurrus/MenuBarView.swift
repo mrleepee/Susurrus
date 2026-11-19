@@ -24,6 +24,13 @@ struct MenuBarView: View {
                 )
             }
 
+            if appState.canRestoreDiscarded {
+                Button("Restore Discarded Dictation") {
+                    appState.requestRestoreDiscarded()
+                }
+                .disabled(appState.recordingState != .idle)
+            }
+
             if appState.recordingState == .processing {
                 ProgressView(value: appState.transcriptionProgress) {
                     Text("Transcribing...")
