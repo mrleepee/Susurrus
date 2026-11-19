@@ -237,8 +237,10 @@ struct SusurrusApp: App {
             let task = Task { @MainActor in
                 await previous?.value
                 guard generation == Self.reloadGeneration else { return }
+                traceApp("model switch: reloading '\(newModel)'")
                 await reloadModel(newModel, generation: generation)
                 guard generation == Self.reloadGeneration else { return }
+                traceApp("model switch: '\(newModel)' done")
                 modelReloading = false
                 UserDefaults.standard.set(false, forKey: "modelReloading")
             }
@@ -294,9 +296,12 @@ struct SusurrusApp: App {
     private func startModelLoadingIfNeeded() {
         guard !Self.modelLoadStarted else { return }
         Self.modelLoadStarted = true
-        // A quit mid-reload leaves this persisted flag set, which would grey
-        // out the model picker on every later launch.
+        // A quit mid-reload leaves these persisted values set, which would
+        // grey out the model picker (and show a stale "Downloading...") on
+        // every later launch.
         UserDefaults.standard.set(false, forKey: "modelReloading")
+        UserDefaults.standard.set("", forKey: "modelDownloadingName")
+        UserDefaults.standard.set(0, forKey: "modelDownloadProgress")
         traceApp("startModelLoadingIfNeeded: starting model load")
         Task {
             await preloadModel()
