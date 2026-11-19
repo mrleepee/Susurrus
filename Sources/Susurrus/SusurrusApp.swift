@@ -104,6 +104,8 @@ struct SusurrusApp: App {
     // Process-stable like the other services so it survives App-struct
     // re-inits (see the services block above).
     private static let sharedReviewPanel = DictationReviewPanel()
+    /// The last discarded dictation, for "Restore Discarded Dictation".
+    private static let sharedDiscarded = DiscardedDictationStore()
     private var reviewPanel: DictationReviewPanel { Self.sharedReviewPanel }
 
     /// Media apps that were paused when recording started.
@@ -200,6 +202,13 @@ struct SusurrusApp: App {
                 appState.onStreamingStart = { self.startStreamingSession() }
                 appState.onStreamingStop = { self.stopStreamingSession() }
                 appState.onCancelRequested = { self.cancelActiveDictation() }
+                let state = appState
+                let deps = panelDeps
+                let streaming = streamingService
+                Self.sharedDiscarded.onAvailabilityChange = { state.canRestoreDiscarded = $0 }
+                appState.onRestoreDiscarded = {
+                    Self.restoreDiscarded(deps: deps, streaming: streaming, state: state)
+                }
             }
         }
         .onChange(of: appState.recordingState) { _, newState in
@@ -792,6 +801,218 @@ struct SusurrusApp: App {
         }
     }
 
+    // MARK: - Review panel delivery
+
+    /// What the review panel needs to turn a transcript into delivered text.
+    /// A struct of references so static helpers can run inside Tasks without
+    /// capturing the `SusurrusApp` struct.
+    private struct PanelDeps {
+        let panel: DictationReviewPanel
+        let clip: PasteboardClipboardService
+        let history: TranscriptionHistoryManager
+        let vocab: VocabularyManager
+        let corrections: CorrectionLearningManager
+        let finalizer: TranscriptFinalizer
+        let discarded: DiscardedDictationStore
+    }
+
+    private var panelDeps: PanelDeps {
+        PanelDeps(
+            panel: reviewPanel, clip: clipboard, history: historyManager,
+            vocab: vocabularyManager, corrections: correctionManager,
+            finalizer: transcriptFinalizer, discarded: Self.sharedDiscarded
+        )
+    }
+
+    /// Deterministic corrections over the raw ASR, then the editor — or, for
+    /// a quick finish, straight to copy / insert.
+    private static func finishInPanel(
+        rawText text: String,
+        retained: StreamingTranscriptionService.RetainedSession?,
+        quickFinish: DictationReviewPanel.QuickFinish?,
+        deps: PanelDeps
+    ) async {
+        let vocab = deps.vocab
+        let corrections = deps.corrections
+        let history = deps.history
+        // Deterministic corrections only; the user edits the rest
+        // by hand in the panel. Even empty text opens the editor
+        // (so the panel never gets stuck in the recording phase).
+        let panelOutcome = await deps.finalizer.finalize(
+            text,
+            vocabulary: vocab.entries(),
+            rules: corrections.activeRules()
+        )
+        let corrected = panelOutcome.corrected
+        if !panelOutcome.changes.isEmpty {
+            let summary = panelOutcome.changes
+                .map { "\($0.original)→\($0.corrected)" }
+                .joined(separator: ", ")
+            traceApp("stopStreamingSession: corrector applied \(panelOutcome.changes.count) fixes (panel): \(summary)")
+        }
+        // Credit whatever actually fired, once per dictation. The
+        // preview pass is never counted — see TranscriptCorrector.
+        corrections.recordFires(ruleIDs: panelOutcome.changes.compactMap(\.firedRuleID))
+        vocab.recordFixes(ids: panelOutcome.changes.compactMap(\.firedVocabularyID))
+        // Whisper Title-Cases noun phrases it reads as names. The
+        // user's own approved transcripts are the only corpus that
+        // knows "documents" is normally lowercase but "Datavid"
+        // isn't, so the profile is built from history rather than
+        // any fixed word list.
+        let casing = CasingProfile
+            .build(from: history.items().map(\.text))
+            .suggestions(for: corrected, vocabulary: vocab.entries())
+        if !casing.isEmpty {
+            traceApp("stopStreamingSession: casing suggestions: \(casing.map { "\($0.original)→\($0.suggested)" }.joined(separator: ", "))")
+        }
+        await MainActor.run {
+            presentInPanel(
+                initialText: corrected, corrected: corrected, rawASR: text,
+                casing: casing, retained: retained, quickFinish: quickFinish, deps: deps
+            )
+        }
+    }
+
+    /// Open the editor on `initialText` (or quick-finish it). `corrected` and
+    /// `rawASR` are what a manual edit is learned against.
+    @MainActor
+    private static func presentInPanel(
+        initialText: String,
+        corrected: String,
+        rawASR: String,
+        casing: [CasingSuggestion],
+        retained: StreamingTranscriptionService.RetainedSession?,
+        quickFinish: DictationReviewPanel.QuickFinish?,
+        deps: PanelDeps
+    ) {
+        let panel = deps.panel
+        let clip = deps.clip
+        let history = deps.history
+        let vocab = deps.vocab
+        let corrections = deps.corrections
+        let discarded = deps.discarded
+        let targetApp = panel.targetApp
+        let deliver: (String, Bool) -> Void = { edited, shouldPaste in
+            panel.releaseFocus()
+            let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !final.isEmpty else {
+                panel.cancel()
+                return
+            }
+            // Learn from any manual edit beyond the corrector.
+            // Copy and Insert are equally good teaching signal.
+            if final != corrected, !corrected.isEmpty {
+                corrections.recordCorrection(raw: corrected, edited: final)
+            }
+            vocab.recordUsage(in: final)
+            history.add(final, rawText: rawASR)
+            clip.writeText(final)
+            if let retained {
+                let capture = EvalCaptureStore.Capture(
+                    samples: retained.samples, approved: final, raw: rawASR,
+                    corrected: corrected, promptTerms: retained.promptTerms,
+                    model: retained.model
+                )
+                Task.detached(priority: .utility) {
+                    do {
+                        if let entry = try EvalCaptureStore().save(capture) {
+                            traceApp("evalCapture: kept \(entry.id) (\(entry.seconds ?? 0)s)")
+                        }
+                    } catch {
+                        traceApp("evalCapture: save failed: \(error)")
+                    }
+                }
+            }
+            guard shouldPaste else {
+                traceApp("reviewCopy: copied \(final.count) chars, target untouched")
+                panel.showFinished(final, message: "Copied to Clipboard")
+                return
+            }
+            // Return focus to the target app, then one clean
+            // paste — the only thing we ever do to it. If its
+            // focused element is clearly not somewhere to type
+            // (a file list, a sidebar), skip the ⌘V: the text
+            // is already on the clipboard, so say so instead.
+            targetApp?.activate(options: [])
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(150))
+                let target = targetApp?.bundleIdentifier ?? "?"
+                let verdict = targetApp.map { FocusedTextProbe.check(pid: $0.processIdentifier) } ?? .unknown
+                guard verdict != .notEditable else {
+                    traceApp("reviewInsert: no text field focused in \(target), copied only")
+                    panel.showFinished(final, message: "Copied to Clipboard", detail: "No text field to insert into")
+                    return
+                }
+                let pasted = clip.simulatePaste(into: targetApp?.bundleIdentifier)
+                traceApp("reviewInsert: pasted=\(pasted) into \(target) (field: \(verdict))")
+                if pasted {
+                    panel.showFinished(final, message: "Inserted")
+                } else {
+                    panel.showFinished(final, message: "Copied to Clipboard", detail: "Couldn't paste — press ⌘V to insert")
+                }
+            }
+        }
+        if let quickFinish {
+            let final = corrected.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !final.isEmpty else {
+                traceApp("reviewQuickFinish: nothing heard, closing")
+                panel.cancel()
+                return
+            }
+            deliver(corrected, quickFinish == .insert)
+        } else {
+            // Esc in the editor keeps the text for "Restore Discarded Dictation".
+            panel.onDiscardEdits = { edited in
+                if discarded.keep(.text(edited: edited, corrected: corrected, raw: rawASR), targetApp: targetApp) {
+                    traceApp("reviewDiscard: kept \(edited.count) chars for restore")
+                }
+            }
+            panel.enterEditing(finalText: initialText, casingSuggestions: casing, onFinish: deliver)
+        }
+    }
+
+    /// "Restore Discarded Dictation": reopen the last discarded dictation in
+    /// the editor — decoding its audio first if it was discarded while still
+    /// listening. One-shot: the kept copy is gone once restored.
+    @MainActor
+    private static func restoreDiscarded(deps: PanelDeps, streaming: StreamingTranscriptionService, state: AppState) {
+        guard state.recordingState == .idle, let item = deps.discarded.take() else { return }
+        let panel = deps.panel
+        switch item.content {
+        case .text(let edited, let corrected, let raw):
+            traceApp("restoreDiscarded: reopening edited text (\(edited.count) chars)")
+            panel.beginRestoring(targetApp: item.targetApp)
+            presentInPanel(
+                initialText: edited, corrected: corrected, rawASR: raw,
+                casing: [], retained: nil, quickFinish: nil, deps: deps
+            )
+        case .audio(let samples, let preview):
+            traceApp("restoreDiscarded: decoding \(String(format: "%.1f", Double(samples.count) / 16_000))s of discarded audio")
+            panel.beginRestoring(targetApp: item.targetApp)
+            Task { @MainActor in
+                do {
+                    let transcript = try await streaming.transcribeOffline(samples: samples, previewText: preview)
+                    // A new dictation took the panel while this decoded: put
+                    // the discard back rather than open the editor over it.
+                    guard state.recordingState == .idle else {
+                        deps.discarded.keep(item.content, targetApp: item.targetApp)
+                        return
+                    }
+                    let text = transcript.text.isEmpty ? preview : transcript.text
+                    await finishInPanel(rawText: text, retained: nil, quickFinish: nil, deps: deps)
+                } catch {
+                    traceApp("restoreDiscarded: decode failed: \(error)")
+                    deps.discarded.keep(item.content, targetApp: item.targetApp)
+                    panel.cancel()
+                    OverlayMessageService.shared.showNotification(
+                        title: "Couldn't restore the dictation",
+                        body: "\(error.localizedDescription) It's still kept — try again from the menu bar."
+                    )
+                }
+            }
+        }
+    }
+
     /// ⌘⏎ copies and ⌥⌘⏎ inserts straight from the listening panel, skipping
     /// the editor — the same keys the editor uses, so they mean the same
     /// thing in both phases. Global only while the panel is listening (torn
@@ -843,6 +1064,12 @@ struct SusurrusApp: App {
         let panelCopy = panelCopyHotkeyService
         let apps = pausedMediaApps
         pausedMediaApps = []
+        // Keep what was said so an accidental Esc can be undone from the menu
+        // bar ("Restore Discarded Dictation"). Memory only, never history.
+        let discarded = Self.sharedDiscarded
+        let toPanel = state.dictationDestination == .reviewPanel
+        let preview = toPanel ? reviewPanel.model.text : ""
+        let target = toPanel ? reviewPanel.targetApp : NSWorkspace.shared.frontmostApplication
 
         stopDurationTimer()
         state.dictationDestination = .clipboard
@@ -851,6 +1078,10 @@ struct SusurrusApp: App {
         state.cancel()
 
         Task {
+            let samples = await streaming.sessionAudio()
+            if discarded.keep(.audio(samples: samples, preview: preview), targetApp: target) {
+                traceApp("cancelActiveDictation: kept \(String(format: "%.1f", Double(samples.count) / 16_000))s for restore")
+            }
             await streaming.cancelStreamTranscription()
             await esc.unregister()
             await panelInsert.unregister()
@@ -904,6 +1135,7 @@ struct SusurrusApp: App {
         let panel = reviewPanel
         let panelInsert = panelInsertHotkeyService
         let panelCopy = panelCopyHotkeyService
+        let panelDeps = self.panelDeps
         // Opt-in accuracy-testing capture (tier C): panel dictations only.
         // Quick finishes count too, now that nearly every dictation ends in
         // one: every capture is saved unverified, so text the user never
@@ -924,111 +1156,7 @@ struct SusurrusApp: App {
 
                 if toPanel {
                     let retained = await streaming.takeRetainedSession()
-                    // Deterministic corrections only; the user edits the rest
-                    // by hand in the panel. Even empty text opens the editor
-                    // (so the panel never gets stuck in the recording phase).
-                    let panelOutcome = await finalizer.finalize(
-                        text,
-                        vocabulary: vocab.entries(),
-                        rules: corrections.activeRules()
-                    )
-                    let corrected = panelOutcome.corrected
-                    if !panelOutcome.changes.isEmpty {
-                        let summary = panelOutcome.changes
-                            .map { "\($0.original)→\($0.corrected)" }
-                            .joined(separator: ", ")
-                        traceApp("stopStreamingSession: corrector applied \(panelOutcome.changes.count) fixes (panel): \(summary)")
-                    }
-                    // Credit whatever actually fired, once per dictation. The
-                    // preview pass is never counted — see TranscriptCorrector.
-                    corrections.recordFires(ruleIDs: panelOutcome.changes.compactMap(\.firedRuleID))
-                    vocab.recordFixes(ids: panelOutcome.changes.compactMap(\.firedVocabularyID))
-                    let rawASR = text
-                    // Whisper Title-Cases noun phrases it reads as names. The
-                    // user's own approved transcripts are the only corpus that
-                    // knows "documents" is normally lowercase but "Datavid"
-                    // isn't, so the profile is built from history rather than
-                    // any fixed word list.
-                    let casing = CasingProfile
-                        .build(from: history.items().map(\.text))
-                        .suggestions(for: corrected, vocabulary: vocab.entries())
-                    if !casing.isEmpty {
-                        traceApp("stopStreamingSession: casing suggestions: \(casing.map { "\($0.original)→\($0.suggested)" }.joined(separator: ", "))")
-                    }
-                    await MainActor.run {
-                        let targetApp = panel.targetApp
-                        let deliver: (String, Bool) -> Void = { edited, shouldPaste in
-                            panel.releaseFocus()
-                            let final = edited.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !final.isEmpty else {
-                                panel.cancel()
-                                return
-                            }
-                            // Learn from any manual edit beyond the corrector.
-                            // Copy and Insert are equally good teaching signal.
-                            if final != corrected, !corrected.isEmpty {
-                                corrections.recordCorrection(raw: corrected, edited: final)
-                            }
-                            vocab.recordUsage(in: final)
-                            history.add(final, rawText: rawASR)
-                            clip.writeText(final)
-                            if let retained {
-                                let capture = EvalCaptureStore.Capture(
-                                    samples: retained.samples, approved: final, raw: rawASR,
-                                    corrected: corrected, promptTerms: retained.promptTerms,
-                                    model: retained.model
-                                )
-                                Task.detached(priority: .utility) {
-                                    do {
-                                        if let entry = try EvalCaptureStore().save(capture) {
-                                            traceApp("evalCapture: kept \(entry.id) (\(entry.seconds ?? 0)s)")
-                                        }
-                                    } catch {
-                                        traceApp("evalCapture: save failed: \(error)")
-                                    }
-                                }
-                            }
-                            guard shouldPaste else {
-                                traceApp("reviewCopy: copied \(final.count) chars, target untouched")
-                                panel.showFinished(final, message: "Copied to Clipboard")
-                                return
-                            }
-                            // Return focus to the target app, then one clean
-                            // paste — the only thing we ever do to it. If its
-                            // focused element is clearly not somewhere to type
-                            // (a file list, a sidebar), skip the ⌘V: the text
-                            // is already on the clipboard, so say so instead.
-                            targetApp?.activate(options: [])
-                            Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(150))
-                                let target = targetApp?.bundleIdentifier ?? "?"
-                                let verdict = targetApp.map { FocusedTextProbe.check(pid: $0.processIdentifier) } ?? .unknown
-                                guard verdict != .notEditable else {
-                                    traceApp("reviewInsert: no text field focused in \(target), copied only")
-                                    panel.showFinished(final, message: "Copied to Clipboard", detail: "No text field to insert into")
-                                    return
-                                }
-                                let pasted = clip.simulatePaste(into: targetApp?.bundleIdentifier)
-                                traceApp("reviewInsert: pasted=\(pasted) into \(target) (field: \(verdict))")
-                                if pasted {
-                                    panel.showFinished(final, message: "Inserted")
-                                } else {
-                                    panel.showFinished(final, message: "Copied to Clipboard", detail: "Couldn't paste — press ⌘V to insert")
-                                }
-                            }
-                        }
-                        if let quickFinish {
-                            let final = corrected.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !final.isEmpty else {
-                                traceApp("reviewQuickFinish: nothing heard, closing")
-                                panel.cancel()
-                                return
-                            }
-                            deliver(corrected, quickFinish == .insert)
-                        } else {
-                            panel.enterEditing(finalText: corrected, casingSuggestions: casing, onFinish: deliver)
-                        }
-                    }
+                    await Self.finishInPanel(rawText: text, retained: retained, quickFinish: quickFinish, deps: panelDeps)
                 } else if !text.isEmpty {
                     // Layer 1 (deterministic corrections — learned rules,
                     // fuzzy vocabulary, casing; always on, ~0ms), then the

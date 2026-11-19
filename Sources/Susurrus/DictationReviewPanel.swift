@@ -482,6 +482,11 @@ final class DictationReviewPanel: NSPanel {
         set { model.onCancelRecording = newValue }
     }
 
+    /// Told the editor's text when the user discards it (Esc, Cancel, the
+    /// close button), so it can be kept for a restore. The panel still
+    /// closes at once.
+    var onDiscardEdits: ((String) -> Void)?
+
     /// Per-session live-preview diagnostics, logged when listening ends. The
     /// preview sometimes stays blank while dictation itself works; these say
     /// whether text reached the panel and whether macOS considered the panel
@@ -556,7 +561,7 @@ final class DictationReviewPanel: NSPanel {
 
         // Cancel button / Esc / close button all just discard and close —
         // there is no state to unwind, only the window to dismiss.
-        model.onCancel = { [weak self] in self?.close(restoringFocus: true) }
+        model.onCancel = { [weak self] in self?.cancelFromPanel() }
 
         // `setFrameAutosaveName` both restores a previously saved frame (if
         // one exists) and registers the window to keep saving on every future
@@ -596,6 +601,7 @@ final class DictationReviewPanel: NSPanel {
         session += 1
         self.targetApp = targetApp
         quickFinish = nil
+        onDiscardEdits = nil
         model.onInsert = nil
         model.onCopy = nil
         model.text = ""
@@ -670,6 +676,23 @@ final class DictationReviewPanel: NSPanel {
         holdsFocus = false
     }
 
+    /// Reopen for a restored discard: in the processing phase, taking focus,
+    /// until `enterEditing` shows the text. Insert pastes into `targetApp`.
+    func beginRestoring(targetApp: NSRunningApplication?) {
+        session += 1
+        self.targetApp = targetApp
+        quickFinish = nil
+        onDiscardEdits = nil
+        model.onInsert = nil
+        model.onCopy = nil
+        model.text = ""
+        model.casingSuggestions = []
+        model.phase = .processing
+        holdsFocus = true
+        focusReclaims = 0
+        takeFocus()
+    }
+
     /// Close without inserting (external cancel, e.g. a new session starting).
     func cancel() {
         if model.phase == .recording { logPreviewSummary() }
@@ -681,6 +704,13 @@ final class DictationReviewPanel: NSPanel {
     /// Hide the panel. If Susurrus had become frontmost (the editor, or a
     /// click on the panel), hand focus back to the app dictated from rather
     /// than leaving the user in a menu bar app with no window.
+    /// Esc / Cancel / the close button outside listening. Discarding the
+    /// editor hands its text over to be kept; the panel closes either way.
+    private func cancelFromPanel() {
+        if model.phase == .editing { onDiscardEdits?(model.text) }
+        close(restoringFocus: true)
+    }
+
     private func close(restoringFocus: Bool) {
         holdsFocus = false
         orderOut(nil)
