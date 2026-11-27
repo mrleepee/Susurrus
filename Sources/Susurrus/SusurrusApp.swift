@@ -740,6 +740,18 @@ struct SusurrusApp: App {
                 isPushToTalk: appState.recordingMode == .pushToTalk,
                 editCombo: hotkeyStorage.loadCombo()
             )
+            // Warn in the panel if the mic is delivering pure silence — a
+            // stuck coreaudiod otherwise just looks like a blank panel.
+            let micSession = panel.sessionID
+            Task { @MainActor in
+                while panel.sessionID == micSession, state.recordingState == .streaming {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard panel.sessionID == micSession, state.recordingState == .streaming else { break }
+                    if let peak = await streaming.recentPeak(seconds: MicSilence.window) {
+                        panel.showMicSilent(MicSilence.isDead(peak: peak))
+                    }
+                }
+            }
             // An earlier dictation was discarded: offer it back. Restoring
             // puts its text ahead of this one and keeps listening, so the
             // user can carry on from where they were cut off.
