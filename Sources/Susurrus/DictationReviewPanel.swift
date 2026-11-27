@@ -50,6 +50,11 @@ final class DictationReviewModel: ObservableObject {
     /// Stop this recording and reopen the discarded one instead.
     var onRestoreLast: (() -> Void)?
 
+    /// Set while listening when the microphone is delivering pure silence
+    /// (see `MicSilence`), so a blank panel says why instead of just
+    /// waiting for words that will never come.
+    @Published var micSilent = false
+
     /// Apply one suggestion and retire its chip. The chip goes away either
     /// way: if the user has already edited that span by hand, the range no
     /// longer matches and there is nothing left to offer.
@@ -121,7 +126,10 @@ struct DictationReviewView: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, 22)
                         .padding(.top, 12)
-                        .padding(.bottom, restoreLine == nil ? 12 : 4)
+                        .padding(.bottom, restoreLine == nil && !showsMicWarning ? 12 : 4)
+                    if showsMicWarning {
+                        micWarning
+                    }
                     if let restoreLine {
                         Text(restoreLine)
                             .font(.callout)
@@ -167,6 +175,32 @@ struct DictationReviewView: View {
             .padding(.horizontal, 16)
             .padding(.top, 6)
         }
+    }
+
+    private var showsMicWarning: Bool {
+        model.phase == .recording && model.micSilent
+    }
+
+    /// The mic is delivering digital silence. Restarting coreaudiod is what
+    /// fixed it the time it happened; the command is selectable to copy.
+    private var micWarning: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No sound is coming from the microphone.")
+                    .font(.callout.weight(.medium))
+                Text("macOS audio may be stuck. Restart it in Terminal with sudo killall coreaudiod, or check the input in System Settings → Sound.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } icon: {
+            Image(systemName: "mic.slash.fill")
+                .foregroundStyle(.orange)
+        }
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 22)
+        .padding(.bottom, 12)
     }
 
     /// Until the user starts speaking, name the discarded dictation the
@@ -668,6 +702,7 @@ final class DictationReviewPanel: NSPanel {
         restoredPrefix = nil
         restoredText = ""
         livePreviewText = ""
+        model.micSilent = false
         model.onInsert = nil
         model.onCopy = nil
         model.onGo = nil
@@ -706,6 +741,14 @@ final class DictationReviewPanel: NSPanel {
         model.restoreOffer = nil
         restoredText = text
         model.text = RestoredPrefix.join(restoredText, livePreviewText)
+    }
+
+    /// Say (or stop saying) that the microphone is delivering only silence.
+    /// Listening only; logs each change so the debug log shows when it began.
+    func showMicSilent(_ silent: Bool) {
+        guard model.phase == .recording, model.micSilent != silent else { return }
+        model.micSilent = silent
+        traceApp("Review panel: microphone \(silent ? "silent — warning shown" : "has sound again")")
     }
 
     /// The mic has closed; show that the final decode is running.

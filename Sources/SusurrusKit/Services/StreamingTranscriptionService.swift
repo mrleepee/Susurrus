@@ -845,6 +845,16 @@ public actor StreamingTranscriptionService {
         activeProcessor.map { Array($0.audioSamples) } ?? []
     }
 
+    /// Peak amplitude of the last `seconds` of live audio, or nil when no
+    /// session is running or it hasn't captured that much yet. Polled while
+    /// listening to spot a microphone that is delivering pure silence.
+    public func recentPeak(seconds: Double) -> Float? {
+        guard let samples = activeProcessor?.audioSamples else { return nil }
+        let window = Int(seconds * Double(Self.sampleRate))
+        guard window > 0, samples.count >= window else { return nil }
+        return MicSilence.peak(of: samples.suffix(window))
+    }
+
     /// Abandon the in-flight session with no output: no whole-buffer decode,
     /// nothing returned, nothing thrown. Used for a deliberate user cancel
     /// (Esc, wired in SusurrusApp.cancelActiveDictation) rather than a normal

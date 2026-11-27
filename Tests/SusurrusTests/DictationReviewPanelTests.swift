@@ -224,6 +224,48 @@ struct DictationReviewPanelTests {
     }
 }
 
+/// A mic delivering pure silence gets a warning while listening, not a
+/// blank panel.
+@Suite("DictationReviewPanel — silent microphone", .serialized)
+@MainActor
+struct DictationReviewPanelMicSilenceTests {
+
+    private func listeningPanel() -> DictationReviewPanel {
+        let panel = DictationReviewPanel()
+        panel.activateApp = {}
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        return panel
+    }
+
+    @Test("Shows the warning while listening and clears it when sound returns")
+    func showsAndClears() {
+        let panel = listeningPanel()
+        defer { panel.cancel() }
+        panel.showMicSilent(true)
+        #expect(panel.model.micSilent)
+        panel.showMicSilent(false)
+        #expect(!panel.model.micSilent)
+    }
+
+    @Test("Ignored once listening is over")
+    func ignoredAfterListening() {
+        let panel = listeningPanel()
+        defer { panel.cancel() }
+        panel.beginProcessing()
+        panel.showMicSilent(true)
+        #expect(!panel.model.micSilent)
+    }
+
+    @Test("A new dictation starts without the warning")
+    func newSessionClears() {
+        let panel = listeningPanel()
+        defer { panel.cancel() }
+        panel.showMicSilent(true)
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        #expect(!panel.model.micSilent)
+    }
+}
+
 /// The editor's Copy / Insert / Go buttons each deliver the edited text
 /// with their own mode.
 @Suite("DictationReviewPanel — editor delivery", .serialized)
