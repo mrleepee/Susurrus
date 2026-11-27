@@ -16,14 +16,18 @@ public protocol ClipboardManaging: Sendable {
     func simulatePaste() -> Bool
 
     /// Paste into a known app, using the keystroke shape that app needs
-    /// (see `PasteKeystroke`). Returns false if accessibility is missing.
+    /// (see `PasteKeystroke`), and press Return after it when `pressReturn`
+    /// (Go: send the message). Returns false if accessibility is missing.
     @discardableResult
-    func simulatePaste(into bundleID: String?) -> Bool
+    func simulatePaste(into bundleID: String?, pressReturn: Bool) -> Bool
 }
 
 public extension ClipboardManaging {
     @discardableResult
-    func simulatePaste(into bundleID: String?) -> Bool { simulatePaste() }
+    func simulatePaste(into bundleID: String?, pressReturn: Bool) -> Bool { simulatePaste() }
+
+    @discardableResult
+    func simulatePaste(into bundleID: String?) -> Bool { simulatePaste(into: bundleID, pressReturn: false) }
 }
 
 /// One key event in a simulated paste.
@@ -36,6 +40,7 @@ public struct PasteKeystroke: Equatable, Sendable {
 
     static let vKey: UInt16 = 0x09
     static let commandKey: UInt16 = 0x37
+    static let returnKey: UInt16 = 0x24
 
     /// Apps that track modifier keys from their own down/up events rather
     /// than the flags on each key event. Remote-desktop clients forward keys
@@ -49,8 +54,24 @@ public struct PasteKeystroke: Equatable, Sendable {
     /// flagged V down/up; apps in `explicitModifierApps` get the sequence a
     /// real keyboard produces — Command down, V down, V up, Command up —
     /// paced so the client forwards Command before V.
-    public static func paste(into bundleID: String?) -> [PasteKeystroke] {
-        if let bundleID, explicitModifierApps.contains(bundleID) {
+    ///
+    /// With `pressReturn` (Go), a bare Return follows once the paste has
+    /// landed. Remote clients get longer: the paste crosses the network
+    /// before the Return does.
+    public static func paste(into bundleID: String?, pressReturn: Bool = false) -> [PasteKeystroke] {
+        let remote = bundleID.map(explicitModifierApps.contains) ?? false
+        var strokes = pasteOnly(remote: remote)
+        guard pressReturn else { return strokes }
+        let last = strokes.removeLast()
+        strokes.append(PasteKeystroke(keyCode: last.keyCode, keyDown: last.keyDown, command: last.command,
+                                      pauseAfter: remote ? 250_000 : 100_000))
+        strokes.append(PasteKeystroke(keyCode: returnKey, keyDown: true, command: false, pauseAfter: remote ? 50_000 : 20_000))
+        strokes.append(PasteKeystroke(keyCode: returnKey, keyDown: false, command: false, pauseAfter: 0))
+        return strokes
+    }
+
+    private static func pasteOnly(remote: Bool) -> [PasteKeystroke] {
+        if remote {
             return [
                 PasteKeystroke(keyCode: commandKey, keyDown: true, command: true, pauseAfter: 30_000),
                 PasteKeystroke(keyCode: vKey, keyDown: true, command: true, pauseAfter: 50_000),
