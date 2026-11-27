@@ -35,6 +35,8 @@ final class DictationReviewModel: ObservableObject {
     /// Copy to clipboard without touching the app you dictated from —
     /// for when you want the text somewhere else, or nowhere yet.
     var onCopy: ((String) -> Void)?
+    /// Insert, then press Return — send the message in a chat or terminal.
+    var onGo: ((String) -> Void)?
     var onCancel: (() -> Void)?
     /// Listening-phase footer buttons: finish to copy / insert, or to the
     /// editor (nil); and discard the recording.
@@ -191,6 +193,8 @@ struct DictationReviewView: View {
                             .help("Stop and copy to the clipboard")
                         KeyHintButton(keys: "⌥⌘↩", label: "Insert") { model.onFinishRecording?(.insert) }
                             .help("Stop and insert into the app you dictated from")
+                        KeyHintButton(keys: "⇧⌘↩", label: "Go") { model.onFinishRecording?(.go) }
+                            .help("Stop, insert into the app you dictated from, and press Return")
                         KeyHintButton(keys: model.editKeys, label: "Review") { model.onFinishRecording?(nil) }
                             .help("Stop and edit the text before using it")
                     }
@@ -223,6 +227,11 @@ struct DictationReviewView: View {
                         Button("Insert") { model.onInsert?(model.text) }
                             .keyboardShortcut(.return, modifiers: [.command, .option])
                             .help("Insert into the app you dictated from (⌥⌘⏎)")
+                            .glassButton()
+                            .disabled(isEmpty)
+                        Button("Go") { model.onGo?(model.text) }
+                            .keyboardShortcut(.return, modifiers: [.command, .shift])
+                            .help("Insert into the app you dictated from and press Return (⇧⌘⏎)")
                             .glassButton()
                             .disabled(isEmpty)
                         Button("Copy") { model.onCopy?(model.text) }
@@ -490,7 +499,8 @@ final class DictationReviewPanel: NSPanel {
     var targetApp: NSRunningApplication?
 
     /// How to finish straight from listening, skipping the editor.
-    enum QuickFinish { case copy, insert }
+    /// Also how the editor delivers: Copy, Insert, or Go (insert + Return).
+    enum QuickFinish { case copy, insert, go }
 
     /// Set when the session is finished with a copy/insert shortcut rather
     /// than the main hotkey; nil means open the editor as usual.
@@ -660,6 +670,7 @@ final class DictationReviewPanel: NSPanel {
         livePreviewText = ""
         model.onInsert = nil
         model.onCopy = nil
+        model.onGo = nil
         model.text = ""
         model.casingSuggestions = []
         model.isPushToTalk = isPushToTalk
@@ -721,18 +732,19 @@ final class DictationReviewPanel: NSPanel {
     }
 
     /// Switch to the editable phase with the finalized text and take focus.
-    /// `onFinish` receives the user's edited text and whether it should be
-    /// pasted into the target app (Insert) or only copied (Copy). It reports
+    /// `onFinish` receives the user's edited text and how to deliver it:
+    /// copied only, pasted into the target app, or pasted then Return. It reports
     /// the outcome with `showFinished`, which closes the panel.
     func enterEditing(
         finalText: String,
         casingSuggestions: [CasingSuggestion] = [],
-        onFinish: @escaping (String, Bool) -> Void
+        onFinish: @escaping (String, QuickFinish) -> Void
     ) {
         model.text = finalText
         model.casingSuggestions = casingSuggestions
-        model.onInsert = { edited in onFinish(edited, true) }
-        model.onCopy = { edited in onFinish(edited, false) }
+        model.onInsert = { edited in onFinish(edited, .insert) }
+        model.onCopy = { edited in onFinish(edited, .copy) }
+        model.onGo = { edited in onFinish(edited, .go) }
         model.phase = .editing
         takeFocus()
     }
@@ -752,6 +764,7 @@ final class DictationReviewPanel: NSPanel {
         onDiscardEdits = nil
         model.onInsert = nil
         model.onCopy = nil
+        model.onGo = nil
         model.text = ""
         model.casingSuggestions = []
         model.phase = .processing

@@ -42,11 +42,12 @@ public final class PasteboardClipboardService: ClipboardManaging, @unchecked Sen
     }
 
     /// Simulate Cmd+V keystroke to paste clipboard contents at cursor, shaped
-    /// for `bundleID` (see `PasteKeystroke.paste(into:)`).
+    /// for `bundleID` (see `PasteKeystroke.paste(into:pressReturn:)`), then
+    /// Return when `pressReturn`.
     /// Requires macOS Accessibility permissions (System Settings > Privacy & Security > Accessibility).
     /// Returns true if the events were posted, false if accessibility permissions are missing.
     @discardableResult
-    public func simulatePaste(into bundleID: String?) -> Bool {
+    public func simulatePaste(into bundleID: String?, pressReturn: Bool) -> Bool {
         let trusted = AXIsProcessTrusted()
         Self.logger.info("simulatePaste: AXIsProcessTrusted = \(trusted)")
         guard trusted else {
@@ -60,7 +61,7 @@ public final class PasteboardClipboardService: ClipboardManaging, @unchecked Sen
         }
 
         let source = CGEventSource(stateID: .combinedSessionState)
-        let keystrokes = PasteKeystroke.paste(into: bundleID)
+        let keystrokes = PasteKeystroke.paste(into: bundleID, pressReturn: pressReturn)
         let events = keystrokes.compactMap { stroke -> CGEvent? in
             guard let event = CGEvent(keyboardEventSource: source, virtualKey: stroke.keyCode, keyDown: stroke.keyDown) else {
                 return nil
@@ -79,7 +80,7 @@ public final class PasteboardClipboardService: ClipboardManaging, @unchecked Sen
             event.post(tap: .cghidEventTap)
             if stroke.pauseAfter > 0 { usleep(stroke.pauseAfter) }
         }
-        Self.logger.info("simulatePaste: posted Cmd+V (\(keystrokes.count) events) via cghidEventTap")
+        Self.logger.info("simulatePaste: posted Cmd+V\(pressReturn ? " + Return" : "") (\(keystrokes.count) events) via cghidEventTap")
         return true
     }
 

@@ -37,4 +37,37 @@ struct PasteKeystrokeTests {
         #expect(strokes.map(\.keyDown) == [true, false])
         #expect(strokes.map(\.command) == [true, true])
     }
+
+    @Test("Go presses a bare Return after the paste", arguments: [
+        "com.amazon.workspaces", "com.tinyspeck.slackmacgap", nil,
+    ] as [String?])
+    func goAddsReturn(bundleID: String?) {
+        let paste = PasteKeystroke.paste(into: bundleID)
+        let go = PasteKeystroke.paste(into: bundleID, pressReturn: true)
+        // The paste itself is unchanged, then Return down/up with no ⌘.
+        #expect(Array(go.prefix(paste.count)).map(\.keyCode) == paste.map(\.keyCode))
+        #expect(Array(go.prefix(paste.count)).map(\.command) == paste.map(\.command))
+        #expect(go.suffix(2).map(\.keyCode) == [0x24, 0x24])
+        #expect(go.suffix(2).map(\.keyDown) == [true, false])
+        #expect(go.suffix(2).map(\.command) == [false, false])
+    }
+
+    @Test("Go waits for the paste to land before Return, longer for WorkSpaces")
+    func goWaitsForPaste() {
+        let remote = PasteKeystroke.paste(into: "com.amazon.workspaces", pressReturn: true)
+        let local = PasteKeystroke.paste(into: nil, pressReturn: true)
+        let remoteWait = remote[remote.count - 3].pauseAfter
+        let localWait = local[local.count - 3].pauseAfter
+        #expect(localWait > 0)
+        #expect(remoteWait > localWait)
+        #expect(remote.last?.pauseAfter == 0)
+    }
+
+    @Test("Go into WorkSpaces releases Command before Return")
+    func goReleasesCommandFirst() {
+        let strokes = PasteKeystroke.paste(into: "com.amazon.workspaces", pressReturn: true)
+        let commandUp = strokes.firstIndex { $0.keyCode == 0x37 && !$0.keyDown }
+        let returnDown = strokes.firstIndex { $0.keyCode == 0x24 && $0.keyDown }
+        #expect(commandUp != nil && returnDown != nil && commandUp! < returnDown!)
+    }
 }

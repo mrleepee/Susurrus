@@ -203,7 +203,7 @@ struct DictationReviewPanelTests {
         #expect(!panel.holdsFocus)
     }
 
-    @Test("Footer Copy / Insert / Review / Cancel reach the app's handlers")
+    @Test("Footer Copy / Insert / Go / Review / Cancel reach the app's handlers")
     func footerRouting() {
         let (panel, _) = makeListeningPanel()
         defer { panel.cancel() }
@@ -215,11 +215,49 @@ struct DictationReviewPanelTests {
         // What the footer buttons call.
         panel.model.onFinishRecording?(.copy)
         panel.model.onFinishRecording?(.insert)
+        panel.model.onFinishRecording?(.go)
         panel.model.onFinishRecording?(nil)
         panel.model.onCancelRecording?()
 
-        #expect(finishes == [.copy, .insert, nil])
+        #expect(finishes == [.copy, .insert, .go, nil])
         #expect(cancels.value == 1)
+    }
+}
+
+/// The editor's Copy / Insert / Go buttons each deliver the edited text
+/// with their own mode.
+@Suite("DictationReviewPanel — editor delivery", .serialized)
+@MainActor
+struct DictationReviewPanelDeliveryTests {
+
+    @Test("Copy, Insert and Go each report their mode with the edited text")
+    func editorModes() {
+        let panel = DictationReviewPanel()
+        panel.activateApp = {}
+        defer { panel.cancel() }
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        var delivered: [(String, DictationReviewPanel.QuickFinish)] = []
+        panel.enterEditing(finalText: "draft") { delivered.append(($0, $1)) }
+        panel.model.text = "ship it"
+
+        panel.model.onCopy?(panel.model.text)
+        panel.model.onInsert?(panel.model.text)
+        panel.model.onGo?(panel.model.text)
+
+        #expect(delivered.map(\.0) == ["ship it", "ship it", "ship it"])
+        #expect(delivered.map(\.1) == [.copy, .insert, .go])
+    }
+
+    @Test("A new dictation drops the previous editor's Go handler")
+    func newSessionClearsGo() {
+        let panel = DictationReviewPanel()
+        panel.activateApp = {}
+        defer { panel.cancel() }
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        panel.enterEditing(finalText: "old") { _, _ in }
+        #expect(panel.model.onGo != nil)
+        panel.beginRecording(targetApp: .current, isPushToTalk: false, editCombo: nil)
+        #expect(panel.model.onGo == nil)
     }
 }
 
