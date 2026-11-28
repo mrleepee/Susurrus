@@ -106,7 +106,32 @@ public actor StreamingTranscriptionService {
     /// The audio processor feeding the current session. Retained so
     /// stopStreamTranscription() can read the full session buffer for the
     /// final flush after the realtime loop has exited.
-    private var activeProcessor: (any AudioProcessing)?
+    private var activeProcessor: (any AudioProcessing)? {
+        get { processorBox.value }
+        set { processorBox.value = newValue }
+    }
+
+    /// Holds `activeProcessor` behind a lock so `stopCaptureNow()` can reach
+    /// it without entering the actor.
+    private nonisolated let processorBox = ProcessorBox()
+
+    final class ProcessorBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var processor: (any AudioProcessing)?
+        var value: (any AudioProcessing)? {
+            get { lock.lock(); defer { lock.unlock() }; return processor }
+            set { lock.lock(); processor = newValue; lock.unlock() }
+        }
+    }
+
+    /// Stops the microphone at once, without waiting for the actor. Twice
+    /// (11-18, 11-23) a stop waited 9–45 s just to enter the actor while a
+    /// preview pass held it, and the mic kept recording all that time. The
+    /// app calls this the moment the user stops; `stopStreamTranscription`
+    /// then decodes what was captured.
+    public nonisolated func stopCaptureNow() {
+        processorBox.value?.stopRecording()
+    }
 
     /// Decoding options for the current session, reused by the final flush
     /// so vocabulary biasing applies to the last pass too.
@@ -490,6 +515,7 @@ public actor StreamingTranscriptionService {
     ///
     /// - Returns: The final text, or throws if no speech was detected.
     public func stopStreamTranscription() async throws -> String {
+        trace("stop: entered actor")
         guard let transcriber = streamTranscriber else {
             return ""
         }
@@ -600,6 +626,32 @@ public actor StreamingTranscriptionService {
         return .recordingInterrupted(capturedSeconds: Int(capturedSeconds), wallClockSeconds: Int(wallClockSeconds))
     }
 
+    /// Resident size of this process and the system's free memory, for the
+    /// decode trace.
+    static func memorySummary() -> String {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        let footprint = kr == KERN_SUCCESS ? Int(info.phys_footprint / 1_048_576) : -1
+
+        var stats = vm_statistics64_data_t()
+        var statsCount = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
+        let hr = withUnsafeMutablePointer(to: &stats) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(statsCount)) {
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &statsCount)
+            }
+        }
+        guard hr == KERN_SUCCESS else { return "footprint \(footprint)MB" }
+        let page = Int(getpagesize())
+        let free = (Int(stats.free_count) + Int(stats.inactive_count)) * page / 1_048_576
+        let compressed = Int(stats.compressor_page_count) * page / 1_048_576
+        return "footprint \(footprint)MB, free \(free)MB, compressed \(compressed)MB"
+    }
+
     /// Runs `operation` and returns its result, or nil once `limit` passes.
     /// The operation is not cancelled: it may be stuck in code that ignores
     /// cancellation, and its result is simply no longer awaited. Unstructured
@@ -610,11 +662,14 @@ public actor StreamingTranscriptionService {
     ) async -> T? {
         let (stream, continuation) = AsyncStream<T?>.makeStream()
         let worker = Task { continuation.yield(await operation()) }
-        let timer = Task {
-            try? await Task.sleep(for: limit)
-            if !Task.isCancelled { continuation.yield(nil) }
+        // The deadline runs on a dispatch queue, not a Task.sleep: a sleeping
+        // task needs a free cooperative thread to wake, and on 11-18 and
+        // 11-23 the 1 s limits took 12–100 s to fire.
+        let nanos = limit.components.seconds * 1_000_000_000 + limit.components.attoseconds / 1_000_000_000
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .nanoseconds(Int(nanos))) {
+            continuation.yield(nil)
         }
-        defer { timer.cancel(); continuation.finish(); _ = worker }
+        defer { continuation.finish(); _ = worker }
         for await result in stream { return result }
         return nil
     }
@@ -761,7 +816,14 @@ public actor StreamingTranscriptionService {
             return failed
         }
         let ms = msSince(start)
-        trace("decode: \(String(format: "%.1f", seconds))s audio in \(ms)ms (qwen3-asr, pauses squeezed)")
+        // Rate, output size and memory: one 36.6 s decode took 16 s on
+        // 11-22 (10x the usual rate) with a normal-length output, and the
+        // log couldn't say whether the weights had been paged out.
+        let rate = seconds > 0 ? Double(ms) / 1000 / seconds : 0
+        trace("decode: \(String(format: "%.1f", seconds))s audio in \(ms)ms (qwen3-asr, pauses squeezed), \(String(format: "%.3f", rate))s per audio s, \(text.count) chars, \(Self.memorySummary())")
+        if TextNormalizer.containsNonLatinScript(text) {
+            trace("decode: non-Latin script in Qwen output, removed by the normaliser: \(text.prefix(200))")
+        }
         let cleaned = Self.stripNoiseTokens(from: text)
         return FinalTranscript(
             outcome: cleaned.isEmpty ? .empty : .decoded,

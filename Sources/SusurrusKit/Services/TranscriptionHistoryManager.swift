@@ -95,6 +95,7 @@ public final class TranscriptionHistoryManager: @unchecked Sendable {
     public func recentBiasTerms(
         itemLimit: Int = 30,
         termLimit: Int = 20,
+        minDocuments: Int = minBiasDocuments,
         dictionary: EnglishDictionary = .shared
     ) -> [String] {
         let all = loadAll()
@@ -102,12 +103,18 @@ public final class TranscriptionHistoryManager: @unchecked Sendable {
         return ProperNoun.extractBiasTerms(
             from: all.prefix(itemLimit).map(\.text),
             limit: termLimit,
+            // Two dictations, not one: a single mishearing ("Summit",
+            // "Clocky", "Marlogic") went straight into the next decodes'
+            // context.
+            minDocuments: minDocuments,
             excluding: ProperNoun.ordinaryWordExclusion(
                 profile: profile,
                 dictionary: dictionary
             )
         )
     }
+
+    public static let minBiasDocuments = 2
 
     /// Clear all history.
     public func clear() {

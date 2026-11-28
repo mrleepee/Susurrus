@@ -58,8 +58,12 @@ enum ProperNoun {
     static func extractBiasTerms(
         from texts: [String],
         limit: Int,
+        minDocuments: Int = 1,
         excluding isExcluded: (String) -> Bool = { _ in false }
     ) -> [String] {
+        /// How often each spelling was seen, so the term goes out in the
+        /// casing the user writes most ("SFN", not one dictation's "Sfn").
+        var spellings: [String: [String: Int]] = [:]
         /// First-seen spelling, order of first appearance, and the number of
         /// distinct texts the term appears in.
         var display: [String: String] = [:]
@@ -93,11 +97,13 @@ enum ProperNoun {
                         order[lowered] = order.count
                     }
                     documentCount[lowered, default: 0] += 1
+                    spellings[lowered, default: [:]][term, default: 0] += 1
                 }
             }
         }
 
         return documentCount.keys
+            .filter { (documentCount[$0] ?? 0) >= minDocuments }
             .sorted { a, b in
                 let ca = documentCount[a] ?? 0
                 let cb = documentCount[b] ?? 0
@@ -105,7 +111,13 @@ enum ProperNoun {
                 return (order[a] ?? 0) < (order[b] ?? 0)
             }
             .prefix(limit)
-            .compactMap { display[$0] }
+            .compactMap { key in
+                guard let first = display[key] else { return nil }
+                let counts = spellings[key] ?? [:]
+                let best = counts.values.max() ?? 0
+                // Ties keep the first-seen spelling.
+                return (counts[first] ?? 0) == best ? first : counts.first { $0.value == best }?.key
+            }
     }
 
     static func isAllCaps(_ word: String) -> Bool {

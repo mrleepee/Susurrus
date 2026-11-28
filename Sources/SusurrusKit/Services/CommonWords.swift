@@ -45,6 +45,8 @@ enum CommonWords {
         // "query graph" was being rewritten to "XQuery graph" (one edit away);
         // the user taught a rule 9 times to undo it.
         "query", "queries",
+        // "it's quite clever" became "it's quite Clive" (11-20).
+        "clever",
     ]
 
     /// ~700 most frequent English words (lowercase, alphanumeric-normalized).

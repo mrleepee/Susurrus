@@ -1250,7 +1250,20 @@ struct SusurrusApp: App {
         let keepRecording = toPanel && UserDefaults.standard.bool(forKey: EvalCaptureStore.enabledKey)
 
         Task {
+            // Restored text survives a failed stop: on 11-20 a Restore
+            // followed by Insert with nothing new said threw "no speech",
+            // the panel closed, and the restored dictation was gone for good.
+            let keepRestoredText: @Sendable () async -> Bool = {
+                guard toPanel, let prefix = await restoredPrefix?.value else { return false }
+                traceApp("stopStreamingSession: new audio failed, keeping the restored text")
+                await Self.finishInPanel(rawText: "", prefix: prefix, retained: nil, quickFinish: quickFinish, deps: panelDeps)
+                return true
+            }
             do {
+                // Mic off first, without waiting on the streaming actor: a
+                // busy preview pass held the actor for 9–45 s twice, and
+                // everything said in that time was recorded too.
+                streaming.stopCaptureNow()
                 // Listening is over: hand ⌘⏎ / ⌥⌘⏎ back before the editor
                 // opens, so its own Insert/Copy shortcuts aren't swallowed.
                 await panelInsert.unregister()
@@ -1259,6 +1272,7 @@ struct SusurrusApp: App {
                 let stopStart = Date()
                 traceApp("stopStreamingSession: calling stopStreamTranscription")
                 await streaming.setRetainSessionAudio(keepRecording)
+                traceApp("stopStreamingSession: retain set after \(Int(Date().timeIntervalSince(stopStart) * 1000))ms")
                 let text = try await streaming.stopStreamTranscription()
                 traceApp("stopStreamingSession: got text in \(Int(Date().timeIntervalSince(stopStart) * 1000))ms (\(text.count) chars): \(text.prefix(100))")
 
@@ -1363,7 +1377,10 @@ struct SusurrusApp: App {
                 }
             } catch let error as TranscriptionError where error.isRecordingInterrupted {
                 traceApp("stopStreamingSession: \(error.localizedDescription)")
-                if toPanel {
+                if await keepRestoredText() {
+                    // The panel shows the restored text; the message below
+                    // still says the new part was lost.
+                } else if toPanel {
                     await MainActor.run { panel.cancel() }
                 }
                 // Overlay, not a notification: see the no-speech case below.
@@ -1371,7 +1388,9 @@ struct SusurrusApp: App {
             } catch TranscriptionError.noSpeechDetected {
                 traceApp("stopStreamingSession: no speech detected")
                 // Panel mode: nothing to edit — just close, no nagging banner.
-                if toPanel {
+                if await keepRestoredText() {
+                    // Nothing new was said; the restored text is in the panel.
+                } else if toPanel {
                     await MainActor.run { panel.cancel() }
                 } else {
                     // Not a system notification: this machine has been
@@ -1382,7 +1401,9 @@ struct SusurrusApp: App {
                 }
             } catch {
                 traceApp("stopStreamingSession: transcription failed: \(error.localizedDescription)")
-                if toPanel {
+                if await keepRestoredText() {
+                    // Restored text kept; the notification covers the rest.
+                } else if toPanel {
                     await MainActor.run { panel.cancel() }
                 }
                 notifications.showNotification(

@@ -149,7 +149,7 @@ public enum TranscriptScorer {
     /// folded away: "Thirty-percent, OK?" and "30 percent okay" compare equal.
     /// Digit grouping is dropped ("10,000" → "10000").
     public static func normalizedWords(_ text: String) -> [String] {
-        var s = text.lowercased().replacingOccurrences(of: "’", with: "'")
+        var s = TextNormalizer.spokenNumbers(text, all: true).lowercased().replacingOccurrences(of: "’", with: "'")
         s = s.replacingOccurrences(of: "(\\d),(\\d{3})", with: "$1$2", options: .regularExpression)
         s = s.replacingOccurrences(of: "%", with: " percent")
         s = s.replacingOccurrences(of: "[^a-z0-9' ]+", with: " ", options: .regularExpression)
