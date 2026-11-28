@@ -889,7 +889,8 @@ struct SusurrusApp: App {
         let panelOutcome = await deps.finalizer.finalize(
             text,
             vocabulary: vocab.entries(),
-            rules: corrections.activeRules()
+            rules: corrections.activeRules(),
+            formatter: SpokenFormatter.fromUserDefaults(commands: SlashCommandCatalog.discover())
         )
         // Restored text comes first, as it was (already corrected or edited
         // by hand); only the newly spoken part goes through the corrector.
@@ -1302,6 +1303,7 @@ struct SusurrusApp: App {
                         text,
                         vocabulary: vocab.entries(),
                         rules: corrections.activeRules(),
+                        formatter: SpokenFormatter.fromUserDefaults(commands: SlashCommandCatalog.discover()),
                         llm: llmStage
                     )
                     if !outcome.changes.isEmpty {

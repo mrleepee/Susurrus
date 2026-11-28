@@ -111,6 +111,8 @@ enum Run {
         }
 
         let finalizer = TranscriptFinalizer()
+        // Built-ins only, not ~/.claude, so a run scores the same on any machine.
+        let formatter = SpokenFormatter(commands: SlashCommandCatalog.builtIns)
         var results: [ClipResult] = []
 
         for (index, entry) in manifest.enumerated() {
@@ -138,7 +140,7 @@ enum Run {
             let raw = transcript.text
             let final: String
             if config.corrector {
-                final = await finalizer.finalize(raw, vocabulary: entries, rules: activeRules).text
+                final = await finalizer.finalize(raw, vocabulary: entries, rules: activeRules, formatter: formatter).text
             } else {
                 final = raw
             }
