@@ -128,9 +128,16 @@ enum Run {
                 previewMs = Int(Date().timeIntervalSince(t) * 1000)
             }
 
-            let transcript: FinalTranscript
+            var transcript: FinalTranscript
             do {
                 transcript = try await service.transcribeOffline(samples: samples, previewText: previewText)
+                // One empty Qwen decode of a clip with speech failed the
+                // whole gate (11-16). Decode it once more and say so, so a
+                // one-off doesn't fail the run but a repeatable one still does.
+                if transcript.outcome == .empty, !entry.reference.isEmpty {
+                    printErr("note: \(entry.id): empty decode, retrying once")
+                    transcript = try await service.transcribeOffline(samples: samples, previewText: previewText)
+                }
             } catch {
                 throw ToolError("\(entry.id): transcribeOffline failed: \(error)")
             }

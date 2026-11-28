@@ -92,6 +92,9 @@ Two multi-word exceptions, both from production false fires:
   and a term stored with spaces ("Trust Signals") is still recased. The
   fuzzy branch has the same guard: "check on" is one edit from `checkIn`,
   "app is" from `APIs`.
+- A multi-word fuzzy window whose first or last word is in
+  `CommonWords.top` is skipped: "Kalpash a" is a name plus "a", not a
+  split misspelling ("dev smal" and "Harnad h" still join).
 - A long single word (6+ letters, not in the system word list) may differ
   from a term in its last consonant: "DataVic" → Datavid, "Funicam" →
   Funicamp. Only the corrector allows this; the ranker and LLM filter keep
@@ -111,7 +114,10 @@ wrong way every time, with no vocabulary involved:
   comma or stop inside a word is removed when the result is a word ("run,s",
   "buildin.g").
 - Hesitation punctuation goes: "I, don't", ". .", and a full stop before a
-  lowercase word ("to be. published"). A lone "i" becomes "I".
+  lowercase word ("to be. published"), or after a word no sentence ends on
+  ("but. I do want"). A lone "i" becomes "I".
+- Glued words are split: "andI", "don'tthink". Spoken file names join:
+  "settings dot json" → "settings.json".
 - Function words capitalised mid-sentence ("we have Our data", "I Can do")
   are lowercased, unless next to another capitalised word (a title).
 - Immediate repeats collapse ("I I", "with the with the"), except doubles

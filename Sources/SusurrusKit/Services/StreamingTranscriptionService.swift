@@ -9,6 +9,7 @@ extension AudioStreamTranscriber.State: @retroactive @unchecked Sendable {}
 
 /// Writes to ~/susurrus_debug.log — same sink as traceApp() in the app layer.
 private func traceStream(_ message: String) {
+    guard !DebugLog.isTestProcess else { return }
     let path = NSHomeDirectory() + "/susurrus_debug.log"
     let line = "\(Date()) [stream] \(message)\n"
     if let handle = FileHandle(forWritingAtPath: path) {
@@ -312,28 +313,45 @@ public actor StreamingTranscriptionService {
     /// the cold-start cost. No-op if the model isn't loaded.
     public func keepWarm() async {
         guard modelReady, let whisperKit else { return }
-        let warmStart = Date()
+        // Each engine is timed on its own. The 300 ms threshold used to
+        // cover the Qwen and Parakeet warm-ups too, so it tripped every idle
+        // minute once Qwen was the final model (11-25) and said nothing.
+        var timings: [String] = []
         if let parakeet {
+            let start = Date()
             _ = try? await parakeet.transcribe(samples: Self.warmupSamples())
+            timings.append("parakeet \(msSince(start))ms")
         }
         if let qwen3 {
+            let start = Date()
             _ = try? await qwen3.transcribe(samples: Self.warmupSamples(), terms: [])
+            timings.append("qwen3 \(msSince(start))ms")
         }
+        let warmStart = Date()
         do {
             _ = try await whisperKit.transcribe(
                 audioArray: Self.warmupSamples(),
                 decodeOptions: DecodingOptions(task: .transcribe, language: languageCode)
             )
-            // Routine warm decodes were 70% of the debug log. Only slow
-            // ones carry signal — they mean the ANE context was evicted.
+            // Only a change of state is logged: the first slow Whisper warm
+            // decode after fast ones (the ANE context was evicted), and the
+            // first fast one after that, with the other engines' times.
             let ms = msSince(warmStart)
-            if ms > 300 {
-                trace("keepWarm: slow decode in \(ms)ms — context was likely evicted")
+            let slow = ms > 300
+            if slow != keepWarmWasSlow {
+                keepWarmWasSlow = slow
+                let others = timings.isEmpty ? "" : "; " + timings.joined(separator: ", ")
+                trace(slow
+                    ? "keepWarm: whisper decode slow (\(ms)ms) — context was likely evicted\(others)"
+                    : "keepWarm: whisper decode fast again (\(ms)ms)\(others)")
             }
         } catch {
             trace("keepWarm: decode FAILED in \(msSince(warmStart))ms: \(error)")
         }
     }
+
+    /// Whether the last keep-warm Whisper decode was slow; see `keepWarm()`.
+    private var keepWarmWasSlow = false
 
     /// Unload the model and stop any active stream.
     public func unloadModel() async {

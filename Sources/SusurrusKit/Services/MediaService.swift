@@ -2,6 +2,7 @@ import AppKit
 
 /// Writes to ~/susurrus_debug.log — same sink as traceApp() in the app layer.
 private func traceMedia(_ message: String) {
+    guard !DebugLog.isTestProcess else { return }
     let path = NSHomeDirectory() + "/susurrus_debug.log"
     let line = "\(Date()) [media] \(message)\n"
     if let handle = FileHandle(forWritingAtPath: path) {
