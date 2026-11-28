@@ -57,16 +57,14 @@ struct CorrectorGuardTests {
             == "and the Cypher query for the graph")
     }
 
-    @Test("Lowercase preceding word still allows the fuzzy fix")
-    func lowercaseContextStillFixed() {
+    // "query" is in the domain stoplist: the user taught a rule 9 times to
+    // undo "query" → "XQuery", so plain "query" is never rewritten now.
+    @Test("Plain query is never rewritten to XQuery")
+    func queryStaysQuery() {
         #expect(correct("he wrote the query retry logic")
-            == "he wrote the XQuery retry logic")
-    }
-
-    @Test("Sentence-initial word with no modifier keeps current behaviour")
-    func sentenceInitialUnchanged() {
+            == "he wrote the query retry logic")
         #expect(correct("Query results come back")
-            == "XQuery results come back")
+            == "Query results come back")
     }
 
     // MARK: - Misheard names still fixed
@@ -108,6 +106,12 @@ struct CorrectorGuardTests {
         #expect(correct("check on the currencies", terms: ["checkIn"]) == "check on the currencies")
         #expect(correct("when the app is done", terms: ["APIs"]) == "when the app is done")
         #expect(correct("So as I said", terms: ["SAAS"]) == "So as I said")
+    }
+
+    @Test("A window with an everyday edge word is not fuzzy-joined (10-29, 11-10)")
+    func everydayEdgeWord() {
+        #expect(correct("ask Kalpash a question", terms: ["Kalpesh"]) == "ask Kalpesh a question")
+        #expect(correct("Maybe there's a pattern", terms: ["Apatin"]) == "Maybe there's a pattern")
     }
 
     @Test("clever is not Clive (11-20)")

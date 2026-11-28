@@ -49,6 +49,10 @@ struct TextNormalizerTests {
         ("I I should go", "I should go"),
         ("we must we must win", "we must win"),
         ("Push master master now", "Push master now"),
+        ("this andI said so", "this and I said so"),
+        ("I don'tthink so", "I don't think so"),
+        ("we don't have the budget, but. I do want it", "we don't have the budget, but I do want it"),
+        ("edit settings local dot json", "edit settings local.json"),
     ])
     func qwenSlips(input: String, expected: String) {
         #expect(TextNormalizer.normalize(input) == expected)
@@ -89,6 +93,8 @@ struct TextNormalizerTests {
         "node.js and i.e. that",
         "The plan is fine. Then we go",
         "It's two of them",
+        "what are you afraid of. Then we left",
+        "the dot product of two vectors",
     ])
     func ordinary(input: String) {
         #expect(TextNormalizer.normalize(input) == input)

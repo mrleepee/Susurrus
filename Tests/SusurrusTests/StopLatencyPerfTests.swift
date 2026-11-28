@@ -17,7 +17,7 @@ import WhisperKit
 @Suite("Stop Latency Decomposition", .tags(.performance))
 struct StopLatencyPerfTests {
 
-    private static let fixture = "test_clip_10s.wav"
+    static let fixture = "test_clip_10s.wav"
 
     /// Realistic vocab strings sized to roughly half and full budget.
     private static let smallPrompt = "MarkLogic, SPARQL, Susurrus, Datavid, CoRB, QAS"
@@ -46,7 +46,9 @@ struct StopLatencyPerfTests {
         return timings[timings.count / 2]
     }
 
-    @Test("Prompt-token and wordTimestamps cost on the final decode")
+    @Test("Prompt-token and wordTimestamps cost on the final decode",
+          .enabled(if: FileManager.default.fileExists(atPath: FileManager.default.currentDirectoryPath + "/" + StopLatencyPerfTests.fixture),
+                   "needs test_clip_10s.wav in the package root"))
     func stopLatencyTaxes() async throws {
         let audio = try loadFixture()
         let service = WhisperKitTranscriptionService()

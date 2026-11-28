@@ -14,6 +14,9 @@ public enum TextNormalizer {
         s = rejoinContractions(s)
         s = inWordPunctuation(s)
         s = strayPunctuation(s)
+        s = gluedWords(s)
+        s = splitSentences(s)
+        s = spokenFileNames(s)
         s = loneLowercaseI(s)
         s = midSentenceCapitals(s)
         s = collapseRepeats(s)
@@ -134,6 +137,47 @@ public enum TextNormalizer {
     private static let abbreviations: Set<String> = [
         "etc", "vs", "approx", "cf", "al", "inc", "ltd", "co", "mr", "mrs", "ms", "dr", "st", "no", "fig", "eg", "ie",
     ]
+
+    /// Missing spaces Qwen leaves at a squeezed pause: "andI" → "and I",
+    /// "don'tthink" → "don't think".
+    static func gluedWords(_ text: String) -> String {
+        var s = text.replacingOccurrences(
+            of: "\\b(and|but|so|then|because|that|if|when|what|where|why|how|which|or)I\\b",
+            with: "$1 I", options: .regularExpression
+        )
+        s = s.replacingOccurrences(
+            of: "\\b(\\p{L}+n['’]t)(\\p{L}{2,})\\b", with: "$1 $2", options: .regularExpression
+        )
+        return s
+    }
+
+    /// A full stop after a word no sentence ends on ("but. I do want",
+    /// "the. Data") is a pause, not a sentence end: drop it, and lowercase
+    /// the next word if it is a function word.
+    static func splitSentences(_ text: String) -> String {
+        let ns = text as NSString
+        var result = text
+        for match in splitRegex.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let next = ns.substring(with: match.range(at: 2))
+            guard let range = Range(match.range, in: result) else { continue }
+            let previous = ns.substring(with: match.range(at: 1))
+            let fixedNext = functionWords.contains(next.lowercased()) && next != "I" ? next.lowercased() : next
+            result.replaceSubrange(range, with: previous + " " + fixedNext)
+        }
+        return result
+    }
+
+    private static let splitRegex = try! NSRegularExpression(
+        pattern: "(?<![\\p{L}\\p{N}'’\\-])((?i:and|but|or|the|an|my|your|our|their|because))\\.[ \\t]+(\\p{Lu}[\\p{L}'’]*)"
+    )
+
+    /// "settings dot json" → "settings.json".
+    static func spokenFileNames(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: "\\b(\\p{L}[\\p{L}\\p{N}_\\-]*) dot (json|md|yaml|yml|txt|js|ts|py|swift|xml|csv|html|sh|toml|plist|log)\\b",
+            with: "$1.$2", options: [.regularExpression, .caseInsensitive]
+        )
+    }
 
     /// A lone lowercase "i" (and "i'm", "i'd"…) → "I". "i.e." is left alone.
     static func loneLowercaseI(_ text: String) -> String {

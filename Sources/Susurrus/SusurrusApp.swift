@@ -7,6 +7,7 @@ private let log = Logger(subsystem: "com.susurrus.app", category: "App")
 
 /// NSLog wrapper — always visible in Console.app and `log show`, unlike os.Logger info.
 func traceApp(_ message: String) {
+    guard !DebugLog.isTestProcess else { return }
     let path = NSHomeDirectory() + "/susurrus_debug.log"
     let line = "\(Date()) \(message)\n"
     if let handle = FileHandle(forWritingAtPath: path) {
@@ -116,7 +117,12 @@ struct SusurrusApp: App {
     /// Periodically reruns a silent inference so the model's ANE context stays
     /// resident and the first recording after an idle spell doesn't pay the
     /// cold-start cost.
-    @State private var keepWarmTimer: Timer?
+    /// The keep-warm timer lives in a reference type: `@State` on the App
+    /// struct isn't reliably installed outside a view, so the nil guard in
+    /// `startKeepWarmTimer` could pass twice and stack a second timer (11-08).
+    @MainActor private final class TimerHolder {
+        static var keepWarm: Timer?
+    }
 
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -1447,10 +1453,10 @@ struct SusurrusApp: App {
     /// second timer (the streaming service instance is shared, so one timer
     /// serves every model).
     private func startKeepWarmTimer() {
-        guard keepWarmTimer == nil else { return }
+        guard TimerHolder.keepWarm == nil else { return }
         let state = appState
         let streaming = streamingService
-        keepWarmTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+        TimerHolder.keepWarm = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             Task { @MainActor in
                 guard state.recordingState == .idle else { return }
                 await streaming.keepWarm()

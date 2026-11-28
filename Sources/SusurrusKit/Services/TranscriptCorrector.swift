@@ -203,6 +203,12 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                       // deletes the "in".
                       !(!isSingleWord && window.words.contains { byNormalized[Self.normalize($0)] != nil }),
                       !(isSingleWord && CommonWords.containsOrInflection(candidateNorm)),
+                      // A window that starts or ends with an everyday word is
+                      // a word plus its neighbour: "Kalpash a" → "Kalpesh"
+                      // ate the "a", "a pattern" → "Apatin" (10-29, 11-10).
+                      // Split misspellings ("dev smal", "Harnad h") have no
+                      // such edge.
+                      !(!isSingleWord && Self.hasEverydayEdgeWord(window.words)),
                       !(isSingleWord && Self.followsNameModifier(window, tokens: tokens, in: text)) {
                 // Fuzzy: phonetic key, length, and edit distance must all be close.
                 // A long single word that isn't English may also differ in
@@ -330,6 +336,11 @@ public struct TranscriptCorrector: TranscriptCorrecting {
     private static func isOrdinaryPhrase(_ words: [String], joinedInto term: String) -> Bool {
         guard words.count > 1, !term.contains(where: \.isWhitespace) else { return false }
         return words.allSatisfy { CommonWords.top.contains(normalize($0)) }
+    }
+
+    private static func hasEverydayEdgeWord(_ words: [String]) -> Bool {
+        guard let first = words.first, let last = words.last else { return false }
+        return CommonWords.top.contains(normalize(first)) || CommonWords.top.contains(normalize(last))
     }
 
     /// Whether the word before `window` is a name or acronym modifier ("CTS

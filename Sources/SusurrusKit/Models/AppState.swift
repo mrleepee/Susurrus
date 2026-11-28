@@ -3,6 +3,7 @@ import Observation
 
 /// Debug trace — writes to ~/susurrus_debug.log for immediate visibility without Xcode.
 private func trace(_ message: String) {
+    guard !DebugLog.isTestProcess else { return }
     let path = NSHomeDirectory() + "/susurrus_debug.log"
     let line = "\(Date()) \(message)\n"
     if let handle = FileHandle(forWritingAtPath: path) {
