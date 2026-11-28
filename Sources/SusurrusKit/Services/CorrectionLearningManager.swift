@@ -71,6 +71,10 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     // MARK: - CorrectionLearning
 
     public func recordCorrection(raw: String, edited: String) {
+        // History keeps the recogniser's raw text; the user edited the
+        // normalised text. Compare like with like, or every normaliser fix
+        // ("twenty four" → "24") reads as a user correction.
+        let raw = TextNormalizer.normalize(raw)
         guard raw != edited else { return }
 
         var outcome = LearningOutcome()
@@ -347,6 +351,11 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
             // speech — never fast-path activate it; require the second
             // sighting. Join/casing fixes ("mark logic" → "MarkLogic",
             // same letters) stay on the fast path.
+            // Common words rewritten as other common words ("They need a
+            // lane" → "I need Elaine" minted `they` → `I`) are rewordings,
+            // not mishearings: a rule would rewrite every future "they".
+            if Self.isReword(match: match, replacement: replacement) { continue }
+
             let matchIsCommonPhrase = Self.isRiskyCommonPhraseMatch(match: match, replacement: replacement)
 
             // Multi-word matches never fast-path, whatever the replacement.
@@ -403,6 +412,16 @@ public final class CorrectionLearningManager: CorrectionLearning, @unchecked Sen
     /// letters) would rewrite legitimate speech — "and while" → "Anwar"
     /// must not activate off one sighting, but "mark logic" → "MarkLogic"
     /// is safe.
+    /// Both sides made only of common words, and different words.
+    static func isReword(match: String, replacement: String) -> Bool {
+        guard normalizeForFuzzy(match) != normalizeForFuzzy(replacement) else { return false }
+        let allCommon: (String) -> Bool = { side in
+            let words = side.split(whereSeparator: { $0.isWhitespace }).map { TranscriptCorrector.normalize(String($0)) }
+            return !words.isEmpty && words.allSatisfy { CommonWords.contains($0) }
+        }
+        return allCommon(match) && allCommon(replacement)
+    }
+
     static func isRiskyCommonPhraseMatch(match: String, replacement: String) -> Bool {
         guard normalizeForFuzzy(match) != normalizeForFuzzy(replacement) else { return false }
         return match

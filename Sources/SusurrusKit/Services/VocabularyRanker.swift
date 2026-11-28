@@ -95,7 +95,10 @@ public struct VocabularyRanker: Sendable {
         for entry in vocabulary {
             let display = entry.category == .acronym ? entry.term.uppercased() : entry.term
             let norm = TranscriptCorrector.normalize(entry.term)
-            guard norm.count >= 2 else { continue }
+            // A term that is an everyday word ("It's", "He's") is in almost
+            // every preview, so it took the first context slot in every
+            // decode and biased Qwen towards splitting apostrophes.
+            guard norm.count >= 2, !CommonWords.top.contains(norm) else { continue }
             if previewNorms.contains(norm) {
                 evidenced.append((display, 0, entry.useCount ?? 0))
                 continue
@@ -123,8 +126,25 @@ public struct VocabularyRanker: Sendable {
         // Tier 2: recent history terms, best-evidenced first (they arrive
         // ranked by how many recent dictations contain them). Capped — see
         // maxContextTerms.
+        // A history term that is a vocabulary term cased differently ("Sfn"
+        // for SFN) goes in with the vocabulary casing; one that is a near
+        // miss of a vocabulary term ("Marlogic") is a mishearing the
+        // corrector didn't catch, and would teach Qwen the wrong spelling.
+        var vocabularyByNorm: [String: String] = [:]
+        var fuzzyNorms: [String] = []
+        for entry in vocabulary {
+            let norm = TranscriptCorrector.normalize(entry.term)
+            guard norm.count >= 2 else { continue }
+            vocabularyByNorm[norm] = entry.category == .acronym ? entry.term.uppercased() : entry.term
+            if norm.count >= TranscriptCorrector.minFuzzyLength { fuzzyNorms.append(norm) }
+        }
         for term in contextTerms.prefix(Self.maxContextTerms) {
-            add(term)
+            let norm = TranscriptCorrector.normalize(term)
+            if let known = vocabularyByNorm[norm] {
+                add(known)
+            } else if !fuzzyNorms.contains(where: { TranscriptCorrector.isFuzzyMatch(norm, $0) }) {
+                add(term)
+            }
         }
 
         // Tier 3: newly learned terms, newest first. Ties break on term so a

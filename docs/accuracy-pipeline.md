@@ -89,14 +89,48 @@ Two multi-word exceptions, both from production false fires:
 - An exact join is skipped when every word is in `CommonWords.top` and the
   term is stored as one word: "Check in the SDK" must not become "checkIn
   the SDK". `domainStoplist` words don't count, so "mark logic" still joins,
-  and a term stored with spaces ("Trust Signals") is still recased.
+  and a term stored with spaces ("Trust Signals") is still recased. The
+  fuzzy branch has the same guard: "check on" is one edit from `checkIn`,
+  "app is" from `APIs`.
+- A long single word (6+ letters, not in the system word list) may differ
+  from a term in its last consonant: "DataVic" → Datavid, "Funicam" →
+  Funicamp. Only the corrector allows this; the ranker and LLM filter keep
+  the strict match.
 
 A possessive is matched on its stem and keeps its `'s` ("Kalpash's" →
 "Kalpesh's", never "Kalpesh"). A lowercase term is capitalised only at a
 sentence start, so mid-sentence "Dev Full" becomes the stored "dev-full".
 
-Before the corrector, `TextNormalizer` writes "U.K."/"U K."/"U.S." as
-"UK"/"US", keeping the final dot only where it also ends the sentence.
+Before the corrector, `TextNormalizer` fixes what Qwen3-ASR writes the same
+wrong way every time, with no vocabulary involved:
+- "U.K."/"U K."/"U.S." → "UK"/"US", keeping the final dot only where it also
+  ends the sentence.
+- Han/Kana/Hangul runs are removed ("we应该put" → "we put") and logged at
+  decode time.
+- Split contractions are rejoined ("don''t", "it' s", "don'. T"), and a
+  comma or stop inside a word is removed when the result is a word ("run,s",
+  "buildin.g").
+- Hesitation punctuation goes: "I, don't", ". .", and a full stop before a
+  lowercase word ("to be. published"). A lone "i" becomes "I".
+- Function words capitalised mid-sentence ("we have Our data", "I Can do")
+  are lowercased, unless next to another capitalised word (a title).
+- Immediate repeats collapse ("I I", "with the with the"), except doubles
+  that are normal English ("had had", "bye bye") and numbers.
+- Spoken numbers become digits when they are compound, 10 or more, or
+  before a plural unit; "percent" becomes "%"; a 1–2 letter acronym joins
+  the number ("EC two" → "EC2", "BM twenty five" → "BM25"). "one", numbers
+  that start a sentence, and number words that don't form one number
+  ("seven thirty") stay as words.
+
+The learner normalises the raw text before comparing it with an edit, so
+none of this is learned as a user correction, and the eval scorer turns
+every spoken number into digits on both sides.
+
+The ranker leaves out vocabulary terms that are everyday words (`It's`,
+`He's`), maps a recent-history term to the vocabulary casing ("Sfn" →
+SFN), and drops one that is a near miss of a vocabulary term ("Marlogic").
+Recent-history terms need two dictations and go out in their usual casing.
+The learner skips edits where both sides are common words (`they` → `I`).
 
 That bypass is a **guarantee, not an incidental detail**: the `CommonWords`
 check in `applyVocabulary` is gated on `isSingleWord`, which is what makes

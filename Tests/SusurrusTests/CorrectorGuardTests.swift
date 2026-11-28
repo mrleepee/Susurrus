@@ -103,6 +103,30 @@ struct CorrectorGuardTests {
         #expect(correct("Check in the SDK", terms: ["checkIn"]) == "Check in the SDK")
     }
 
+    @Test("Ordinary words are not fuzzy-joined into a one-word term (11-19, 11-26)")
+    func ordinaryPhraseNotFuzzyJoined() {
+        #expect(correct("check on the currencies", terms: ["checkIn"]) == "check on the currencies")
+        #expect(correct("when the app is done", terms: ["APIs"]) == "when the app is done")
+        #expect(correct("So as I said", terms: ["SAAS"]) == "So as I said")
+    }
+
+    @Test("clever is not Clive (11-20)")
+    func cleverNotClive() {
+        #expect(correct("it's quite clever", terms: ["Clive"]) == "it's quite clever")
+    }
+
+    @Test("A long word may differ in its last consonant (11-15, 11-17, 11-18)")
+    func looseEnding() {
+        #expect(correct("the Funicam data", terms: ["Funicamp"]) == "the Funicamp data")
+        #expect(correct("my DataVic account", terms: ["Datavid"]) == "my Datavid account")
+        #expect(correct("on Gravitom nodes", terms: ["Graviton"]) == "on Graviton nodes")
+    }
+
+    @Test("English words keep their ending")
+    func looseEndingSkipsEnglish() {
+        #expect(correct("a planet orbit", terms: ["Planed"]) == "a planet orbit")
+    }
+
     @Test("Joins with a non-common word, and spaced terms, still apply")
     func exactJoinsStillWork() {
         #expect(correct("we use mark logic here", terms: ["MarkLogic"]) == "we use MarkLogic here")

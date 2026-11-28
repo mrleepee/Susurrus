@@ -88,9 +88,22 @@ struct HistoryBiasTermsTests {
         mgr.add("Discussed the Evoca rollout yesterday.")
         mgr.add("The MarkLogic migration is on track.")  // newest
 
-        let terms = mgr.recentBiasTerms()
+        let terms = mgr.recentBiasTerms(minDocuments: 1)
         #expect(terms.first == "MarkLogic")
         #expect(terms.contains("Evoca"))
+    }
+
+    @Test("recentBiasTerms needs two dictations and uses the usual casing (11-20, 11-25)")
+    func needsTwoSightings() {
+        let mgr = TranscriptionHistoryManager.createForTesting()
+        mgr.add("Ask Summit about it.")
+        mgr.add("The SFN export ran.")
+        mgr.add("Then the SFN check.")
+        mgr.add("Rerun the Sfn job.")  // newest
+
+        let terms = mgr.recentBiasTerms()
+        #expect(!terms.contains("Summit"))
+        #expect(terms.contains("SFN"))
     }
 
     @Test("recentBiasTerms respects the item window")

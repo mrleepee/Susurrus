@@ -205,8 +205,19 @@ public struct TranscriptCorrector: TranscriptCorrecting {
                       !(isSingleWord && CommonWords.containsOrInflection(candidateNorm)),
                       !(isSingleWord && Self.followsNameModifier(window, tokens: tokens, in: text)) {
                 // Fuzzy: phonetic key, length, and edit distance must all be close.
+                // A long single word that isn't English may also differ in
+                // its last consonant: "DataVic" for Datavid, "Funicam" for
+                // Funicamp, "Gravitom" for Graviton.
+                let looseEnding = isSingleWord
+                    && candidateNorm.count >= Self.minLooseEndingLength
+                    && !EnglishDictionary.shared.contains(candidateNorm)
                 var best: (candidate: VocabCandidate, distance: Int)?
-                for candidate in fuzzyCandidates where Self.isFuzzyMatch(candidateNorm, candidate.normalized) {
+                for candidate in fuzzyCandidates
+                where Self.isFuzzyMatch(candidateNorm, candidate.normalized, looseEnding: looseEnding)
+                    // "check on" is one edit from checkIn, "app is" from
+                    // APIs: ordinary words joined into one term, the same
+                    // guard the exact branch has.
+                    && !Self.isOrdinaryPhrase(window.words, joinedInto: candidate.displayTerm) {
                     let distance = Self.fuzzyDistance(candidateNorm, candidate.normalized)
                     if distance < (best?.distance ?? .max) {
                         best = (candidate, distance)
@@ -413,11 +424,13 @@ public struct TranscriptCorrector: TranscriptCorrecting {
     /// length, and low edit-distance ratio. Shared by the corrector, the
     /// vocabulary ranker, and LLM context filtering so all three apply the
     /// same false-positive guards.
-    static func isFuzzyMatch(_ a: String, _ b: String) -> Bool {
+    static func isFuzzyMatch(_ a: String, _ b: String, looseEnding: Bool = false) -> Bool {
         guard a.count >= minFuzzyLength, b.count >= minFuzzyLength else { return false }
         guard abs(a.count - b.count) <= maxFuzzyLengthDiff else { return false }
         guard phoneticKey(a) == phoneticKey(b)
             || phoneticKey(droppingNonRhoticR(a)) == phoneticKey(droppingNonRhoticR(b))
+            || (looseEnding && min(a.count, b.count) >= minLooseEndingLength
+                && keysDifferOnlyAtEnd(phoneticKey(a), phoneticKey(b)))
         else { return false }
         let ratio = Double(fuzzyDistance(a, b)) / Double(max(a.count, b.count))
         return ratio <= maxFuzzyRatio
@@ -432,6 +445,18 @@ public struct TranscriptCorrector: TranscriptCorrecting {
         let plain = damerauLevenshtein(a, b)
         guard min(a.count, b.count) >= minNonRhoticLength else { return plain }
         return min(plain, damerauLevenshtein(droppingNonRhoticR(a), droppingNonRhoticR(b)))
+    }
+
+    /// Words need this many letters before their last consonant may differ.
+    static let minLooseEndingLength = 6
+
+    /// Same key apart from the final consonant: changed ("dtvk"/"dtvd") or
+    /// dropped ("fnkm"/"fnkmp"). The shared part must be 3+ consonants.
+    static func keysDifferOnlyAtEnd(_ a: String, _ b: String) -> Bool {
+        let (short, long) = a.count <= b.count ? (a, b) : (b, a)
+        if long.count == short.count + 1 { return short.count >= 3 && long.hasPrefix(short) }
+        guard long.count == short.count, short.count >= 4 else { return false }
+        return short.dropLast() == long.dropLast()
     }
 
     /// Both strings need at least this many characters before an unspoken
